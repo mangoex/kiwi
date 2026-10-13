@@ -381,7 +381,14 @@ funcional separada.
 - `PRD-FR-102`: Debe importar XML de CFDI.
 - `PRD-FR-103`: Debe impedir XML duplicados.
 - `PRD-FR-104`: Debe mapear conceptos de proveedor a productos internos.
-- `PRD-FR-105`: Debe generar cuenta por pagar para compras a crédito.
+- `PRD-FR-275`: La asistencia de compras y merma debe exigir un actor activo, permisos vigentes
+  de compras o inventario según los datos consultados y una sucursal activa autorizada. La extracción
+  de facturas es un borrador para revisión humana: no inventa proveedor, folio, cantidades ni precios;
+  conserva cantidades decimales exactas e importes en centavos, y reporta entradas insuficientes o
+  inválidas. La extracción no confirma compras ni genera inventario, caja, deuda o efectos fiscales.
+- `PRD-FR-105`: Debe generar la cuenta por pagar al confirmar una recepción a crédito.
+  La recepción física y el pago son procesos separados. La conciliación de un XML con una
+  recepción ya contabilizada no vuelve a crear la obligación ni recibe inventario nuevamente.
 - `PRD-FR-106`: Debe registrar vencimientos, pagos, saldos y devoluciones.
 - `PRD-FR-107`: Debe conservar XML y evidencia de importación.
 - `PRD-FR-108`: Una compra directa debe manejar borrador, confirmación y cancelación controlada;
@@ -484,14 +491,28 @@ funcional separada.
 
 ### 4.11 Exportación y facturación
 
-- `PRD-FR-160`: Debe preparar facturas individuales.
-- `PRD-FR-161`: Debe preparar factura global.
+- `PRD-FR-160`: Debe preparar facturas individuales sólo para pedidos con pago completo;
+  los pedidos cancelados quedan excluidos aunque hubieran recibido pagos.
+- `PRD-FR-161`: Debe preparar factura global únicamente con pedidos elegibles según PRD-FR-160.
 - `PRD-FR-162`: Debe separar exportaciones por razón social.
 - `PRD-FR-163`: Debe exportar documentos, conceptos, clientes, pagos y control.
 - `PRD-FR-164`: Debe prevenir doble exportación.
 - `PRD-FR-165`: Debe permitir reexportación autorizada.
 - `PRD-FR-166`: Debe soportar adaptadores configurables para variantes de CONTPAQi.
 - `PRD-FR-167`: Debe conservar historial y conciliación de lotes exportados.
+- `PRD-FR-276`: La facturación directa y los recibos facturables deben usar un adaptador,
+  permisos fiscales explícitos y configuración habilitada del emisor. Cada pedido debe existir,
+  pertenecer a la organización y sucursal autorizadas, tener pago completo y no estar cancelado.
+  Un conjunto con pedidos desconocidos, repetidos, de diferente sucursal, emisor o moneda se
+  rechaza íntegro; no se descartan IDs silenciosamente. La intención se conserva de forma durable
+  e idempotente, con relación completa de pedidos, importes exactos y tratamiento fiscal aprobado,
+  sin asumir tasas ni datos del receptor/emisor. Un resultado incierto se recupera con la misma
+  intención; UUID y estados finales sólo se publican con evidencia final del proveedor. Lectura,
+  emisión, cancelación, creación de recibos y configuración tienen permisos separados.
+  Recuperar el contexto fiscal de la sucursal autorizada no exige conceder operación de POS ni
+  habilita venta, caja, selección de otra sucursal o concesiones offline.
+  Credenciales y payloads sensibles no se exponen en listas, auditoría, errores ni logs. La factura global
+  automática conserva OPEN-006 y no se habilita mediante un conjunto arbitrario de pedidos.
 
 ### 4.12 Offline y continuidad
 
@@ -1219,12 +1240,18 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
   partidas y asignaciones exactas hacia almacenes de sucursales activas de esa misma razón social.
   La orden corporativa es un compromiso de abastecimiento: crearla o aprobarla no recibe inventario,
   no modifica costos y no retira caja. Cada recepción es parcial o total, identifica una única
-  sucursal y su almacén canónico, no excede lo pendiente y genera movimientos inmutables, costo
+  sucursal y su almacén canónico, muestra insumo/SKU/presentación/unidades y exige cantidad positiva
+  explícita y confirmación del destino antes de enviar. Una cantidad vacía no equivale al pendiente.
+  No excede lo pendiente y genera movimientos inmutables, costo
   promedio e historial de precio en ese destino. Reintentos y carreras no pueden duplicar ni
-  sobrerrecibir. Un destino ajeno, inactivo, de otra razón social o cuyo almacén no corresponde se
+  sobrerrecibir. La intención del navegador conserva clave y cuerpo exactos antes del envío; una
+  respuesta perdida, recarga o reautenticación permite recuperar la misma intención sin editarla
+  ni crear otra mientras su resultado es incierto. Un destino ajeno, inactivo, de otra razón social o cuyo almacén no corresponde se
   rechaza sin efectos. La orden transita `DRAFT → APPROVED → PARTIALLY_RECEIVED → RECEIVED`; sólo un
   borrador sin recepciones puede cancelarse. Una corrección posterior conserva originales mediante
-  compensación explícita, nunca edición o borrado. Las compras directas continúan separadas y ligadas
+  compensación explícita, nunca edición o borrado. Si parte del insumo ya se consumió, la corrección
+  requiere revisión autorizada y un ajuste compensatorio explícito, vinculado al recibo original.
+  Las compras directas continúan separadas y ligadas
   a la sucursal activa; efectivo conserva su requisito de caja/turno abierto. El POS no aloja el
   editor corporativo: puede elegir sucursal para operación y abrir Administración, donde se elige
   entre **Compra corporativa** y **Compra de sucursal**. No existe almacén central implícito ni se

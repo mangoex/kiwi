@@ -196,6 +196,7 @@ jobs:
           node tests/browser/test_compound_product_admin.mjs
           node tests/browser/test_shared_modifier_workspace.mjs
           node tests/browser/test_admin_session_recovery.mjs
+          node tests/browser/test_corporate_purchase_remediation.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -311,5 +312,7 @@ jobs:
           done
           node tests/browser/test_catalog_classification.mjs
           node tests/browser/test_branch_scope_headers.mjs
+          node tests/browser/test_branch_workspace_recovery.mjs
+          node tests/browser/test_fiscal_artifacts.mjs
           node tests/browser/test_admin_ai_assistant.mjs
           node tests/browser/test_offline_shell_real.mjs

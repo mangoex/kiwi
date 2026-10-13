@@ -34,6 +34,8 @@ from restaurant_os.operations import (
     _sanitize_for_json,
     require_permission,
 )
+from restaurant_os.presentation_rules import presentation_values
+from restaurant_os.purchase_allocation import apportion
 from restaurant_os.purchase_workspace import (
     MAX_LINES,
     bounded_payload,
@@ -131,6 +133,39 @@ def _command_hash(command_type: str, payload: dict[str, Any]) -> str:
     return hashlib.sha256(body.encode()).hexdigest()
 
 
+def _require_exact_storage(session: Session, values: Any) -> None:
+    """Reject loss through SQLite's Numeric codec; business arithmetic stays Decimal."""
+    dialect = session.get_bind().dialect
+    if dialect.name != "sqlite":
+        return
+    if isinstance(values, dict):
+        for value in values.values():
+            _require_exact_storage(session, value)
+    elif isinstance(values, list):
+        for value in values:
+            _require_exact_storage(session, value)
+    elif isinstance(values, Decimal):
+        numeric = sa.Numeric(18, 6)
+        # SQLAlchemy exposes these dialect codec hooks without type annotations.
+        bind_hook = cast(
+            Callable[[sa.engine.Dialect], Callable[[Decimal], Any] | None],
+            numeric.bind_processor,
+        )
+        result_hook = cast(
+            Callable[[sa.engine.Dialect, Any], Callable[[Any], Decimal] | None],
+            numeric.result_processor,
+        )
+        bind = bind_hook(dialect)
+        result = result_hook(dialect, None)
+        encoded = bind(values) if bind else values
+        decoded = result(encoded) if result else encoded
+        if decoded != values:
+            raise BusinessError(
+                "corporate_purchase_storage_precision_unsupported",
+                "Amount cannot be stored exactly by this SQLite runtime",
+            )
+
+
 def _command_replay(
     session: Session,
     actor_id: str,
@@ -217,7 +252,7 @@ def _serialize_order(session: Session, order_id: str) -> dict[str, Any]:
             models.corporate_purchase_order_lines.c.id,
         )
     ).mappings():
-        allocations = []
+        allocations: list[dict[str, Any]] = []
         for row in session.execute(
             sa.select(models.corporate_purchase_allocations)
             .where(models.corporate_purchase_allocations.c.order_line_id == line["id"])
@@ -392,6 +427,8 @@ def corporate_purchase_options(session: Session, actor_user_id: str) -> dict[str
 
 
 def _allocation_cost_target(session: Session, allocation: dict[str, Any]) -> Decimal:
+    if allocation.get("inventory_cost_target") is not None:
+        return Decimal(str(allocation["inventory_cost_target"]))
     rows = list(
         session.execute(
             sa.select(
@@ -426,6 +463,48 @@ def _allocation_cost_target(session: Session, allocation: dict[str, Any]) -> Dec
     raise BusinessError(
         "corporate_purchase_destination_invalid", "Allocation cost target was not found"
     )
+
+
+def _validate_allocation_plan(session: Session, order: dict[str, Any]) -> None:
+    """Refuse invalid historical plans without rewriting their snapshots or effects."""
+    for line in session.execute(
+        sa.select(models.corporate_purchase_order_lines).where(
+            models.corporate_purchase_order_lines.c.order_id == order["id"]
+        )
+    ).mappings():
+        allocations = list(session.execute(
+            sa.select(models.corporate_purchase_allocations).where(
+                models.corporate_purchase_allocations.c.order_line_id == line["id"]
+            )
+        ).mappings())
+        valid = bool(allocations)
+        for field in ("presentation_quantity", "base_quantity"):
+            valid = valid and sum(
+                (Decimal(str(row[field])) for row in allocations), Decimal("0")
+            ) == Decimal(str(line[field]))
+        targets = []
+        for row in allocations:
+            target = _allocation_cost_target(session, {
+                **dict(row),
+                "line_inventory_cost": line["inventory_cost"],
+                "line_presentation_quantity": line["presentation_quantity"],
+            })
+            targets.append(target)
+            valid = valid and target >= 0 and Decimal(str(row["base_quantity"])) > 0
+            for field in ("presentation_quantity", "base_quantity"):
+                received = Decimal(str(row[f"received_{field}"]))
+                valid = valid and 0 <= received <= Decimal(str(row[field]))
+        valid = valid and sum(targets, Decimal("0")) == Decimal(str(line["inventory_cost"]))
+        if order["allocation_policy_version"] == 2:
+            sequences = {row["allocation_sequence"] for row in allocations}
+            valid = valid and sequences == set(range(len(allocations))) and all(
+                row["inventory_cost_target"] is not None for row in allocations
+            )
+        if not valid:
+            raise BusinessError(
+                "corporate_purchase_legacy_allocation_invalid",
+                "Allocation plan requires authorized reconciliation before effects",
+            )
 
 
 def _prepare_order(session: Session, payload: dict[str, Any]) -> dict[str, Any]:
@@ -489,19 +568,34 @@ def _prepare_order(session: Session, payload: dict[str, Any]) -> dict[str, Any]:
             raise BusinessError(
                 "corporate_purchase_presentation_invalid", "Supplier presentation was not found"
             )
+        presentation_values(session, dict(presentation), None)
+        item = session.execute(sa.select(models.inventory_items).where(
+            models.inventory_items.c.id == presentation["item_id"],
+            models.inventory_items.c.organization_id == ORGANIZATION_ID,
+        )).mappings().one()
+        unit_codes: dict[str, str] = dict(session.execute(sa.select(
+            models.inventory_units.c.id, models.inventory_units.c.code,
+        ).where(models.inventory_units.c.id.in_(
+            [presentation["base_unit_id"], presentation["commercial_unit_id"]]
+        ))).all())
+        frozen_presentation = {
+            **dict(presentation), "item_name": item["name"], "item_sku": item["sku"],
+            "base_unit_code": unit_codes[presentation["base_unit_id"]],
+            "commercial_unit_code": unit_codes[presentation["commercial_unit_id"]],
+        }
         line = purchase_line_values(
             {
                 key: raw_line.get(key)
                 for key in ("presentation_id", "quantity", "unit_price", "discount", "tax")
             },
-            dict(presentation),
+            frozen_presentation,
         )
         raw_allocations = raw_line.get("allocations")
         if not isinstance(raw_allocations, list) or not raw_allocations:
             raise BusinessError(
                 "corporate_purchase_allocations_required", "Each line requires allocations"
             )
-        allocations = []
+        allocations: list[dict[str, Any]] = []
         allocation_total = Decimal("0")
         seen_destinations: set[tuple[str, str]] = set()
         for raw_allocation in raw_allocations:
@@ -544,6 +638,7 @@ def _prepare_order(session: Session, payload: dict[str, Any]) -> dict[str, Any]:
                 raise BusinessError(
                     "corporate_purchase_destination_invalid", "Supplier is disabled at destination"
                 )
+            presentation_values(session, dict(presentation), branch_id)
             seen_destinations.add((branch_id, warehouse_id))
             allocation_total += quantity
             allocations.append(
@@ -551,11 +646,6 @@ def _prepare_order(session: Session, payload: dict[str, Any]) -> dict[str, Any]:
                     "branch_id": branch_id,
                     "warehouse_id": warehouse_id,
                     "presentation_quantity": quantity,
-                    "base_quantity": purchase_decimal(
-                        quantity * Decimal(str(presentation["base_unit_yield"])),
-                        "base_quantity",
-                        positive=True,
-                    ),
                 }
             )
         if allocation_total != line["presentation_quantity"]:
@@ -563,6 +653,15 @@ def _prepare_order(session: Session, payload: dict[str, Any]) -> dict[str, Any]:
                 "corporate_purchase_allocation_mismatch",
                 "Allocated quantity must exactly match ordered quantity",
             )
+        weights = [allocation["presentation_quantity"] for allocation in allocations]
+        base_targets = apportion(line["base_quantity"], weights)
+        cost_targets = apportion(line["inventory_cost"], weights)
+        for sequence, allocation in enumerate(allocations):
+            allocation["allocation_sequence"] = sequence
+            allocation["base_quantity"] = purchase_decimal(
+                base_targets[sequence], "base_quantity", positive=True
+            )
+            allocation["inventory_cost_target"] = cost_targets[sequence]
         prepared_lines.append({**line, "allocations": allocations})
         subtotal += line["inventory_cost"] + line["discount"]
         discounts += line["discount"]
@@ -573,10 +672,10 @@ def _prepare_order(session: Session, payload: dict[str, Any]) -> dict[str, Any]:
         "folio": folio,
         "order_date": order_date,
         "currency": currency,
-        "subtotal": _money(subtotal),
-        "discount_total": _money(discounts),
-        "tax_total": _money(taxes),
-        "total": _money(subtotal - discounts + taxes),
+        "subtotal": purchase_decimal(subtotal, "subtotal"),
+        "discount_total": purchase_decimal(discounts, "discount_total"),
+        "tax_total": purchase_decimal(taxes, "tax_total"),
+        "total": purchase_decimal(subtotal - discounts + taxes, "total"),
         "notes": notes,
         "lines": prepared_lines,
     }
@@ -593,6 +692,7 @@ def create_corporate_purchase_order(
     if replay is not None:
         return replay
     prepared = _prepare_order(session, payload)
+    _require_exact_storage(session, prepared)
     now = _now()
     order_id = _id()
     try:
@@ -611,6 +711,7 @@ def create_corporate_purchase_order(
                 total=prepared["total"],
                 status="DRAFT",
                 version=1,
+                allocation_policy_version=2,
                 notes=prepared["notes"],
                 created_by=actor_id,
                 approved_by=None,
@@ -711,19 +812,21 @@ def approve_corporate_purchase_order(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     _require_corporate_permission(session, actor_id, "purchases.corporate.manage")
-    command_payload = {"order_id": order_id, **payload}
+    bounded_payload(payload, {"expected_version"})
+    command_payload = {**payload, "order_id": order_id}
     request_hash = _command_hash("approve", command_payload)
     replay = _command_replay(session, actor_id, "approve", idempotency_key, request_hash)
     if replay is not None:
         return replay
     order = _locked_order(session, order_id)
     expected_version = payload.get("expected_version")
-    if not isinstance(expected_version, int) or expected_version != order["version"]:
+    if type(expected_version) is not int or expected_version != order["version"]:
         raise BusinessError("corporate_purchase_version_conflict", "Order version changed")
     if order["status"] != "DRAFT":
         raise BusinessError(
             "corporate_purchase_not_approvable", "Only draft orders can be approved"
         )
+    _validate_allocation_plan(session, order)
     now = _now()
     session.execute(
         sa.update(models.corporate_purchase_orders)
@@ -765,19 +868,20 @@ def receive_corporate_purchase_order(
     actor_id = _actor_user_id(actor_user_id)
     _require_corporate_permission(session, actor_id, "purchases.corporate.manage")
     bounded_payload(payload, RECEIPT_KEYS)
-    command_payload = {"order_id": order_id, **payload}
+    command_payload = {**payload, "order_id": order_id}
     request_hash = _command_hash("receive", command_payload)
     replay = _command_replay(session, actor_id, "receive", idempotency_key, request_hash)
     if replay is not None:
         return replay
     order = _locked_order(session, order_id)
     expected_version = payload.get("expected_version")
-    if not isinstance(expected_version, int) or expected_version != order["version"]:
+    if type(expected_version) is not int or expected_version != order["version"]:
         raise BusinessError("corporate_purchase_version_conflict", "Order version changed")
     if order["status"] not in {"APPROVED", "PARTIALLY_RECEIVED"}:
         raise BusinessError(
             "corporate_purchase_not_receivable", "Order is not available for receipt"
         )
+    _validate_allocation_plan(session, order)
     branch_id = str(payload.get("branch_id", ""))
     warehouse_id = str(payload.get("warehouse_id", ""))
     if not session.scalar(
@@ -924,10 +1028,13 @@ def receive_corporate_purchase_order(
                 "receipt_presentation_quantity": quantity,
                 "receipt_base_quantity": base_quantity,
                 "receipt_inventory_cost": inventory_cost,
+                "cumulative_presentation_quantity": cumulative_quantity,
+                "cumulative_base_quantity": cumulative_base_quantity,
             }
         )
         seen.add(allocation_id)
 
+    _require_exact_storage(session, prepared)
     _acquire_inventory_advisory_locks(
         session, branch_id, warehouse_id, [row["item_id"] for row in prepared]
     )
@@ -970,12 +1077,16 @@ def receive_corporate_purchase_order(
         current_average = _cost(state["average_unit_cost"]) if state else Decimal("0")
         entry_quantity = row["receipt_base_quantity"]
         entry_cost = row["receipt_inventory_cost"]
-        new_quantity = _quantity(current_quantity + entry_quantity)
+        new_quantity = purchase_decimal(
+            _quantity(current_quantity + entry_quantity), "quantity_on_hand"
+        )
         new_average = (
             _cost(entry_cost / entry_quantity)
             if current_quantity == 0
             else _cost(((current_quantity * current_average) + entry_cost) / new_quantity)
         )
+        new_average = purchase_decimal(new_average, "average_unit_cost")
+        _require_exact_storage(session, [new_quantity, new_average])
         movement_id = _id()
         movement = {
             "id": movement_id,
@@ -1045,13 +1156,8 @@ def receive_corporate_purchase_order(
             sa.update(models.corporate_purchase_allocations)
             .where(models.corporate_purchase_allocations.c.id == row["id"])
             .values(
-                received_presentation_quantity=_quantity(
-                    Decimal(str(row["received_presentation_quantity"]))
-                    + row["receipt_presentation_quantity"]
-                ),
-                received_base_quantity=_quantity(
-                    Decimal(str(row["received_base_quantity"])) + entry_quantity
-                ),
+                received_presentation_quantity=row["cumulative_presentation_quantity"],
+                received_base_quantity=row["cumulative_base_quantity"],
                 updated_at=now,
             )
         )
@@ -1145,7 +1251,8 @@ def cancel_corporate_purchase_order(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     _require_corporate_permission(session, actor_id, "purchases.corporate.manage")
-    command_payload = {"order_id": order_id, **payload}
+    bounded_payload(payload, {"expected_version", "reason"})
+    command_payload = {**payload, "order_id": order_id}
     request_hash = _command_hash("cancel", command_payload)
     replay = _command_replay(session, actor_id, "cancel", idempotency_key, request_hash)
     if replay is not None:
@@ -1153,7 +1260,7 @@ def cancel_corporate_purchase_order(
     order = _locked_order(session, order_id)
     expected_version = payload.get("expected_version")
     reason = str(payload.get("reason", "")).strip()
-    if not isinstance(expected_version, int) or expected_version != order["version"]:
+    if type(expected_version) is not int or expected_version != order["version"]:
         raise BusinessError("corporate_purchase_version_conflict", "Order version changed")
     if not reason or len(reason) > 400:
         raise BusinessError(

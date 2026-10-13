@@ -1,16 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, Navigate } from 'react-router-dom';
 import { ApiError, fetchApi, hasAdminCapability, canAccessAdminRoute, type AdministrativeSession } from '@restaurantos/api-client';
+import { beginBranchWorkspaceRequest, ensureBranchWorkspace, clearBranchWorkspace, type BranchWorkspaceProfile } from '@restaurantos/api-client';
 import { quarantineWorkspaceSnapshots } from '@restaurantos/ui';
 import { useResetSessionQueries } from '../components/AdminQueryProvider';
 import { publishAdminSession, setCanonicalBranchId } from './branchContext';
 
-export interface AdminSession extends AdministrativeSession {
+export interface AdminSession extends AdministrativeSession, Omit<BranchWorkspaceProfile,'scope'|'active_branch'|'user'> {
   organization_id?: string;
   user: { id: string; email: string; display_name: string; status: string };
   roles: { id: string; name: string; scope: string; branch_id: string | null }[];
   permissions: string[];
-  scope: { level: 'branch' | 'organization'; allowed_branch_ids: string[]; assigned_branch_id: string | null };
+  scope: { level: 'branch' | 'organization'; allowed_branch_ids: string[]; assigned_branch_id: string | null; authorization_version?:number };
   active_branch: { id: string; name: string; code: string };
   admin_capabilities: Record<string, boolean>;
   allowed_branches: {id:string;name:string;code:string;status:string}[];
@@ -21,6 +22,7 @@ export type ConfigurationScope =
 
 interface AdminSessionContext {
   session: AdminSession;
+  assertCurrentAuthority: () => void;
   configurationScope: ConfigurationScope;
   selectConfigurationScope: (scope: ConfigurationScope) => void;
   dashboardBranchId: string | null;
@@ -41,6 +43,7 @@ export function sameAdministrativeAuthority(previous:AdminSession, next:AdminSes
   return previous.user.id === next.user.id
     && previous.organization_id === next.organization_id
     && previous.active_branch.id === next.active_branch.id
+    && previous.branch_workspace_context_id === next.branch_workspace_context_id
     && JSON.stringify(previous.scope) === JSON.stringify(next.scope)
     && JSON.stringify(Object.entries(previous.admin_capabilities).sort())
       === JSON.stringify(Object.entries(next.admin_capabilities).sort());
@@ -64,6 +67,7 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
     request.current?.abort();
     const controller = new AbortController(); request.current = controller;
     const credential = token();
+    const workspaceRequest = beginBranchWorkspaceRequest(credential || '');
     const routeKey = route.current;
     const requested = new URLSearchParams(window.location.search).get('branch_id')?.trim() || undefined;
     const previous = confirmed.current;
@@ -78,12 +82,19 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
     try {
       if (!navigator.onLine) throw new Error('La administración requiere conexión. Puedes volver al POS para continuar la operación local.');
       if (!credential) throw new ApiError(401, 'actor_required', 'Inicia sesión para continuar.');
-      const session = await fetchApi<AdminSession>('/auth/session', {signal:controller.signal});
+      let session = await fetchApi<AdminSession>('/auth/session', {signal:controller.signal});
       if (controller.signal.aborted || credential !== token() || routeKey !== route.current) return;
       if (!session.admin_capabilities || !Array.isArray(session.allowed_branches) || !session.active_branch || !session.scope.allowed_branch_ids.includes(session.active_branch.id)
         || (requested && session.active_branch.id !== requested)) {
         throw new Error('El servidor no confirmó la sucursal y las capacidades de esta sesión.');
       }
+      if (['pos.operate', 'invoicing.read', 'invoicing.issue', 'invoicing.cancel', 'invoicing.receipt.create']
+        .some(code => session.admin_capabilities[code])) session = await ensureBranchWorkspace(session,workspaceRequest,token,
+        body => fetchApi<AdminSession>('/auth/branch-context-reissues', {
+          method:'POST',signal:controller.signal,headers:{'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify(body),
+        }));
+      else clearBranchWorkspace();
+      if (controller.signal.aborted || credential !== token() || routeKey !== route.current) return;
       if (preserve && !sameAdministrativeAuthority(previous,session)) discardContext();
       confirmed.current = session;
       confirmedCredential.current = credential; confirmedRoute.current = routeKey;
@@ -115,7 +126,7 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
   }, [resetQueries]);
   useEffect(() => {
     void load();
-    return () => { request.current?.abort(); publishAdminSession(null); };
+    return () => { request.current?.abort(); clearBranchWorkspace(); publishAdminSession(null); };
   }, [load, location.key]);
   useEffect(() => {
     const revalidate = () => { void load(true); };
@@ -130,6 +141,12 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
     {state.error && <><button onClick={() => { void load(); }}>Reintentar</button> <a href="/pos/">Volver al POS</a></>}
   </main>;
   const session = state.session;
+  const assertCurrentAuthority = () => {
+    if (!confirmedCredential.current || token() !== confirmedCredential.current
+      || !confirmed.current || !sameAdministrativeAuthority(session, confirmed.current)) {
+      throw new Error('La sesión cambió. Recupera la operación desde la cuenta original.');
+    }
+  };
   const selectConfigurationScope = (scope:ConfigurationScope) => {
     if (scope.kind === 'organization') {
       setConfigurationScope({kind:'organization',branch_id:null});
@@ -153,7 +170,7 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
     }
     setDashboardBranchId(branchId);
   };
-  return <Context.Provider value={{session,configurationScope,selectConfigurationScope,dashboardBranchId,selectDashboardBranch}}>
+  return <Context.Provider value={{session,assertCurrentAuthority,configurationScope,selectConfigurationScope,dashboardBranchId,selectDashboardBranch}}>
     {state.validating && <p role="status">Validando sesión y sucursal…</p>}
     <div key={`${session.user.id}:${session.active_branch.id}:${revision.current}`} inert={Boolean(state.validating)} aria-busy={Boolean(state.validating)}>{children}</div>
   </Context.Provider>;

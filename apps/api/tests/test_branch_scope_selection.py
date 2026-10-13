@@ -3,8 +3,10 @@
 from datetime import datetime, timezone
 from uuid import NAMESPACE_URL, uuid5
 
+import pytest
 import sqlalchemy as sa
 from restaurant_os import models
+from restaurant_os.config import get_settings
 from restaurant_os.operations import ORGANIZATION_ID
 from test_platform_api import (
     ADMIN_ROLE_ID,
@@ -20,11 +22,17 @@ from test_platform_api import (
 SELECT_PERMISSION_ID = str(uuid5(NAMESPACE_URL, "restaurantos:permission:pos.branch.select"))
 
 
+@pytest.fixture(autouse=True)
+def enabled_workspace_rollout(monkeypatch):
+    monkeypatch.setenv("RESTAURANTOS_BRANCH_SCOPE_V2_ENABLED", "true")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 def _grant_selection(session, role_id: str, *, workspace: bool) -> None:
     if not session.execute(
-        sa.select(models.permissions.c.id).where(
-            models.permissions.c.code == "pos.branch.select"
-        )
+        sa.select(models.permissions.c.id).where(models.permissions.c.code == "pos.branch.select")
     ).scalar_one_or_none():
         session.execute(
             models.permissions.insert().values(
@@ -35,22 +43,26 @@ def _grant_selection(session, role_id: str, *, workspace: bool) -> None:
             )
         )
     session.execute(
-        models.role_permissions.insert().values(
-            role_id=role_id, permission_id=SELECT_PERMISSION_ID
-        )
+        models.role_permissions.insert().values(role_id=role_id, permission_id=SELECT_PERMISSION_ID)
     )
-    if workspace:
+    if workspace or not session.scalar(
+        sa.select(models.role_authority_grants.c.role_id).where(
+            models.role_authority_grants.c.role_id == role_id
+        )
+    ):
         session.execute(
             models.role_authority_grants.insert().values(
                 role_id=role_id,
-                authority_kind="organization_branch_workspaces",
+                authority_kind="organization_branch_workspaces"
+                if workspace
+                else "organization_all_permissions",
                 created_at=datetime(2026, 10, 10, tzinfo=timezone.utc),
             )
         )
     session.commit()
 
 
-def test_corporate_administrator_selects_branch_through_explicit_command() -> None:
+def test_governed_corporate_owner_selects_branch_through_explicit_command() -> None:
     client = _client_with_seeded_database()
     fixture = _branch_admin_fixture(client)
     with _test_session_factory(client)() as session:
@@ -65,7 +77,6 @@ def test_corporate_administrator_selects_branch_through_explicit_command() -> No
         "/api/v1/auth/branch-selections",
         headers={**_admin_headers(), "Idempotency-Key": "branch-select-admin-norte"},
         json={
-            "current_branch_id": BRANCH_ID,
             "target_branch_id": fixture["branch_id"],
             "expected_authorization_version": 1,
         },
@@ -77,7 +88,6 @@ def test_corporate_administrator_selects_branch_through_explicit_command() -> No
         "/api/v1/auth/branch-selections",
         headers={**_admin_headers(), "Idempotency-Key": "branch-select-admin-norte"},
         json={
-            "current_branch_id": BRANCH_ID,
             "target_branch_id": fixture["branch_id"],
             "expected_authorization_version": 1,
         },
@@ -96,14 +106,20 @@ def test_corporate_administrator_selects_branch_through_explicit_command() -> No
     assert conflict.status_code == 409, conflict.text
     assert conflict.json()["detail"]["code"] == "idempotency_conflict"
     with _test_session_factory(client)() as session:
-        assert session.execute(
-            sa.select(sa.func.count()).select_from(models.branch_selection_commands)
-        ).scalar_one() == 1
-        assert session.execute(
-            sa.select(sa.func.count()).select_from(models.audit_events).where(
-                models.audit_events.c.action == "auth.branch_selected"
-            )
-        ).scalar_one() == 1
+        assert (
+            session.execute(
+                sa.select(sa.func.count()).select_from(models.branch_selection_commands)
+            ).scalar_one()
+            == 1
+        )
+        assert (
+            session.execute(
+                sa.select(sa.func.count())
+                .select_from(models.audit_events)
+                .where(models.audit_events.c.action == "auth.branch_selected")
+            ).scalar_one()
+            == 1
+        )
 
 
 def test_branch_supervisor_needs_persisted_workspace_grant_to_select() -> None:
@@ -165,9 +181,12 @@ def test_fixed_branch_profile_cannot_select_another_branch() -> None:
     assert denied.status_code == 403, denied.text
     assert denied.json()["detail"]["code"] == "permission_denied"
     with _test_session_factory(client)() as session:
-        assert session.execute(
-            sa.select(sa.func.count()).select_from(models.branch_selection_commands)
-        ).scalar_one() == 0
+        assert (
+            session.execute(
+                sa.select(sa.func.count()).select_from(models.branch_selection_commands)
+            ).scalar_one()
+            == 0
+        )
 
 
 def test_open_shift_blocks_branch_selection_without_changing_context() -> None:
@@ -195,7 +214,6 @@ def test_open_shift_blocks_branch_selection_without_changing_context() -> None:
         "/api/v1/auth/branch-selections",
         headers={**_admin_headers(), "Idempotency-Key": "branch-select-open-shift"},
         json={
-            "current_branch_id": BRANCH_ID,
             "target_branch_id": fixture["branch_id"],
             "expected_authorization_version": 1,
         },
@@ -203,9 +221,12 @@ def test_open_shift_blocks_branch_selection_without_changing_context() -> None:
     assert blocked.status_code == 409, blocked.text
     assert blocked.json()["detail"]["code"] == "branch_switch_open_shift"
     with _test_session_factory(client)() as session:
-        assert session.execute(
-            sa.select(sa.func.count()).select_from(models.branch_selection_commands)
-        ).scalar_one() == 0
+        assert (
+            session.execute(
+                sa.select(sa.func.count()).select_from(models.branch_selection_commands)
+            ).scalar_one()
+            == 0
+        )
 
 
 def test_session_hides_unconfigured_pos_modules_and_requires_branch_mapping() -> None:

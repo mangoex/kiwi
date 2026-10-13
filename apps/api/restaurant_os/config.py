@@ -24,6 +24,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("RESTAURANTOS_REDIS_URL", "REDIS_URL"),
     )
     public_order_intents_enabled: bool = Field(default=False)
+    branch_scope_v2_enabled: bool = Field(default=False)
+    fiscal_encryption_keys: dict[str, str] = Field(default_factory=dict, repr=False)
+    fiscal_active_encryption_key_id: str | None = Field(default=None, max_length=64)
     public_order_global_rate_limit_per_minute: int = Field(default=20, ge=1, le=1000)
     public_order_client_rate_limit_per_minute: int = Field(default=5, ge=1, le=1000)
     public_order_rate_limit_hmac_secret: str | None = Field(default=None, min_length=32)

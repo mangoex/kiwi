@@ -81,7 +81,11 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 const SessionGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { state } = usePosSession();
+  const { state, selectBranch } = usePosSession();
+  const [targetBranch, setTargetBranch] = useState('');
+  const [selectionError, setSelectionError] = useState('');
+  const actorId = state.status === 'ok' ? state.session.user.id : null;
+  useEffect(() => {setTargetBranch('');setSelectionError('');},[actorId]);
 
   if (state.status === 'loading') {
     return (
@@ -120,6 +124,27 @@ const SessionGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         </div>
       );
     }
+    if (!state.session.active_branch) {
+      return <main style={{maxWidth:520,margin:'64px auto',padding:24}}>
+        <h1>Selecciona tu sucursal de trabajo</h1>
+        <p>Confirma dónde operarás antes de abrir caja o capturar pedidos.</p>
+        <label style={{display:'grid',gap:8,marginTop:24}}>Sucursal de trabajo<select style={{width:'100%',minHeight:44,fontSize:16,padding:'8px 12px'}} aria-label="Sucursal de trabajo" value={targetBranch}
+          onChange={event => {setTargetBranch(event.target.value);setSelectionError('');}}>
+          <option value="">Selecciona una sucursal</option>
+          {state.session.allowed_branches.filter(branch => branch.status === 'active').map(branch =>
+            <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+        </select></label>
+        <button style={{marginTop:16,minHeight:44,padding:'8px 20px',fontSize:16}} disabled={Boolean(state.validating) || !targetBranch || !state.session.scope.can_select_branch} onClick={() => {
+          void selectBranch(targetBranch).catch(error => setSelectionError(error instanceof Error
+            ? error.message : 'No se pudo confirmar la sucursal.'));
+        }}>Confirmar sucursal</button>
+        {selectionError && <p role="alert">{selectionError}</p>}
+      </main>;
+    }
+    return <React.Fragment key={`${state.session.user.id}:${state.session.active_branch.id}:${state.session.scope.authorization_version}:${state.session.branch_workspace_context_id || 'legacy'}`}>
+      {state.notice && <p role="alert">{state.notice}</p>}
+      <div style={{display:'contents'}} inert={Boolean(state.validating)} aria-busy={Boolean(state.validating)}>{children}</div>
+    </React.Fragment>;
   }
 
   return <>{children}</>;

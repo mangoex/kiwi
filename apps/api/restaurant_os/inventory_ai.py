@@ -8,14 +8,15 @@ from __future__ import annotations
 
 import re
 from datetime import timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
-from restaurant_os.operations import ORGANIZATION_ID
+from restaurant_os.operations import ORGANIZATION_ID, BusinessError
+from restaurant_os.purchase_workspace import purchase_decimal
 
 UTC = timezone.utc
 
@@ -26,12 +27,24 @@ def calculate_suggested_purchases(
     days_ahead: int = 7,
 ) -> list[dict[str, Any]]:
     """Compute suggested purchase orders grouped by supplier based on inventory and consumption."""
+    if branch_id and not session.scalar(
+        sa.select(models.branches.c.id).where(
+            models.branches.c.id == branch_id,
+            models.branches.c.organization_id == ORGANIZATION_ID,
+            models.branches.c.status == "active",
+        )
+    ):
+        return []
     items = list(
         session.execute(
             sa.select(models.inventory_items)
             .where(
                 models.inventory_items.c.organization_id == ORGANIZATION_ID,
                 models.inventory_items.c.status == "active",
+                sa.or_(
+                    models.inventory_items.c.catalog_scope == "organization",
+                    models.inventory_items.c.source_branch_id == branch_id,
+                ),
             )
             .order_by(models.inventory_items.c.name)
         ).mappings()
@@ -63,6 +76,7 @@ def calculate_suggested_purchases(
             .where(
                 models.purchase_documents.c.organization_id == ORGANIZATION_ID,
                 models.purchase_documents.c.status != "cancelled",
+                models.purchase_documents.c.branch_id == branch_id,
             )
             .order_by(models.purchase_documents.c.created_at.desc())
         ).mappings()
@@ -201,44 +215,48 @@ def audit_inventory_yield_and_waste(
 
 def parse_supplier_invoice_data(raw_text_or_json: str) -> dict[str, Any]:
     """Parse supplier invoice text or OCR data into structured purchase lines."""
-    lines_parsed: list[dict[str, str | float | int]] = []
-    supplier_name = "Proveedor Identificado"
-    folio = "FAC-AUTO"
+    lines_parsed: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    supplier_name = folio = None
 
-    for line in raw_text_or_json.strip().splitlines():
+    for line_number, line in enumerate(raw_text_or_json.strip().splitlines(), 1):
         line_clean = line.strip()
         if "PROVEEDOR:" in line_clean.upper():
             supplier_name = line_clean.split(":", 1)[1].strip()
         elif "FOLIO:" in line_clean.upper():
             folio = line_clean.split(":", 1)[1].strip()
         elif "|" in line_clean:
-            parts = [p.strip() for p in line_clean.replace("-", "").split("|")]
+            parts = [p.strip() for p in line_clean.split("|")]
             if len(parts) >= 3:
-                name = parts[0]
-                qty_match = re.search(r"([0-9]+(?:\.[0-9]+)?)", parts[1])
-                price_match = re.search(
-                    r"([0-9]+(?:\.[0-9]+)?)", parts[2].replace("$", "").replace(",", "")
+                name = parts[0].removeprefix("- ").strip()
+                qty_match = re.fullmatch(
+                    r"([0-9]+(?:\.[0-9]{1,6})?)(?:\s*[A-Za-záéíóúñ]+)?", parts[1]
                 )
-                qty = float(qty_match.group(1)) if qty_match else 1.0
-                price = float(price_match.group(1)) if price_match else 10.0
+                price_match = re.fullmatch(
+                    r"\$?\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,6})?)", parts[2]
+                )
+                if not name or not qty_match or not price_match:
+                    warnings.append({"line": line_number, "code": "invalid_line"})
+                    continue
+                try:
+                    qty = purchase_decimal(qty_match.group(1), "quantity", positive=True)
+                    price = purchase_decimal(price_match.group(1).replace(",", ""), "unit_price")
+                    total = purchase_decimal(qty * price, "line_total")
+                except BusinessError:
+                    warnings.append({"line": line_number, "code": "invalid_amount"})
+                    continue
                 lines_parsed.append(
                     {
                         "item_name": name,
-                        "quantity": qty,
-                        "unit_price_cents": int(price * 100),
-                        "line_total_cents": int(qty * price * 100),
+                        "quantity": format(qty, "f"),
+                        "unit_price_cents": int(
+                            (price * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+                        ),
+                        "line_total_cents": int(
+                            (total * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+                        ),
                     }
                 )
-
-    if not lines_parsed:
-        lines_parsed.append(
-            {
-                "item_name": "Insumo Detectado",
-                "quantity": 10.0,
-                "unit_price_cents": 2500,
-                "line_total_cents": 25000,
-            }
-        )
 
     total_cents = sum(int(line["line_total_cents"]) for line in lines_parsed)
     return {
@@ -246,4 +264,6 @@ def parse_supplier_invoice_data(raw_text_or_json: str) -> dict[str, Any]:
         "folio": folio,
         "lines": lines_parsed,
         "total_cents": total_cents,
+        "warnings": warnings,
+        "status": "needs_review" if lines_parsed else "insufficient_data",
     }

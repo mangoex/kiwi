@@ -12,6 +12,10 @@ MODULES = (
     "operating_expenses",
     "system_remediation",
     "corporate_purchases",
+    "branch_authority",
+    "branch_workspace",
+    "fiscal_authority",
+    "fiscal_emitter",
 )
 PATHS = tuple(f"apps/api/tests/test_{name}_postgres.py" for name in MODULES)
 

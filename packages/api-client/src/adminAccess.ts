@@ -24,7 +24,7 @@ const routeRules: Record<string, string[][]> = {
   '/purchases': [['purchases.read'], ['purchases.corporate.read']], '/suppliers': [['purchases.read']],
   '/expenses': [['expenses.read']], '/expense-concepts': [['expense.concept.read']],
   '/purchase-presentations': [['purchases.read']],
-  '/branches': [['admin.manage']], '/drivers': [['admin.manage']], '/integrations': [['admin.manage']],
+  '/branches': [['admin.manage']], '/drivers': [['admin.manage']], '/integrations': [['admin.manage'], ['invoicing.read'], ['invoicing.config.manage']],
   '/cash-concepts': [['cash.concept.manage']], '/reports': [['admin.manage']],
   '/analytics': [['dashboard.read']], '/users': [['admin.manage']], '/roles': [['admin.manage']],
   '/customers': [['orders.read']], '/imports': [['admin.manage']],

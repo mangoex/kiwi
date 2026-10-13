@@ -50,6 +50,14 @@ permiso/grant persistido. Cero o múltiples asignaciones de un perfil fijo falla
 cruza organización. Supervisor/Administrador inician en su base válida; Dueño sin preferencia y con
 varias sucursales queda en selección obligatoria, nunca en la primera. Crear/editar roles no puede fabricar un authority grant, y los roles con grant
 activo no pueden cambiar scope, borrarse o perderlo por una ruta administrativa ordinaria.
+`test_branch_authority_remediation.py` prueba ambas clases de grant, incluso rol no asignado;
+compara versiones y assignments en rechazo. Reemplazo efectivo de permisos incrementa sólo los
+usuarios del rol; añadir una asignación incrementa una vez y su replay no incrementa; suspensión
+incrementa en el mismo commit. Nombre/permisos idénticos no introducen cambios de autoridad.
+La regresión crossorg exige rechazo opaco y cero assignment/versión; esquema legacy exige lectura
+v1 compatible y error de migración previo al incremento. PostgreSQL agrega
+`test_branch_authority_postgres.py` con barrera y comprobación de wait_event advisory: una nueva
+asignación no cruza la enumeración de un rol cuyos permisos están cambiando.
 
 ## TDD-TC-352 Cambio seguro e idempotente de sucursal
 
@@ -69,6 +77,42 @@ sin secreto persistido; contexto/versión/permiso cambiados deniegan y nunca rev
 Dos reemisiones concurrentes fuerzan respuestas v3→v2: el frontend aplica fencing por context ID y
 `branch_workspace_secret_version`, conserva v3, descarta v2 y no emite ninguna operación con el
 secreto tardío ya inválido.
+
+`test_branch_workspace_memory.mjs` ejecuta el almacén de secretos en memoria con respuestas
+v3→v2, cambio de context ID, credencial A→B, ticket previo, hidratación GET sin secreto y rotación
+externa. Exige cero escrituras persistentes; un contexto/versión no coincidente deja de habilitar
+el header. El transporte central usa sólo el secreto confirmado para la credencial actual y
+descarta el header provisto por formularios; el transporte gateway conserva su grant independiente.
+El enriquecimiento central opcional de apariencia/capacidades usa exclusivamente GET de sesión:
+401, timeout o desconexión devuelven ausencia de enriquecimiento y no revocan el grant firmado
+del gateway ni dejan el proveedor en carga perpetua. Las operaciones centrales conservan el manejo
+normal de 401 y la administración continúa requiriendo autenticación central vigente.
+
+`test_branch_workspace_provider.mjs` ejecuta los proveedores reales: gateway 200/central opcional
+401 publica sesión local, 409 por turno conserva A/captura, callback durante selección conserva
+`validating`, 503 bloquea y retiene journal; Admin de catálogo sin `pos.operate` no solicita reissue.
+`test_branch_workspace_recovery.mjs` recorre en navegador construido la selección obligatoria de
+Dueño sin base, efecto confirmado con respuesta perdida, recarga/replay exacto y rotación posterior;
+comprueba headers actuales, cero secreto persistido y una búsqueda capturada intacta tras 409.
+
+`test_branch_workspace_authority.py` verifica la primera emisión sin secreto en GET, persistencia
+tras seleccionar, rotación monotónica con replay, rechazo del contexto anterior, payload cruzado,
+versión modificada y replay de una selección supersedida. El índice parcial se intenta refutar
+insertando un segundo contexto operativo del mismo actor. La prueba negativa inyecta fallo tardío
+de auditoría y exige que el rollback conserve el contexto anterior y no registre el comando.
+La regresión API de apertura recorre ambos aliases `/cash/shifts/open` y `/cash-shifts/open`:
+abre A con contexto A, comprueba selección B bloqueada y rechaza apertura directa B con el mismo
+contexto, sin turno B. Apertura sin contexto o con secreto supersedido falla antes del ledger.
+
+`test_branch_workspace_route_guard.py` recorre humanos de KDS, impresión y sincronización:
+falta de contexto, branch cruzado y secreto supersedido rechazan antes de consultar el recurso;
+la omisión de branch en query resuelve el workspace persistido después de seleccionar B, no su base A.
+Las credenciales de dispositivo mantienen su alcance persistido independiente.
+El mismo recorrido incluye transición KDS y reintento de impresión; observa cero llamadas de
+dominio ante rechazo. FK activas prueban auditabilidad de actor/sucursal inexistentes sin secretos.
+Cambiar permisos invalida el contexto anterior y un contexto reemitido no restaura la capacidad
+retirada. La carrera PostgreSQL de `OperationalRouteGuard` observa wait_event de selección
+esperando al actor y verifica que el recurso conserva A hasta terminar su transacción.
 
 ## TDD-TC-353 Reasignación transaccional y auditable
 
@@ -110,6 +154,10 @@ recuperación bajo estado `recovery_only`, permite sólo los comandos allowlist 
 y rechaza nuevas ventas, pedidos, pagos, movimientos, aperturas, compras, recepciones, ajustes y
 configuración. Sólo vuelve al contexto base después del drenado; si no drena, exige forward-fix. Se
 exige evidencia PostgreSQL real; SQLite no acredita locks.
+El verificador CI exige también las suites `test_branch_authority_postgres.py` y
+`test_branch_workspace_postgres.py`: una suite no colectada o un caso skipped/ausente/fallido impide
+aprobar el gate. `test_dependency_runtime.py` prueba la omisión y el skip de cada suite en negativo;
+la presencia del job o el éxito de SQLite no sustituyen esta evidencia.
 
 Gates focales previstos:
 

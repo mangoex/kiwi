@@ -54,7 +54,7 @@ assert.match(posMain, /serviceWorker\.register/);
 assert.match(kdsMain, /serviceWorker\.register/);
 assert.doesNotMatch(posMain, /auth_token/);
 assert.doesNotMatch(kdsMain, /auth_token/);
-assert.match(posSession, /operationalOrderRequest<PosSession>\(operationalConfig, endpoint\)/);
+assert.match(posSession, /operationalOrderRequest<PosSession>\(operationalConfig, endpoint, \{signal\}\)/);
 assert.match(posSession, /offline_order_branch_mismatch/);
 
 console.log('ORD-OFF-001 operational order browser boundary semantic contract passed');

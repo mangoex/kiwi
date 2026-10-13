@@ -2,15 +2,110 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
+import socket
+import ssl
+import time
 import urllib.error
 import urllib.request
+from threading import Timer
 from typing import Any
+
+from .documents import valid_remote_id
 
 logger = logging.getLogger(__name__)
 
 FACTURAPI_BASE_URL = "https://www.facturapi.io/v2"
+MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
+MAX_RESPONSE_BYTES = 1024 * 1024
+
+
+class _DeadlineHTTPSConnection(http.client.HTTPSConnection):
+    """One monotonic budget, including urllib's pre-response header reads."""
+
+    def __init__(self, *args: Any, deadline: float, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.deadline = deadline
+        self.watchdog: Timer | None = None
+        self.transport: socket.socket | None = None
+
+    def remaining(self) -> float:
+        seconds = self.deadline - time.monotonic()
+        if seconds <= 0:
+            raise TimeoutError("fiscal_provider_deadline")
+        return seconds
+
+    def _arm_deadline(self) -> None:
+        if self.watchdog is not None:
+            return
+        transport = self.sock
+        if transport is None:
+            raise RuntimeError("fiscal_provider_transport_missing")
+        self.transport = transport
+        transport.settimeout(self.remaining())
+
+        def expire() -> None:
+            try:
+                transport.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass  # Already closed by EOF or finalization.
+
+        self.watchdog = Timer(self.remaining(), expire)
+        self.watchdog.daemon = True
+        self.watchdog.start()
+
+    def connect(self) -> None:
+        self.timeout = self.remaining()
+        super().connect()
+        self._arm_deadline()
+
+    def finish(self) -> None:
+        if self.watchdog is not None:
+            self.watchdog.cancel()
+        self.close()
+
+
+class _DeadlineHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, deadline: float) -> None:
+        self.tls_context = ssl.create_default_context()
+        self.tls_context.set_alpn_protocols(["http/1.1"])
+        super().__init__(context=self.tls_context)
+        self.deadline = deadline
+        self.connections: list[_DeadlineHTTPSConnection] = []
+
+    def https_open(self, req: Any) -> Any:
+        def connection(host: str, **kwargs: Any) -> _DeadlineHTTPSConnection:
+            result = _DeadlineHTTPSConnection(host, deadline=self.deadline, **kwargs)
+            self.connections.append(result)
+            return result
+
+        return self.do_open(connection, req, context=self.tls_context)
+
+    def remaining(self) -> float:
+        seconds = self.deadline - time.monotonic()
+        if seconds <= 0:
+            raise TimeoutError("fiscal_provider_deadline")
+        return seconds
+
+    def prepare_read(self) -> None:
+        seconds = self.remaining()
+        for connection in self.connections:
+            if connection.transport is not None:
+                connection.transport.settimeout(seconds)
+
+    def finish(self) -> None:
+        for connection in self.connections:
+            connection.finish()
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str
+    ) -> None:
+        # Never forward an issuer's Authorization header to a redirected destination.
+        return None
 
 
 class FacturapiClient:
@@ -36,6 +131,7 @@ class FacturapiClient:
         if self.is_mock:
             return self._mock_response(method, endpoint, data)
 
+        transport = _DeadlineHTTPSHandler(time.monotonic() + 20)
         url = f"{FACTURAPI_BASE_URL}{endpoint}"
         body_bytes = json.dumps(data).encode("utf-8") if data else None
         req = urllib.request.Request(
@@ -46,21 +142,40 @@ class FacturapiClient:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                resp_data = resp.read().decode("utf-8")
-                return json.loads(resp_data) if resp_data else {}
+            opener = urllib.request.build_opener(_NoRedirect(), transport)
+            with opener.open(req, timeout=transport.remaining()) as resp:
+                content = bytearray()
+                while True:
+                    transport.prepare_read()
+                    chunk = resp.read1(min(65536, MAX_RESPONSE_BYTES + 1 - len(content)))
+                    transport.remaining()
+                    if not chunk:
+                        break
+                    content.extend(chunk)
+                    if len(content) > MAX_RESPONSE_BYTES:
+                        raise ValueError("fiscal_provider_response_size_invalid")
+                    if isinstance(resp, http.client.HTTPResponse) and resp.isclosed():
+                        break
+                if isinstance(resp, http.client.HTTPResponse) and resp.length not in {None, 0}:
+                    raise ValueError("fiscal_provider_response_incomplete")
+                resp_bytes = bytes(content)
+                transport.remaining()
+                if len(resp_bytes) > MAX_RESPONSE_BYTES:
+                    raise ValueError("fiscal_provider_response_size_invalid")
+                result = json.loads(resp_bytes.decode("utf-8")) if resp_bytes else {}
+                if not isinstance(result, dict):
+                    raise ValueError("fiscal_provider_response_invalid")
+                transport.remaining()
+                return result
         except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8")
-            logger.error("Facturapi HTTP error %s: %s", e.code, err_body)
-            try:
-                err_json = json.loads(err_body)
-                msg = err_json.get("message") or err_json.get("detail") or str(err_json)
-            except Exception:
-                msg = err_body
-            raise RuntimeError(f"Error Facturapi ({e.code}): {msg}") from e
+            logger.warning("Facturapi HTTP failure status=%s", e.code)
+            e.close()
+            raise RuntimeError("fiscal_provider_request_failed") from None
         except Exception as e:
-            logger.exception("Facturapi connection error")
-            raise RuntimeError(f"No se pudo conectar con Facturapi: {e}") from e
+            logger.warning("Facturapi transport failure type=%s", type(e).__name__)
+            raise RuntimeError("fiscal_provider_request_failed") from None
+        finally:
+            transport.finish()
 
     def _mock_response(
         self,
@@ -118,6 +233,72 @@ class FacturapiClient:
 
     def validate_api_key(self) -> dict[str, Any]:
         return self._request("GET", "/organizations/me")
+
+    def download_invoice(self, invoice_id: str, format: str) -> bytes:
+        if format not in {"pdf", "xml"} or not valid_remote_id(invoice_id):
+            raise ValueError("fiscal_document_reference_invalid")
+        if self.is_mock or not self.api_key:
+            raise RuntimeError("fiscal_document_unavailable")
+        deadline = time.monotonic() + 20
+        connection = http.client.HTTPSConnection("www.facturapi.io", timeout=20)
+        watchdog: Timer | None = None
+
+        def remaining() -> float:
+            seconds = deadline - time.monotonic()
+            if seconds <= 0:
+                raise TimeoutError("fiscal_document_deadline")
+            return seconds
+
+        try:
+            connection.request(
+                "GET", f"/v2/invoices/{invoice_id}/{format}", headers=self._headers()
+            )
+            transport = connection.sock
+            if transport is None:
+                raise RuntimeError("fiscal_document_transport_missing")
+
+            def expire() -> None:
+                try:
+                    transport.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    return  # Already closed by response EOF or the finalizer.
+
+            watchdog = Timer(remaining(), expire)
+            watchdog.daemon = True
+            watchdog.start()
+            transport.settimeout(remaining())
+            response = connection.getresponse()
+            if response.status != 200:
+                # Redirects are rejected, never followed or returned to a browser.
+                raise RuntimeError("fiscal_document_status_invalid")
+            media_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            accepted = {"application/pdf"} if format == "pdf" else {"application/xml", "text/xml"}
+            if media_type not in accepted:
+                raise RuntimeError("fiscal_document_media_invalid")
+            content = bytearray()
+            while True:
+                transport.settimeout(remaining())
+                chunk = response.read1(min(65536, MAX_DOCUMENT_BYTES + 1 - len(content)))
+                remaining()
+                if not chunk:
+                    break
+                content.extend(chunk)
+                if len(content) > MAX_DOCUMENT_BYTES:
+                    raise RuntimeError("fiscal_document_size_invalid")
+                if response.isclosed():
+                    break
+            if isinstance(response, http.client.HTTPResponse) and response.length not in {None, 0}:
+                raise RuntimeError("fiscal_document_incomplete")
+            if not content:
+                raise RuntimeError("fiscal_document_size_invalid")
+            return bytes(content)
+        except Exception as exc:
+            logger.warning("Fiscal document transport failure type=%s", type(exc).__name__)
+            raise RuntimeError("fiscal_document_transport_failed") from None
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
+            connection.close()
 
     def create_receipt(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/receipts", payload)

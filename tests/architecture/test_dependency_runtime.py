@@ -13,6 +13,49 @@ from test_cash_ledger_postgres import _postgres_url
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.parametrize(
+    "module", ["branch_authority", "branch_workspace", "fiscal_authority", "fiscal_emitter"]
+)
+@pytest.mark.parametrize("fault", ["not_collected", "skipped"])
+def test_branch_authority_locks_require_executed_postgres_evidence(
+    tmp_path, monkeypatch, module, fault
+):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    from verify_postgres_evidence import verify
+
+    modules = [
+        "cash_ledger",
+        "purchase_workspace",
+        "operating_expenses",
+        "system_remediation",
+        "corporate_purchases",
+        "branch_authority",
+        "branch_workspace",
+        "fiscal_authority",
+        "fiscal_emitter",
+    ]
+    collected = [name for name in modules if name != module or fault != "not_collected"]
+    collection = tmp_path / "branch-collection.txt"
+    collection.write_text(
+        "\n".join(f"apps/api/tests/test_{name}_postgres.py::test_lock" for name in collected),
+        encoding="utf-8",
+    )
+    junit = tmp_path / "branch-report.xml"
+    junit.write_text(
+        "<testsuite>"
+        + "".join(
+            f'<testcase classname="apps.api.tests.test_{name}_postgres" name="test_lock">'
+            + ("<skipped/>" if name == module and fault == "skipped" else "")
+            + "</testcase>"
+            for name in collected
+        )
+        + "</testsuite>",
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="Mandatory PostgreSQL"):
+        verify(collection, junit)
+
+
 def test_pco003_is_mandatory_in_ci(monkeypatch):
     monkeypatch.setenv("CI", "true")
     monkeypatch.delenv("PCO003_TEST_POSTGRES_URL", raising=False)
@@ -41,6 +84,10 @@ def test_required_postgres_evidence_rejects_omitted_or_unexecuted_case(tmp_path,
         "operating_expenses",
         "system_remediation",
         "corporate_purchases",
+        "branch_authority",
+        "branch_workspace",
+        "fiscal_authority",
+        "fiscal_emitter",
     ]
     collection.write_text(
         "\n".join(f"apps/api/tests/test_{module}_postgres.py::test_case" for module in modules)

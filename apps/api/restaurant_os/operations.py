@@ -404,11 +404,11 @@ def _begin_cash_shift_serialization(session: Session) -> None:
         # A nested command must not roll it back merely to acquire SQLite's
         # direct-writer reservation.
         return
-    if session.in_transaction():
-        # SQLAlchemy starts a deferred SQLite transaction on the first read.  It
-        # cannot be upgraded safely, so discard that read-only transaction before
-        # taking the write reservation required by the cash guard.
-        session.rollback()
+    driver = session.connection().connection.driver_connection
+    if getattr(driver, "in_transaction", True):
+        # The caller may already own the workspace writer fence or pending writes.
+        # Never release that transaction while preparing a cash command.
+        return
     try:
         session.execute(sa.text("BEGIN IMMEDIATE"))
     except OperationalError as exc:
@@ -472,6 +472,56 @@ def _acquire_idempotency_lock(session: Session, namespace: str, key: str) -> Non
             sa.text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
             {"lock_key": f"{namespace}:{ORGANIZATION_ID}:{key}"},
         )
+
+
+def _authority_governance_lock(session: Session, organization_id: str = ORGANIZATION_ID) -> None:
+    """Serialize assignment enumeration with authority changes, before authorization reads."""
+    if session.get_bind().dialect.name == "sqlite":
+        driver = session.connection().connection.driver_connection
+        if not getattr(driver, "in_transaction", True):
+            try:
+                session.execute(sa.text("BEGIN IMMEDIATE"))
+            except OperationalError as exc:
+                raise BusinessError("authority_busy", "Authority is being updated; retry") from exc
+    else:
+        _acquire_idempotency_lock(session, "authority-governance", organization_id)
+
+
+def _bump_authority_versions(
+    session: Session, user_ids: list[str], organization_id: str = ORGANIZATION_ID
+) -> None:
+    ids = sorted(set(user_ids))
+    if not ids:
+        return
+    columns = {column["name"] for column in sa.inspect(session.connection()).get_columns("users")}
+    if "authorization_version" not in columns:
+        raise BusinessError(
+            "authorization_migration_required", "Apply the authorization migration before changing authority"
+        )
+    rows = list(
+        session.execute(
+            sa.select(models.users.c.id, models.users.c.authorization_version)
+            .where(models.users.c.organization_id == organization_id, models.users.c.id.in_(ids))
+            .order_by(models.users.c.id)
+            .with_for_update()
+        ).mappings()
+    )
+    if any(int(row["authorization_version"]) >= 2147483647 for row in rows):
+        raise BusinessError("authorization_version_exhausted", "Authorization version exhausted")
+    session.execute(
+        sa.update(models.users)
+        .where(models.users.c.organization_id == organization_id, models.users.c.id.in_(ids))
+        .values(authorization_version=models.users.c.authorization_version + 1)
+    )
+
+
+def _role_authority_users(session: Session, role_id: str) -> list[str]:
+    values: list[Any] = list(
+        session.scalars(
+            sa.select(models.user_roles.c.user_id).where(models.user_roles.c.role_id == role_id)
+        )
+    )
+    return [str(value) for value in values]
 
 
 def create_role(
@@ -618,6 +668,7 @@ def create_user(
     branch_id: str | None = None,
     employee_code: str | None = None,
 ) -> dict[str, Any]:
+    _authority_governance_lock(session)
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
     normalized_email = email.strip().lower()
@@ -666,7 +717,7 @@ def create_user(
 
     if role_scope:
         role_assignment = {"user_id": user_id, **role_scope}
-        _insert_user_role_assignment(session, role_assignment, actor_id)
+        _insert_user_role_assignment(session, role_assignment, actor_id, bump_version=False)
 
     _audit(
         session,
@@ -1272,6 +1323,7 @@ def assign_user_role(
     branch_id: str | None = None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    _authority_governance_lock(session)
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
     assignment = _validate_user_role_assignment(session, user_id, role_id, branch_id)
@@ -1288,7 +1340,9 @@ def _validate_user_role_assignment(
     branch_id: str | None = None,
 ) -> dict[str, Any]:
     user = (
-        session.execute(sa.select(models.users).where(models.users.c.id == user_id))
+        session.execute(sa.select(models.users).where(
+            models.users.c.id == user_id, models.users.c.organization_id == ORGANIZATION_ID
+        ))
         .mappings()
         .first()
     )
@@ -1392,6 +1446,8 @@ def _insert_user_role_assignment(
     session: Session,
     assignment: dict[str, Any],
     actor_user_id: str | None,
+    *,
+    bump_version: bool = True,
 ) -> dict[str, Any]:
     user_id = assignment["user_id"]
     role_id = assignment["role_id"]
@@ -1412,6 +1468,8 @@ def _insert_user_role_assignment(
     if existing:
         return dict(existing)
 
+    if bump_version:
+        _bump_authority_versions(session, [str(user_id)])
     session.execute(models.user_roles.insert().values(**assignment))
     _audit(
         session,
@@ -1446,6 +1504,7 @@ def bootstrap_initial_owners(
         )
     if not normalized_provenance:
         raise BusinessError("bootstrap_provenance_required", "Bootstrap provenance is required")
+    _authority_governance_lock(session, normalized_organization_id)
 
     organization = session.execute(
         sa.select(models.organizations.c.id).where(
@@ -1532,6 +1591,7 @@ def bootstrap_initial_owners(
         )
 
     try:
+        _bump_authority_versions(session, owner_user_ids, normalized_organization_id)
         session.execute(
             models.user_roles.insert(),
             [
@@ -1728,6 +1788,8 @@ def apply_profile_transition_mapping(
     idempotency_key: str,
 ) -> dict[str, Any]:
     mapping = _get_profile_transition_mapping(session, mapping_id)
+    _authority_governance_lock(session, str(mapping["organization_id"]))
+    mapping = _get_profile_transition_mapping(session, mapping_id)
     _require_active_profile_transition_organization(session, mapping["organization_id"])
     _require_transition_authority(session, actor_user_id, mapping["organization_id"])
     normalized_key = _transition_idempotency_key(idempotency_key)
@@ -1792,6 +1854,7 @@ def apply_profile_transition_mapping(
             "profile_transition_target_already_assigned", "Target role is already assigned"
         )
     now = _now()
+    _bump_authority_versions(session, [str(mapping["user_id"])], str(mapping["organization_id"]))
     session.execute(models.user_roles.insert().values(user_id=mapping["user_id"], **assignment))
     session.execute(
         models.profile_transition_mappings.update()
@@ -1826,6 +1889,8 @@ def reverse_profile_transition_mapping(
     actor_user_id: str,
     idempotency_key: str,
 ) -> dict[str, Any]:
+    mapping = _get_profile_transition_mapping(session, mapping_id)
+    _authority_governance_lock(session, str(mapping["organization_id"]))
     mapping = _get_profile_transition_mapping(session, mapping_id)
     _require_active_profile_transition_organization(session, mapping["organization_id"])
     _require_transition_authority(session, actor_user_id, mapping["organization_id"])
@@ -1871,6 +1936,7 @@ def reverse_profile_transition_mapping(
             )
         ).scalars()
     )
+    _bump_authority_versions(session, [str(mapping["user_id"])], str(mapping["organization_id"]))
     for role in snapshot:
         if role["role_id"] not in current_role_ids:
             session.execute(
@@ -10454,9 +10520,8 @@ def _actor_has_permission(
 
 
 def _workspace_role_ids(session: Session, actor_user_id: str) -> set[str]:
-    return {
-        str(role_id)
-        for role_id in session.execute(
+    role_ids: list[Any] = list(
+        session.execute(
             sa.select(models.role_authority_grants.c.role_id)
             .select_from(
                 models.user_roles.join(
@@ -10467,18 +10532,18 @@ def _workspace_role_ids(session: Session, actor_user_id: str) -> set[str]:
             .where(
                 models.user_roles.c.user_id == actor_user_id,
                 models.roles.c.organization_id == ORGANIZATION_ID,
-                models.role_authority_grants.c.authority_kind
-                == "organization_branch_workspaces",
+                models.role_authority_grants.c.authority_kind == "organization_branch_workspaces",
             )
         ).scalars()
-    }
+    )
+    return {str(role_id) for role_id in role_ids}
 
 
 def _user_authorization_version(session: Session, actor_user_id: str) -> int:
     """Read the version after 0077; use the inert v1 baseline before expansion."""
     user_columns = {
         str(column["name"])
-        for column in sa.inspect(session.get_bind()).get_columns("users")
+        for column in sa.inspect(session.connection()).get_columns("users")
     }
     if "authorization_version" not in user_columns:
         return 1
@@ -11411,6 +11476,7 @@ def update_user(
     branch_id: str | None = None,
     employee_code: str | None = None,
 ) -> dict[str, Any]:
+    _authority_governance_lock(session)
     actor_id = _actor_user_id(actor_user_id)
     is_self_update = bool(actor_id and actor_id == user_id)
     role_change_requested = role_id is not None
@@ -11455,17 +11521,22 @@ def update_user(
             sa.update(models.users).where(models.users.c.id == user_id).values(**update_data)
         )
 
+    authority_changed = False
     if password is not None:
         p_val = password.strip()
         if p_val:
+            _bump_authority_versions(session, [user_id])
             _set_user_password(session, user_id, p_val, _now())
             session.execute(
                 sa.update(models.users).where(models.users.c.id == user_id).values(status="active")
             )
+            authority_changed = True
 
     if role_id is not None:
         if role_assignment:
-            _insert_user_role_assignment(session, role_assignment, actor_id)
+            _insert_user_role_assignment(
+                session, role_assignment, actor_id, bump_version=not authority_changed
+            )
 
     _audit(
         session,
@@ -11488,11 +11559,25 @@ def delete_user(
     user_id: str,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    _authority_governance_lock(session)
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
+    user = (
+        session.execute(
+            sa.select(models.users)
+            .where(models.users.c.id == user_id, models.users.c.organization_id == ORGANIZATION_ID)
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not user:
+        raise BusinessError("user_not_found", "User was not found")
+    if user["status"] != "suspended":
+        _bump_authority_versions(session, [user_id])
     session.execute(
         sa.update(models.users)
-        .where(models.users.c.id == user_id)
+        .where(models.users.c.id == user_id, models.users.c.organization_id == ORGANIZATION_ID)
         .values(status="suspended", updated_at=_now())
     )
     _audit(
@@ -12974,8 +13059,20 @@ def update_role(
     scope: str | None = None,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    _authority_governance_lock(session)
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
+    role = (
+        session.execute(
+            sa.select(models.roles).where(
+                models.roles.c.id == role_id, models.roles.c.organization_id == ORGANIZATION_ID
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not role:
+        raise BusinessError("role_not_found", "Role was not found")
     is_organization_authority = _role_has_organization_authority_grant(session, role_id)
     if is_organization_authority:
         _authorize_governed_profile_assignment(session, actor_id, {"role_id": role_id})
@@ -12999,9 +13096,19 @@ def update_role(
                 "owner_role_scope_immutable",
                 "An organization authority role must retain organization scope",
             )
+        if _role_has_workspace_grant(session, role_id) and normalized_scope != role["scope"]:
+            _reject_authority_role_mutation(
+                session,
+                actor_id,
+                role_id,
+                "workspace_role_scope_immutable",
+                "A workspace role must retain its scope",
+            )
         update_data["scope"] = normalized_scope
 
     if update_data:
+        if update_data.get("scope", role["scope"]) != role["scope"]:
+            _bump_authority_versions(session, _role_authority_users(session, role_id))
         session.execute(
             sa.update(models.roles).where(models.roles.c.id == role_id).values(**update_data)
         )
@@ -13023,8 +13130,13 @@ def delete_role(
     role_id: str,
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    _authority_governance_lock(session)
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
+    if not session.scalar(sa.select(models.roles.c.id).where(
+        models.roles.c.id == role_id, models.roles.c.organization_id == ORGANIZATION_ID
+    )):
+        raise BusinessError("role_not_found", "Role was not found")
     if _role_has_organization_authority_grant(session, role_id):
         _authorize_governed_profile_assignment(session, actor_id, {"role_id": role_id})
         _reject_authority_role_mutation(
@@ -13033,6 +13145,15 @@ def delete_role(
             role_id,
             "owner_role_delete_forbidden",
             "An organization authority role cannot be deleted",
+        )
+
+    if _role_has_workspace_grant(session, role_id):
+        _reject_authority_role_mutation(
+            session,
+            actor_id,
+            role_id,
+            "workspace_role_delete_forbidden",
+            "A workspace authority role cannot be deleted",
         )
 
     # Ensure role is not assigned to users
@@ -13065,8 +13186,15 @@ def update_role_permissions(
     permission_ids: list[str],
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    _authority_governance_lock(session)
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "admin.manage")
+    if not session.scalar(
+        sa.select(models.roles.c.id).where(
+            models.roles.c.id == role_id, models.roles.c.organization_id == ORGANIZATION_ID
+        )
+    ):
+        raise BusinessError("role_not_found", "Role was not found")
     if _role_has_organization_authority_grant(session, role_id):
         _authorize_governed_profile_assignment(session, actor_id, {"role_id": role_id})
         _reject_authority_role_mutation(
@@ -13085,6 +13213,16 @@ def update_role_permissions(
 
     if len(valid_ids) != len(permission_ids):
         raise BusinessError("invalid_permission", "One or more permission IDs are invalid")
+
+    previous: set[str] = set(
+        session.scalars(
+            sa.select(models.role_permissions.c.permission_id).where(
+                models.role_permissions.c.role_id == role_id
+            )
+        )
+    )
+    if previous != valid_ids:
+        _bump_authority_versions(session, _role_authority_users(session, role_id))
 
     # Delete old permissions
     session.execute(
@@ -13127,6 +13265,20 @@ def _role_has_organization_authority_grant(session: Session, role_id: str) -> bo
             )
         ).scalar_one_or_none()
         is not None
+    )
+
+
+def _role_has_workspace_grant(session: Session, role_id: str) -> bool:
+    return bool(
+        session.scalar(
+            sa.select(models.role_authority_grants.c.role_id)
+            .join(models.roles, models.roles.c.id == models.role_authority_grants.c.role_id)
+            .where(
+                models.role_authority_grants.c.role_id == role_id,
+                models.role_authority_grants.c.authority_kind == "organization_branch_workspaces",
+                models.roles.c.organization_id == ORGANIZATION_ID,
+            )
+        )
     )
 
 
@@ -25338,12 +25490,22 @@ def build_session_profile(
     if not allowed_branch_ids:
         raise AuthorizationError("actor_not_authorized", "Actor has no active branch scope")
 
-    active_branch = _resolve_active_branch(
-        session,
-        requested_branch_id=branch_id or home_branch_id,
-        allowed_branch_ids=allowed_branch_ids,
-    )
-    active_branch_id = str(active_branch["id"])
+    workspace_fields: dict[str, Any] = {}
+    if get_settings().branch_scope_v2_enabled:
+        from restaurant_os.branch_workspaces import workspace_projection
+
+        canonical_branch, workspace_fields = workspace_projection(
+            session, actor, authorization_version, allowed_branch_ids, home_branch_id
+        )
+        if branch_id is not None and branch_id != canonical_branch:
+            raise BusinessError("branch_selection_requires_command", "Branch selection requires a command")
+        active_branch = _branch_detail(session, canonical_branch) if canonical_branch else None
+    else:
+        active_branch = _resolve_active_branch(
+            session, requested_branch_id=branch_id or home_branch_id,
+            allowed_branch_ids=allowed_branch_ids,
+        )
+    active_branch_id = str(active_branch["id"]) if active_branch else None
     effective_role_ids = {
         str(row["id"])
         for row in role_rows
@@ -25364,8 +25526,9 @@ def build_session_profile(
     ).mappings()
     permissions = sorted({row["code"] for row in permission_rows})
     can_select_branch = (
-        "pos.branch.select" in permissions
-        and (has_org_scope or has_workspace_scope)
+        get_settings().branch_scope_v2_enabled
+        and _actor_has_permission(session, actor, "pos.branch.select", active_branch_id)
+        and (actor_has_organization_authority(session, actor) or has_workspace_scope)
         and len(allowed_branch_ids) > 1
     )
 
@@ -25381,11 +25544,17 @@ def build_session_profile(
         "reports.ingredient_sales.read", "reports.expenses.read",
         "expense.concept.read", "expense.concept.manage", "expenses.read", "expenses.manage",
         "expenses.cancel", "cash.movement.withdraw", "cash.movement.compensate",
+        "invoicing.read", "invoicing.issue", "invoicing.cancel", "invoicing.receipt.create",
+        "invoicing.config.manage",
     )
     admin_capabilities = {
         code: _actor_has_permission(session, actor, code, active_branch_id)
         for code in capability_codes
     }
+    # A fiscal branch role cannot borrow corporate scope from an unrelated role.
+    admin_capabilities["invoicing.config.manage"] = _actor_has_organization_scope(
+        session, actor, "invoicing.config.manage"
+    ) and _actor_has_permission(session, actor, "invoicing.config.manage", None)
 
     return {
         "user": {
@@ -25418,12 +25587,15 @@ def build_session_profile(
             "authorization_version": authorization_version,
         },
         "active_branch": active_branch,
-        "pos_modules": _pos_module_availability(session, active_branch_id),
+        "pos_modules": _pos_module_availability(session, active_branch_id) if active_branch_id else {
+            "uber_eats": False, "didi_food": False, "rappi": False, "invoicing": False,
+        },
+        **workspace_fields,
     }
 
 
 def _pos_module_availability(session: Session, branch_id: str) -> dict[str, bool]:
-    enabled_integrations = set(
+    enabled_integrations: set[str] = set(
         session.execute(
             sa.select(models.channel_integrations.c.provider).where(
                 models.channel_integrations.c.organization_id == ORGANIZATION_ID,
@@ -25431,7 +25603,7 @@ def _pos_module_availability(session: Session, branch_id: str) -> dict[str, bool
             )
         ).scalars()
     )
-    mapped_integrations = set(
+    mapped_integrations: set[str] = set(
         session.execute(
             sa.select(models.channel_store_mappings.c.provider).where(
                 models.channel_store_mappings.c.organization_id == ORGANIZATION_ID,
@@ -25462,129 +25634,9 @@ def select_pos_branch(
     payload: dict[str, Any],
     idempotency_key: str | None,
 ) -> dict[str, Any]:
-    actor = _actor_user_id(actor_id)
-    key = str(idempotency_key or "").strip()
-    if len(key) < 12 or len(key) > 180:
-        raise BusinessError(
-            "idempotency_key_invalid", "Idempotency-Key must contain 12 to 180 characters"
-        )
-    if set(payload) != {
-        "current_branch_id",
-        "target_branch_id",
-        "expected_authorization_version",
-    }:
-        raise BusinessError(
-            "branch_selection_payload_invalid", "Branch selection payload is invalid"
-        )
-    source_branch_id = str(payload.get("current_branch_id") or "").strip()
-    target_branch_id = str(payload.get("target_branch_id") or "").strip()
-    expected_version = payload.get("expected_authorization_version")
-    if (
-        not source_branch_id
-        or not target_branch_id
-        or isinstance(expected_version, bool)
-        or not isinstance(expected_version, int)
-        or expected_version < 1
-    ):
-        raise BusinessError(
-            "branch_selection_payload_invalid", "Branch selection payload is invalid"
-        )
+    from restaurant_os.branch_workspaces import select_branch_workspace
 
-    actor_row = (
-        session.execute(
-            sa.select(models.users)
-            .where(
-                models.users.c.id == actor,
-                models.users.c.organization_id == ORGANIZATION_ID,
-            )
-            .with_for_update()
-        )
-        .mappings()
-        .first()
-    )
-    if not actor_row or actor_row["status"] != "active":
-        raise AuthorizationError("actor_not_authorized", "Actor is not authorized")
-    if _user_authorization_version(session, actor) != expected_version:
-        raise BusinessError("authorization_version_conflict", "Authorization version changed")
-
-    base_profile = build_session_profile(session, actor)
-    if not base_profile["scope"]["can_select_branch"]:
-        raise AuthorizationError("permission_denied", "Actor cannot select another branch")
-    allowed = set(base_profile["scope"]["allowed_branch_ids"])
-    if source_branch_id not in allowed or target_branch_id not in allowed:
-        raise AuthorizationError("permission_denied", "Branch is not authorized")
-    require_permission(session, actor, "pos.branch.select", target_branch_id)
-
-    request_hash = hashlib.sha256(
-        json.dumps(
-            {
-                "source_branch_id": source_branch_id,
-                "target_branch_id": target_branch_id,
-                "authorization_version": expected_version,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
-    _acquire_idempotency_lock(session, "branch-selection", f"{actor}:{key}")
-    existing = (
-        session.execute(
-            sa.select(models.branch_selection_commands).where(
-                models.branch_selection_commands.c.organization_id == ORGANIZATION_ID,
-                models.branch_selection_commands.c.actor_user_id == actor,
-                models.branch_selection_commands.c.idempotency_key == key,
-            )
-        )
-        .mappings()
-        .first()
-    )
-    if existing:
-        if existing["request_hash"] != request_hash:
-            raise BusinessError("idempotency_conflict", "Idempotency-Key was already used")
-        return build_session_profile(session, actor, str(existing["target_branch_id"]))
-
-    open_shift = session.execute(
-        sa.select(models.cash_shifts.c.id).where(
-            models.cash_shifts.c.organization_id == ORGANIZATION_ID,
-            models.cash_shifts.c.cashier_user_id == actor,
-            sa.func.upper(models.cash_shifts.c.status).in_(("OPEN", "CLOSING")),
-        ).limit(1)
-    ).scalar_one_or_none()
-    if open_shift:
-        raise BusinessError(
-            "branch_switch_open_shift", "Close the active cash shift before changing branch"
-        )
-
-    result = {"active_branch_id": target_branch_id}
-    session.execute(
-        models.branch_selection_commands.insert().values(
-            id=_id(),
-            organization_id=ORGANIZATION_ID,
-            actor_user_id=actor,
-            source_branch_id=source_branch_id,
-            target_branch_id=target_branch_id,
-            idempotency_key=key,
-            request_hash=request_hash,
-            authorization_version=expected_version,
-            result=result,
-            created_at=_now(),
-        )
-    )
-    _audit(
-        session,
-        action="auth.branch_selected",
-        entity_type="branch_selection",
-        entity_id=target_branch_id,
-        payload={
-            "source_branch_id": source_branch_id,
-            "target_branch_id": target_branch_id,
-            "authorization_version": expected_version,
-        },
-        branch_id=target_branch_id,
-        actor_user_id=actor,
-    )
-    session.commit()
-    return build_session_profile(session, actor, target_branch_id)
+    return select_branch_workspace(session, _actor_user_id(actor_id), payload, idempotency_key)
 
 
 def create_pos_session_handoff(session: Session, actor_id: str) -> dict[str, Any]:

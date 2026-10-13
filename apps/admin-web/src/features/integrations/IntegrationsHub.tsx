@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Badge, Modal } from '@restaurantos/ui';
-import { fetchApi } from '@restaurantos/api-client';
+import { fetchApi, downloadFiscalInvoice, hasAdminCapability } from '@restaurantos/api-client';
+import { useAdminSession } from '../../lib/adminSession';
 import {
   Share2,
   Copy,
@@ -34,10 +35,13 @@ interface ChannelConfig {
 }
 
 interface FacturapiConfig {
-  id?: string;
+  id?: string | null;
+  organization_id: string;
+  legal_entity_id: string;
+  version: number;
   is_enabled: boolean;
   environment: string;
-  api_key: string;
+  api_key_configured: boolean;
   organization_legal_name: string;
   organization_rfc: string;
   organization_tax_system: string;
@@ -47,8 +51,19 @@ interface FacturapiConfig {
   series: string;
   enable_self_invoicing: boolean;
   self_invoicing_domain: string;
-  self_invoicing_days_valid: number;
+  self_invoicing_days_valid: number | null;
   print_qr_on_ticket: boolean;
+}
+
+function publicFiscalConfiguration(data: FacturapiConfig): FacturapiConfig {
+  return {id:data.id, organization_id:data.organization_id, legal_entity_id:data.legal_entity_id,version:data.version,
+    is_enabled:data.is_enabled, environment:data.environment, api_key_configured:data.api_key_configured,
+    organization_legal_name:data.organization_legal_name, organization_rfc:data.organization_rfc,
+    organization_tax_system:data.organization_tax_system, organization_zip:data.organization_zip,
+    default_product_sat_key:data.default_product_sat_key, default_unit_sat_key:data.default_unit_sat_key,
+    series:data.series, enable_self_invoicing:data.enable_self_invoicing,
+    self_invoicing_domain:data.self_invoicing_domain, self_invoicing_days_valid:data.self_invoicing_days_valid,
+    print_qr_on_ticket:data.print_qr_on_ticket};
 }
 
 interface StoreMapping {
@@ -133,11 +148,26 @@ interface RotatedAgentCredential {
 
 export default function IntegrationsHub() {
   const queryClient = useQueryClient();
+  const { session, assertCurrentAuthority } = useAdminSession();
+  const canManageIntegrations = hasAdminCapability(session, 'admin.manage');
+  const canReadFiscal = hasAdminCapability(session, 'invoicing.read');
+  const canConfigureFiscal = hasAdminCapability(session, 'invoicing.config.manage');
+  const fiscalQueryScope = [session.organization_id, session.user.id, session.scope.authorization_version,
+    session.active_branch.id, session.branch_workspace_context_id];
+  const fiscalCorporateScope = [session.organization_id, session.user.id, session.scope.authorization_version];
+  const [selectedEmitterId, setSelectedEmitterId] = useState('');
+  const [newFiscalKey, setNewFiscalKey] = useState('');
+  const [fiscalSaveMessage, setFiscalSaveMessage] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const grokBotAgentToolsEnabled = import.meta.env.VITE_GROKBOT_AGENT_TOOLS_ENABLED === 'true';
   const [selectedProvider, setSelectedProvider] = useState<'GROKBOT' | 'UBER_EATS' | 'DIDI_FOOD' | 'RAPPI' | 'FACTURAPI'>(
-    grokBotAgentToolsEnabled ? 'GROKBOT' : 'UBER_EATS',
+    !canManageIntegrations ? 'FACTURAPI' : grokBotAgentToolsEnabled ? 'GROKBOT' : 'UBER_EATS',
   );
-  const [activeTab, setActiveTab] = useState<'config' | 'agents' | 'stores' | 'logs' | 'invoices'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'agents' | 'stores' | 'logs' | 'invoices'>(
+    canManageIntegrations || canConfigureFiscal ? 'config' : 'invoices');
+  const fiscalDraftScope = JSON.stringify([...fiscalCorporateScope, selectedEmitterId, selectedProvider]);
+  const currentFiscalDraft = React.useRef(fiscalDraftScope);
+  currentFiscalDraft.current = fiscalDraftScope;
   const isDeliveryProvider = selectedProvider === 'UBER_EATS' || selectedProvider === 'DIDI_FOOD' || selectedProvider === 'RAPPI';
   const [copied, setCopied] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -157,48 +187,67 @@ export default function IntegrationsHub() {
   const { data: config } = useQuery<ChannelConfig>({
     queryKey: ['integrations', selectedProvider, 'config'],
     queryFn: () => fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/config'),
-    enabled: isDeliveryProvider,
+    enabled: isDeliveryProvider && canManageIntegrations,
   });
 
   const { data: branches = [] } = useQuery<Branch[]>({
     queryKey: ['branches'],
     queryFn: () => fetchApi('/branches'),
+    enabled: canManageIntegrations,
   });
 
   const { data: storeMappings = [] } = useQuery<StoreMapping[]>({
     queryKey: ['integrations', selectedProvider, 'stores'],
     queryFn: () => fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/stores'),
-    enabled: isDeliveryProvider,
+    enabled: isDeliveryProvider && canManageIntegrations,
   });
 
   const { data: logs = [] } = useQuery<WebhookLog[]>({
     queryKey: ['integrations', selectedProvider, 'logs'],
     queryFn: () => fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/logs'),
     refetchInterval: activeTab === 'logs' && isDeliveryProvider ? 5000 : false,
-    enabled: isDeliveryProvider,
+    enabled: isDeliveryProvider && canManageIntegrations,
   });
 
   // Queries for Facturapi
-  const { data: facturapiConfig } = useQuery<FacturapiConfig>({
-    queryKey: ['integrations', 'facturapi', 'config'],
-    queryFn: () => fetchApi('/integrations/facturapi/config'),
-    enabled: selectedProvider === 'FACTURAPI',
+  const { data: fiscalEmitters = [], error: fiscalEmittersError } = useQuery<{id:string;name:string;tax_id:string|null}[]>({
+    queryKey: ['invoicing', 'emitters', ...fiscalCorporateScope],
+    queryFn: () => fetchApi('/invoicing/emitters'),
+    enabled: selectedProvider === 'FACTURAPI' && canConfigureFiscal,
+  });
+  const { data: facturapiConfig, error: fiscalConfigurationError } = useQuery<FacturapiConfig>({
+    queryKey: ['integrations', 'facturapi', 'config', ...fiscalCorporateScope, selectedEmitterId],
+    queryFn: async () => {
+      const data = await fetchApi<FacturapiConfig>(`/invoicing/emitters/${encodeURIComponent(selectedEmitterId)}/configuration`);
+      return publicFiscalConfiguration(data);
+    },
+    enabled: selectedProvider === 'FACTURAPI' && canConfigureFiscal && !!selectedEmitterId,
   });
 
   const { data: invoiceList = [] } = useQuery<InvoiceRecord[]>({
-    queryKey: ['invoicing', 'invoices'],
+    queryKey: ['invoicing', 'invoices', ...fiscalQueryScope],
     queryFn: () => fetchApi('/invoicing/invoices'),
-    enabled: selectedProvider === 'FACTURAPI' && activeTab === 'invoices',
+    enabled: selectedProvider === 'FACTURAPI' && activeTab === 'invoices' && canReadFiscal,
   });
 
   const { data: grokBotConfig } = useQuery<GrokBotConfig>({
     queryKey: ['integrations', 'grokbot', 'config'],
     queryFn: () => fetchApi('/integrations/grokbot/config'),
-    enabled: grokBotAgentToolsEnabled && selectedProvider === 'GROKBOT',
+    enabled: grokBotAgentToolsEnabled && selectedProvider === 'GROKBOT' && canManageIntegrations,
   });
 
   const [formData, setFormData] = useState<Partial<ChannelConfig>>({});
   const [facturapiForm, setFacturapiForm] = useState<Partial<FacturapiConfig>>({});
+  const [loadedFiscalDraftScope, setLoadedFiscalDraftScope] = useState('');
+  const fiscalFormReady = loadedFiscalDraftScope === fiscalDraftScope
+    && facturapiConfig?.legal_entity_id === selectedEmitterId
+    && facturapiForm.legal_entity_id === selectedEmitterId
+    && facturapiForm.version === facturapiConfig.version;
+
+  React.useEffect(() => {
+    setFacturapiForm({}); setLoadedFiscalDraftScope('');
+    setNewFiscalKey(''); setShowApiKey(false); setFiscalSaveMessage(null); setFacturapiTestResult(null);
+  }, [fiscalDraftScope]);
 
   React.useEffect(() => {
     if (config && isDeliveryProvider) {
@@ -207,10 +256,12 @@ export default function IntegrationsHub() {
   }, [config, isDeliveryProvider]);
 
   React.useEffect(() => {
-    if (facturapiConfig && selectedProvider === 'FACTURAPI') {
+    if (loadedFiscalDraftScope !== fiscalDraftScope
+      && facturapiConfig?.legal_entity_id === selectedEmitterId && selectedProvider === 'FACTURAPI') {
       setFacturapiForm(facturapiConfig);
+      setLoadedFiscalDraftScope(fiscalDraftScope);
     }
-  }, [facturapiConfig, selectedProvider]);
+  }, [facturapiConfig, selectedEmitterId, selectedProvider, fiscalDraftScope, loadedFiscalDraftScope]);
 
   React.useEffect(() => {
     if (grokBotConfig && selectedProvider === 'GROKBOT') {
@@ -230,15 +281,45 @@ export default function IntegrationsHub() {
     },
   });
 
+  const downloadFiscalMutation = useMutation({
+    mutationFn: async ({id, format}:{id:string; format:'pdf'|'xml'}) => {
+      assertCurrentAuthority();
+      if (!canReadFiscal) throw new Error('No tienes permiso para consultar documentos fiscales.');
+      await downloadFiscalInvoice(id, format);
+    },
+    onMutate: () => setDownloadError(null),
+    onError: (error:Error) => setDownloadError(error.message),
+  });
+
   const saveFacturapiMutation = useMutation({
-    mutationFn: (payload: Partial<FacturapiConfig>) =>
-      fetchApi('/integrations/facturapi/config', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-    onSuccess: () => {
+    mutationFn: async ({payload,scope,key}:{payload:Partial<FacturapiConfig>;scope:string;key:string}) => {
+      assertCurrentAuthority();
+      if (!canConfigureFiscal) throw new Error('No tienes permiso para configurar facturación.');
+      if (scope !== currentFiscalDraft.current || !fiscalFormReady || !selectedEmitterId
+        || payload.legal_entity_id !== selectedEmitterId) {
+        throw new Error('Selecciona un emisor y espera a que cargue su configuración.');
+      }
+      const body = {...payload};
+      delete body.id; delete body.api_key_configured;
+      delete body.organization_id; delete body.legal_entity_id; delete body.version;
+      const data = await fetchApi<FacturapiConfig>(`/invoicing/emitters/${encodeURIComponent(selectedEmitterId)}/configuration`, {
+        method: 'PUT',
+        body: JSON.stringify({...body, expected_version:payload.version,
+          ...(key.trim() ? {api_key:key.trim()} : {})}),
+      });
+      assertCurrentAuthority();
+      return {data:publicFiscalConfiguration(data),scope};
+    },
+    onMutate: () => setFiscalSaveMessage(null),
+    onSuccess: ({data,scope}) => {
+      if (currentFiscalDraft.current !== scope) return;
+      setNewFiscalKey(''); setShowApiKey(false);
+      setFacturapiForm(data); setLoadedFiscalDraftScope(scope);
       queryClient.invalidateQueries({ queryKey: ['integrations', 'facturapi', 'config'] });
-      alert('Configuración de Facturapi guardada exitosamente.');
+      setFiscalSaveMessage('Configuración guardada.');
+    },
+    onError: (_error,{scope}) => {
+      if (currentFiscalDraft.current === scope) { setNewFiscalKey(''); setShowApiKey(false); }
     },
   });
 
@@ -291,16 +372,23 @@ export default function IntegrationsHub() {
   });
 
   const testFacturapiMutation = useMutation({
-    mutationFn: () => fetchApi<{ status: string; legal_name?: string; rfc?: string }>('/integrations/facturapi/test-connection', {
-      method: 'POST',
-    }),
-    onSuccess: (data) => {
-      setFacturapiTestResult({
-        success: true,
-        message: `¡Conexión exitosa con Facturapi! Razón Social: ${data.legal_name || 'Restaurante'} (RFC: ${data.rfc || 'Válido'})`,
+    mutationFn: async (scope:string) => {
+      assertCurrentAuthority();
+      if (!canConfigureFiscal) throw new Error('No tienes permiso para configurar facturación.');
+      if (scope !== currentFiscalDraft.current || !fiscalFormReady || !selectedEmitterId || !facturapiConfig?.version) {
+        throw new Error('Guarda primero la configuración del emisor seleccionado.');
+      }
+      const data = await fetchApi<{success:boolean;message:string}>(`/invoicing/emitters/${encodeURIComponent(selectedEmitterId)}/test-connection`, {
+        method: 'POST',
       });
+      assertCurrentAuthority();
+      return {data,scope};
     },
-    onError: (err: any) => {
+    onSuccess: ({data,scope}) => {
+      if (currentFiscalDraft.current === scope) setFacturapiTestResult(data);
+    },
+    onError: (err: any,scope) => {
+      if (currentFiscalDraft.current !== scope) return;
       setFacturapiTestResult({
         success: false,
         message: `Error de conexión: ${err.message || 'Verifica la Secret Key'}`,
@@ -387,7 +475,7 @@ export default function IntegrationsHub() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginBottom: 28 }}>
         {/* GrokBot: one visible orchestrator, four private technical identities. */}
-        {grokBotAgentToolsEnabled && <div
+        {grokBotAgentToolsEnabled && canManageIntegrations && <div
           onClick={() => { setSelectedProvider('GROKBOT'); setActiveTab('config'); setRotatedCredential(null); }}
           style={{
             background: selectedProvider === 'GROKBOT' ? '#172554' : '#fff',
@@ -418,7 +506,7 @@ export default function IntegrationsHub() {
         </div>}
 
         {/* Uber Eats */}
-        <div
+        {canManageIntegrations && <div
           onClick={() => { setSelectedProvider('UBER_EATS'); setActiveTab('config'); }}
           style={{
             background: selectedProvider === 'UBER_EATS' ? '#064e3b' : '#fff',
@@ -446,10 +534,10 @@ export default function IntegrationsHub() {
           <Badge variant={selectedProvider === 'UBER_EATS' && formData.is_enabled ? 'success' : 'default'}>
             {selectedProvider === 'UBER_EATS' && formData.is_enabled ? 'Conectado' : 'Configurar'}
           </Badge>
-        </div>
+        </div>}
 
         {/* DiDi Food */}
-        <div
+        {canManageIntegrations && <div
           onClick={() => { setSelectedProvider('DIDI_FOOD'); setActiveTab('config'); }}
           style={{
             background: selectedProvider === 'DIDI_FOOD' ? '#7c2d12' : '#fff',
@@ -477,11 +565,11 @@ export default function IntegrationsHub() {
           <Badge variant={selectedProvider === 'DIDI_FOOD' && formData.is_enabled ? 'success' : 'default'}>
             {selectedProvider === 'DIDI_FOOD' && formData.is_enabled ? 'Conectado' : 'Configurar'}
           </Badge>
-        </div>
+        </div>}
 
         {/* Facturapi */}
-        <div
-          onClick={() => { setSelectedProvider('FACTURAPI'); setActiveTab('config'); }}
+        {(canReadFiscal || canConfigureFiscal) && <div
+          onClick={() => { setSelectedProvider('FACTURAPI'); setActiveTab(canConfigureFiscal ? 'config' : 'invoices'); }}
           style={{
             background: selectedProvider === 'FACTURAPI' ? '#3b0764' : '#fff',
             color: selectedProvider === 'FACTURAPI' ? '#fff' : '#0f172a',
@@ -506,12 +594,12 @@ export default function IntegrationsHub() {
             </p>
           </div>
           <Badge variant={facturapiForm.is_enabled ? 'success' : 'default'}>
-            {facturapiForm.is_enabled ? 'Activo' : 'Configurar'}
+            {!canConfigureFiscal ? 'Documentos' : facturapiForm.is_enabled ? 'Activo' : 'Configurar'}
           </Badge>
-        </div>
+        </div>}
 
         {/* Rappi */}
-        <div
+        {canManageIntegrations && <div
           onClick={() => { setSelectedProvider('RAPPI'); setActiveTab('config'); }}
           style={{
             background: selectedProvider === 'RAPPI' ? '#831843' : '#fff',
@@ -539,14 +627,14 @@ export default function IntegrationsHub() {
           <Badge variant={selectedProvider === 'RAPPI' && formData.is_enabled ? 'success' : 'default'}>
             {selectedProvider === 'RAPPI' && formData.is_enabled ? 'Conectado' : 'Configurar'}
           </Badge>
-        </div>
+        </div>}
       </div>
 
       {/* Main Panel Content */}
       <div className="premium-card" style={{ padding: 0, overflow: 'hidden' }}>
         {/* Navigation Tabs */}
         <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', padding: '0 16px' }}>
-          <button
+          {(selectedProvider !== 'FACTURAPI' || canConfigureFiscal) && <button
             type="button"
             onClick={() => setActiveTab('config')}
             style={{
@@ -565,7 +653,7 @@ export default function IntegrationsHub() {
           >
             <Key size={18} />
             {selectedProvider === 'FACTURAPI' ? 'Configuración Fiscal & API' : selectedProvider === 'GROKBOT' ? 'Orquestador' : 'Credenciales & Webhook'}
-          </button>
+          </button>}
 
           {selectedProvider === 'GROKBOT' ? (
             <button
@@ -589,7 +677,7 @@ export default function IntegrationsHub() {
               Especialistas técnicos ({grokBotConfig?.identities.length ?? 4})
             </button>
           ) : selectedProvider === 'FACTURAPI' ? (
-            <button
+            canReadFiscal && <button
               type="button"
               onClick={() => setActiveTab('invoices')}
               style={{
@@ -607,7 +695,7 @@ export default function IntegrationsHub() {
               }}
             >
               <FileText size={18} />
-              Historial de Facturas Timbradas
+              Historial de Facturas
             </button>
           ) : (
             <>
@@ -884,7 +972,7 @@ export default function IntegrationsHub() {
         )}
 
         {/* Facturapi Config Tab */}
-        {selectedProvider === 'FACTURAPI' && activeTab === 'config' && (
+        {selectedProvider === 'FACTURAPI' && activeTab === 'config' && canConfigureFiscal && (
           <div style={{ padding: '32px 28px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
               <div>
@@ -893,14 +981,14 @@ export default function IntegrationsHub() {
                   Conector Oficial Facturapi v2 (CFDI 4.0)
                 </h2>
                 <p style={{ margin: 0, fontSize: '0.9rem', color: '#64748b' }}>
-                  Emite facturas electrónicas válidas ante el SAT directamente desde el mostrador del POS o mediante autofactura en línea para comensales.
+                  Configura las credenciales y los datos fiscales de cada razón social.
                 </p>
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
                 <Button
                   variant="secondary"
-                  onClick={() => testFacturapiMutation.mutate()}
-                  disabled={testFacturapiMutation.isPending}
+                  onClick={() => testFacturapiMutation.mutate(fiscalDraftScope)}
+                  disabled={testFacturapiMutation.isPending || !fiscalFormReady || !facturapiConfig?.version}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, borderColor: '#c084fc', color: '#7e22ce', borderRadius: 10, padding: '10px 18px', fontWeight: 600 }}
                 >
                   <Zap size={17} />
@@ -908,8 +996,9 @@ export default function IntegrationsHub() {
                 </Button>
                 <Button
                   variant="primary"
-                  onClick={() => saveFacturapiMutation.mutate(facturapiForm)}
-                  disabled={saveFacturapiMutation.isPending}
+                  onClick={() => saveFacturapiMutation.mutate({payload:facturapiForm,
+                    scope:fiscalDraftScope,key:newFiscalKey})}
+                  disabled={saveFacturapiMutation.isPending || !fiscalFormReady}
                   style={{ background: '#7e22ce', borderColor: '#6b21a8', borderRadius: 10, padding: '10px 22px', fontWeight: 700, boxShadow: '0 4px 14px rgba(126, 34, 206, 0.3)' }}
                 >
                   {saveFacturapiMutation.isPending ? 'Guardando...' : 'Guardar Configuración'}
@@ -917,6 +1006,29 @@ export default function IntegrationsHub() {
               </div>
             </div>
 
+            <label htmlFor="fiscal-emitter" style={{display:'block',marginBottom:8}}>Razón social emisora</label>
+            <select id="fiscal-emitter" className="premium-select" value={selectedEmitterId}
+              onChange={event => setSelectedEmitterId(event.target.value)}>
+              <option value="">Selecciona una razón social</option>
+              {fiscalEmitters.map(emitter => <option key={emitter.id} value={emitter.id}>
+                {emitter.name} — {emitter.tax_id || 'RFC pendiente'}
+              </option>)}
+            </select>
+            <p>La configuración corresponde a la razón social seleccionada.
+              {fiscalFormReady && ` Versión ${facturapiConfig?.version}.`}</p>
+            {(fiscalEmittersError || fiscalConfigurationError) && <p role="alert">
+              No se pudo cargar la configuración fiscal. Vuelve a intentarlo.
+            </p>}
+            {loadedFiscalDraftScope === fiscalDraftScope && facturapiConfig
+              && facturapiForm.version !== facturapiConfig.version && <div role="alert">
+              La configuración cambió. Recárgala y revisa la nueva versión antes de guardar.
+              <Button variant="secondary" onClick={() => {
+                setNewFiscalKey(''); setShowApiKey(false); setFacturapiForm(facturapiConfig);
+                setFiscalSaveMessage(null); setFacturapiTestResult(null);
+              }}>Recargar configuración</Button>
+            </div>}
+            {saveFacturapiMutation.error && <p role="alert">{saveFacturapiMutation.error.message}</p>}
+            {fiscalSaveMessage && <p role="status">{fiscalSaveMessage}</p>}
             {facturapiTestResult && (
               <div
                 style={{
@@ -939,7 +1051,8 @@ export default function IntegrationsHub() {
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(460px, 1fr))', gap: 24 }}>
+            <fieldset disabled={!fiscalFormReady} style={{border:0,padding:0,margin:0}}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 460px), 1fr))', gap: 24 }}>
               {/* Sección 1: Credenciales & Entorno */}
               <div style={{ background: '#ffffff', padding: 24, borderRadius: 16, border: '1.5px solid #e2e8f0', boxShadow: '0 4px 16px -2px rgba(0, 0, 0, 0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
@@ -979,7 +1092,7 @@ export default function IntegrationsHub() {
                       onChange={(e) => setFacturapiForm({ ...facturapiForm, is_enabled: e.target.checked })}
                       style={{ width: 19, height: 19, accentColor: '#7e22ce', cursor: 'pointer' }}
                     />
-                    <span>Habilitar Facturación Electrónica en este Restaurante</span>
+                    <span>Habilitar facturación para esta razón social</span>
                   </label>
                 </div>
 
@@ -989,9 +1102,10 @@ export default function IntegrationsHub() {
                   </label>
                   <select
                     className="premium-select"
-                    value={facturapiForm.environment ?? 'sandbox'}
+                    value={facturapiForm.environment ?? ''}
                     onChange={(e) => setFacturapiForm({ ...facturapiForm, environment: e.target.value })}
                   >
+                    <option value="">Selecciona el ambiente</option>
                     <option value="sandbox">🧪 Sandbox (Ambiente de Pruebas / Sin validez fiscal)</option>
                     <option value="live">🚀 Producción en Vivo (Timbrado Oficial SAT)</option>
                   </select>
@@ -1005,13 +1119,16 @@ export default function IntegrationsHub() {
                     <input
                       type={showApiKey ? 'text' : 'password'}
                       className="premium-input"
-                      placeholder="sk_test_..."
-                      value={facturapiForm.api_key ?? ''}
-                      onChange={(e) => setFacturapiForm({ ...facturapiForm, api_key: e.target.value })}
+                      placeholder="Dejar en blanco conserva la clave"
+                      aria-label="Nueva clave de Facturapi"
+                      autoComplete="new-password"
+                      value={newFiscalKey}
+                      onChange={(e) => setNewFiscalKey(e.target.value)}
                       style={{ paddingRight: 44 }}
                     />
                     <button
                       type="button"
+                      aria-label={showApiKey ? 'Ocultar nueva clave' : 'Mostrar nueva clave'}
                       onClick={() => setShowApiKey(!showApiKey)}
                       style={{
                         position: 'absolute',
@@ -1030,6 +1147,7 @@ export default function IntegrationsHub() {
                       {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </div>
+                  <p style={{fontSize: '0.8125rem'}}>{facturapiConfig?.api_key_configured ? 'Clave configurada' : 'Sin clave configurada'}</p>
                   <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 6, display: 'block' }}>
                     Obtén tu llave secreta en el panel de <a href="https://dashboard.facturapi.io" target="_blank" rel="noreferrer" style={{ color: '#7e22ce', fontWeight: 600 }}>Facturapi Dashboard</a>.
                   </span>
@@ -1099,9 +1217,10 @@ export default function IntegrationsHub() {
                   </label>
                   <select
                     className="premium-select"
-                    value={facturapiForm.organization_tax_system ?? '601'}
+                    value={facturapiForm.organization_tax_system ?? ''}
                     onChange={(e) => setFacturapiForm({ ...facturapiForm, organization_tax_system: e.target.value })}
                   >
+                    <option value="">Selecciona el régimen fiscal</option>
                     <option value="601">601 - General de Ley Personas Morales</option>
                     <option value="612">612 - Personas Físicas con Actividades Empresariales</option>
                     <option value="626">626 - Régimen Simplificado de Confianza (RESICO)</option>
@@ -1136,7 +1255,7 @@ export default function IntegrationsHub() {
                       type="text"
                       className="premium-input"
                       placeholder="F"
-                      value={facturapiForm.series ?? 'F'}
+                      value={facturapiForm.series ?? ''}
                       onChange={(e) => setFacturapiForm({ ...facturapiForm, series: e.target.value.toUpperCase() })}
                     />
                   </div>
@@ -1149,7 +1268,7 @@ export default function IntegrationsHub() {
                       type="text"
                       className="premium-input"
                       placeholder="90101501"
-                      value={facturapiForm.default_product_sat_key ?? '90101501'}
+                      value={facturapiForm.default_product_sat_key ?? ''}
                       onChange={(e) => setFacturapiForm({ ...facturapiForm, default_product_sat_key: e.target.value })}
                     />
                   </div>
@@ -1163,7 +1282,7 @@ export default function IntegrationsHub() {
                     type="text"
                     className="premium-input"
                     placeholder="E48"
-                    value={facturapiForm.default_unit_sat_key ?? 'E48'}
+                    value={facturapiForm.default_unit_sat_key ?? ''}
                     onChange={(e) => setFacturapiForm({ ...facturapiForm, default_unit_sat_key: e.target.value.toUpperCase() })}
                   />
                   <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 6, display: 'block' }}>
@@ -1207,7 +1326,7 @@ export default function IntegrationsHub() {
                   >
                     <input
                       type="checkbox"
-                      checked={facturapiForm.enable_self_invoicing ?? true}
+                      checked={facturapiForm.enable_self_invoicing ?? false}
                       onChange={(e) => setFacturapiForm({ ...facturapiForm, enable_self_invoicing: e.target.checked })}
                       style={{ width: 19, height: 19, accentColor: '#7e22ce', cursor: 'pointer' }}
                     />
@@ -1227,7 +1346,7 @@ export default function IntegrationsHub() {
                       type="text"
                       className="premium-input"
                       placeholder="demo"
-                      value={facturapiForm.self_invoicing_domain ?? 'demo'}
+                      value={facturapiForm.self_invoicing_domain ?? ''}
                       onChange={(e) => setFacturapiForm({ ...facturapiForm, self_invoicing_domain: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
                       style={{ flex: 1 }}
                     />
@@ -1242,8 +1361,9 @@ export default function IntegrationsHub() {
                     <input
                       type="number"
                       className="premium-input"
-                      value={facturapiForm.self_invoicing_days_valid ?? 30}
-                      onChange={(e) => setFacturapiForm({ ...facturapiForm, self_invoicing_days_valid: parseInt(e.target.value) || 30 })}
+                      value={facturapiForm.self_invoicing_days_valid ?? ''}
+                      onChange={(e) => setFacturapiForm({ ...facturapiForm,
+                        self_invoicing_days_valid: e.target.value === '' ? null : Number(e.target.value) })}
                     />
                   </div>
 
@@ -1263,11 +1383,12 @@ export default function IntegrationsHub() {
                 </div>
               </div>
             </div>
+            </fieldset>
           </div>
         )}
 
         {/* Facturapi Invoices Tab */}
-        {selectedProvider === 'FACTURAPI' && activeTab === 'invoices' && (
+        {selectedProvider === 'FACTURAPI' && activeTab === 'invoices' && canReadFiscal && (
           <div style={{ padding: 28 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
@@ -1275,11 +1396,12 @@ export default function IntegrationsHub() {
                   Comprobantes Fiscales Digitales (CFDI 4.0)
                 </h2>
                 <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
-                  Facturas emitidas y timbradas formalmente ante el SAT con sus archivos oficiales XML y PDF.
+                  Consulta el estado de cada comprobante. Los archivos están disponibles cuando se confirma su emisión.
                 </p>
               </div>
             </div>
 
+            {downloadError && <p role="alert">{downloadError}</p>}
             {invoiceList.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '48px 20px', color: '#64748b', background: '#f8fafc', borderRadius: 12 }}>
                 <FileText size={48} style={{ opacity: 0.3, margin: '0 auto 12px' }} />
@@ -1316,21 +1438,28 @@ export default function IntegrationsHub() {
                         <td style={{ fontSize: '0.8125rem' }}>{new Date(inv.created_at).toLocaleString()}</td>
                         <td><strong>${(inv.total_cents / 100).toFixed(2)} {inv.currency}</strong></td>
                         <td>
-                          <Badge variant={inv.status === 'issued' ? 'success' : 'danger'}>
-                            {inv.status === 'issued' ? 'Válida' : 'Cancelada'}
+                          <Badge variant={inv.status === 'issued' ? 'success' : inv.status === 'cancelled' ? 'danger' : 'warning'}>
+                            {{issued:'Válida',cancelled:'Cancelada',pending:'Pendiente',
+                              cancellation_pending:'Cancelación pendiente',rejected:'Rechazada',needs_review:'Revisión requerida'}[inv.status] || 'Estado por verificar'}
                           </Badge>
                         </td>
                         <td>
                           <div style={{ display: 'flex', gap: 8 }}>
                             {inv.pdf_url && (
-                              <a href={inv.pdf_url} target="_blank" rel="noreferrer" className="btn btn-outline btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none', padding: '4px 8px', fontSize: '0.75rem' }}>
+                              <button type="button" aria-label={`Descargar PDF de ${inv.folio_number}`}
+                                onClick={() => downloadFiscalMutation.mutate({id:inv.id,format:'pdf'})}
+                                disabled={downloadFiscalMutation.isPending}
+                                className="btn btn-outline btn-sm" style={{display:'flex',alignItems:'center',gap:4,minHeight:44,padding:'8px 12px'}}>
                                 <Download size={14} /> PDF
-                              </a>
+                              </button>
                             )}
                             {inv.xml_url && (
-                              <a href={inv.xml_url} target="_blank" rel="noreferrer" className="btn btn-outline btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none', padding: '4px 8px', fontSize: '0.75rem' }}>
+                              <button type="button" aria-label={`Descargar XML de ${inv.folio_number}`}
+                                onClick={() => downloadFiscalMutation.mutate({id:inv.id,format:'xml'})}
+                                disabled={downloadFiscalMutation.isPending}
+                                className="btn btn-outline btn-sm" style={{display:'flex',alignItems:'center',gap:4,minHeight:44,padding:'8px 12px'}}>
                                 <Download size={14} /> XML
-                              </a>
+                              </button>
                             )}
                           </div>
                         </td>

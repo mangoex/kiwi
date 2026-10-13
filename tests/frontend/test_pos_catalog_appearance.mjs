@@ -5,6 +5,7 @@ const settings = readFileSync('apps/pos-web/src/features/settings/Settings.tsx',
 const pos = readFileSync('apps/pos-web/src/features/pos/PointOfSale.tsx', 'utf8');
 const css = readFileSync('apps/pos-web/src/App.css', 'utf8');
 const session = readFileSync('apps/pos-web/src/session.ts', 'utf8');
+const apiClient = readFileSync('packages/api-client/src/index.ts', 'utf8');
 
 assert.match(settings, /Apariencia del catálogo/);
 assert.match(settings, /Mostrar iconos e imágenes en grupos y productos/);
@@ -22,8 +23,12 @@ assert.match(session, /gatewaySession[\s\S]*if \(!navigator\.onLine\) return \{\
   'Sin conectividad, la sesión del gateway no intenta consultar la apariencia en la API central');
 assert.match(session, /centralSession\.user\.id === gatewaySession\.user\.id/,
   'La navegación administrativa usa sólo capacidades centrales del mismo usuario');
-assert.match(session, /CENTRAL_APPEARANCE_TIMEOUT_MS[\s\S]*AbortController[\s\S]*signal: centralController\.signal[\s\S]*clearTimeout/,
+assert.match(session, /CENTRAL_APPEARANCE_TIMEOUT_MS[\s\S]*AbortController[\s\S]*fetchOptionalCentralSession<PosSession>\(centralController\.signal\)[\s\S]*clearTimeout/,
   'El overlay central está acotado y no bloquea indefinidamente la continuidad del gateway');
+assert.match(apiClient, /fetchOptionalCentralSession[\s\S]*requestApi\('\/auth\/session', \{signal\}, 'v1', false\)/,
+  'El transporte central propaga la señal de aborto hasta la petición de sesión');
+assert.match(apiClient, /await fetch\([\s\S]*\.\.\.options,[\s\S]*headers/,
+  'La petición HTTP conserva las opciones con la señal de aborto');
 assert.match(pos, /pos-sale-screen--catalog-text/);
 assert.match(pos, /showCatalogVisuals \? getProductIcon/);
 assert.match(pos, /showCatalogVisuals && presentation === 'image'/);

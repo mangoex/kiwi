@@ -13,6 +13,7 @@ Feature: Comprar corporativamente y recibir en cada sucursal
     When crea y aprueba la orden
     Then la orden queda aprobada con sus snapshots y asignaciones
     And no se crea inventario costo historial local ni movimiento de caja
+    And catálogo inactivo local ajeno o total fuera de Numeric(18,6) rechaza sin crear orden
 
   @BDD-SC-670
   Scenario: Recibir parcialmente en un destino
@@ -28,6 +29,8 @@ Feature: Comprar corporativamente y recibir en cada sucursal
     When cada almacén confirma exactamente sus cantidades restantes
     Then cada movimiento conserva su sucursal y almacén
     And la orden queda recibida sin mezclar costos entre destinos
+    And la suma base y costo de destinos coincide exactamente con los targets congelados de la partida
+    And cuatro destinos de un costo mínimo nunca generan costo ni promedio negativo
 
   @BDD-SC-672
   Scenario: Reintento y carrera no duplican recepción
@@ -36,6 +39,10 @@ Feature: Comprar corporativamente y recibir en cada sucursal
     Then el replay devuelve el mismo resultado
     And como máximo una intención confirma dentro del saldo
     And no existe movimiento costo o auditoría duplicada
+    And misma clave con URL de otra orden falla conflicto sin devolver el recurso anterior
+    And campos desconocidos y versión booleana fallan antes de confirmar un comando
+    And una respuesta perdida o recarga conserva la misma clave y cuerpo congelados por actor
+    And un intento incierto impide iniciar otra mutación hasta recuperar su resultado
 
   @BDD-SC-673
   Scenario: Alcance y destino inválidos fallan sin efectos
@@ -60,6 +67,7 @@ Feature: Comprar corporativamente y recibir en cada sucursal
     When un actor corporativo la cancela con motivo
     Then conserva orden líneas asignaciones y auditoría y queda cancelada
     But una orden aprobada o con recepción no se borra ni cancela como borrador
+    And un plan legacy inconsistente bloquea aprobación o recepción sin recalcular historia
 
   @BDD-SC-675
   Scenario: Compras corporativas y de sucursal son acciones distintas
@@ -67,5 +75,7 @@ Feature: Comprar corporativamente y recibir en cada sucursal
     Then elige Compra corporativa o Compra de sucursal
     And la corporativa no muestra caja turno ni una sucursal global de cabecera
     And la de sucursal identifica el contexto activo y conserva las reglas de efectivo
+    And recibir muestra insumo SKU presentación y unidades con cantidad explícita y confirmación
+    And borrar la cantidad no recibe automáticamente todo el pendiente
     And el POS sólo enlaza a Administración sin duplicar el editor corporativo
 ```

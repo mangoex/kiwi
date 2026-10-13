@@ -213,6 +213,7 @@ export async function operationalOrderRequest<T>(
   let response: Response;
   try {
     const headers = new Headers(options.headers);
+    headers.delete('X-Branch-Context');
     if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
     headers.set('Authorization', `Offline ${grant}`);
     response = await fetch(`${config.gatewayUrl}/api/v1/local/order-api${endpoint}`, {

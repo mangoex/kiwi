@@ -70,6 +70,9 @@ def pg_engine():
     )
     assert result.returncode == 0, result.stdout + result.stderr
     with engine.begin() as connection:
+        # Fixture-only cleanup of the entire schema can exceed 15s on Windows under I/O load.
+        # SET LOCAL ends with this transaction; domain statements retain 15s/lock_timeout 10s.
+        connection.execute(sa.text("SET LOCAL statement_timeout = 60000"))
         names = [
             name for name in sa.inspect(connection).get_table_names() if name != "alembic_version"
         ]

@@ -1,16 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Building2, CheckCircle2, PackageCheck, Plus, Trash2, XCircle } from 'lucide-react';
 import { Button, Badge } from '@restaurantos/ui';
-import { fetchApi } from '@restaurantos/api-client';
+import { ApiError, fetchApi } from '@restaurantos/api-client';
+import { useAdminSession } from '../../lib/adminSession';
+import { corporateIntentKey, createCorporateIntent, definitiveCorporateRejection, explicitReceiptQuantity, pendingBaseQuantity, readCorporateIntent, type CorporateIntent } from './corporateIntent';
 import './CorporatePurchaseWorkspace.css';
 
 interface Supplier { id: string; commercial_name: string; }
 interface Presentation { id: string; supplier_id: string; name: string; item_name: string; item_sku: string; last_net_price: number; }
 interface Destination { branch_id: string; branch_name: string; legal_entity_id: string; warehouse_id: string; warehouse_name: string; }
 interface LegalEntity { id: string; name: string; }
-interface Allocation { id: string; branch_id: string; warehouse_id: string; quantity: string; received_quantity: string; pending_quantity: string; }
-interface CorporateLine { id: string; presentation_id: string; quantity: string; allocations: Allocation[]; }
+interface Allocation { id: string; branch_id: string; warehouse_id: string; quantity: string; received_quantity: string; pending_quantity: string; base_quantity: string; received_base_quantity: string; }
+interface CorporateLine { id: string; item_id: string; presentation_id: string; quantity: string; presentation_snapshot: { name: string; item_name?: string; item_sku?: string; base_unit_code?: string; commercial_unit_code?: string; base_unit_id: string; commercial_unit_id: string; }; allocations: Allocation[]; }
 interface CorporateOrder { id: string; legal_entity_id: string; supplier_id: string; folio: string; order_date: string; currency: string; total: string; status: string; version: number; lines: CorporateLine[]; }
 type CorporateOrderSummary = Omit<CorporateOrder, 'lines'>;
 interface Options { legal_entities: LegalEntity[]; destinations: Destination[]; suppliers: Supplier[]; presentations: Presentation[]; }
@@ -24,6 +26,12 @@ const emptyLine = (): DraftLine => ({ id: uid(), presentation_id: '', quantity: 
 const statusLabel: Record<string, string> = { DRAFT: 'Borrador', APPROVED: 'Aprobada', PARTIALLY_RECEIVED: 'Recepción parcial', RECEIVED: 'Recibida', CANCELLED: 'Cancelada' };
 
 export function CorporatePurchaseWorkspace({ canManage }: { canManage: boolean }) {
+  const { session, assertCurrentAuthority } = useAdminSession();
+  const authority = useMemo(() => ({ organization_id: session.organization_id || '', actor_id: session.user.id }), [session.organization_id, session.user.id]);
+  const scope = corporateIntentKey(authority);
+  const [pendingIntent, setPendingIntent] = useState<CorporateIntent | null>(null);
+  const [journalReady, setJournalReady] = useState(false);
+  const inFlight = useRef(false);
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<CorporateOrder | null>(null);
@@ -37,11 +45,22 @@ export function CorporatePurchaseWorkspace({ canManage }: { canManage: boolean }
   const [lines, setLines] = useState<DraftLine[]>([emptyLine()]);
   const [receiptQuantities, setReceiptQuantities] = useState<Record<string, string>>({});
   const [page, setPage] = useState(0);
-  const orders = useQuery<CorporateOrderSummary[]>({ queryKey: ['corporate-purchases', page], queryFn: () => fetchApi(`/corporate-purchases?limit=${PAGE_SIZE + 1}&offset=${page * PAGE_SIZE}`) });
-  const options = useQuery<Options>({ queryKey: ['corporate-purchase-options'], queryFn: () => fetchApi('/corporate-purchases/options') });
+  const orders = useQuery<CorporateOrderSummary[]>({ queryKey: ['corporate-purchases', scope, page], queryFn: () => fetchApi(`/corporate-purchases?limit=${PAGE_SIZE + 1}&offset=${page * PAGE_SIZE}`) });
+  const options = useQuery<Options>({ queryKey: ['corporate-purchase-options', scope], queryFn: () => fetchApi('/corporate-purchases/options') });
   const destinations = useMemo(() => (options.data?.destinations || []).filter(item => item.legal_entity_id === legalEntityId), [options.data, legalEntityId]);
   const visibleOrders = orders.data?.slice(0, PAGE_SIZE) || [];
   const hasNextPage = (orders.data?.length || 0) > PAGE_SIZE;
+  const mutationDisabled = busy || !journalReady || Boolean(pendingIntent);
+  useEffect(() => {
+    const load = () => {
+      try { setPendingIntent(readCorporateIntent(localStorage, authority)); setJournalReady(true); }
+      catch (cause) { setJournalReady(false); setError(cause instanceof Error ? cause.message : 'No se pudo recuperar la operación.'); }
+    };
+    load();
+    const changed = (event: StorageEvent) => { if (event.key === scope || event.key === null) load(); };
+    window.addEventListener('storage', changed);
+    return () => window.removeEventListener('storage', changed);
+  }, [authority, scope]);
 
   const refresh = async (orderId?: string) => {
     await Promise.all([
@@ -62,10 +81,44 @@ export function CorporatePurchaseWorkspace({ canManage }: { canManage: boolean }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible consultar la orden.'); }
   };
   const reset = () => { setLegalEntityId(''); setSupplierId(''); setFolio(''); setNotes(''); setLines([emptyLine()]); setCreating(false); };
-  const createOrder = async () => {
-    if (busy) return;
-    setBusy(true); setError('');
+  const runMutation = async (endpoint?: string, body?: string, recovering = false) => {
+    if (inFlight.current || !canManage || !journalReady) return;
+    inFlight.current = true; setBusy(true); setError('');
     try {
+      assertCurrentAuthority();
+      if (!navigator.locks) throw new Error('No se pudo asegurar la operación. No se envió ningún comando.');
+      const result = await navigator.locks.request(scope, async () => {
+        const stored = readCorporateIntent(localStorage, authority);
+        if (stored && !recovering) { setPendingIntent(stored); throw new Error('Recupera la operación pendiente antes de iniciar otra.'); }
+        if (recovering && !stored) throw new Error('La operación pendiente ya fue resuelta. Actualiza la consulta.');
+        assertCurrentAuthority();
+        const intent = stored || createCorporateIntent(localStorage, authority, endpoint || '', body || '', `corporate:${uid()}`);
+        setPendingIntent(intent);
+        try {
+          const response = await fetchApi<CorporateOrder | { order: CorporateOrder }>(intent.endpoint, { method: 'POST', headers: { 'Idempotency-Key': intent.key }, body: intent.body });
+          const order = 'order' in response ? response.order : response;
+          if (!order.id || !Number.isInteger(order.version)) throw new Error('La respuesta requiere recuperación antes de otra operación.');
+          localStorage.removeItem(scope); setPendingIntent(null);
+          return { order, created: intent.endpoint === '/corporate-purchases' };
+        } catch (cause) {
+          if (cause instanceof ApiError && definitiveCorporateRejection(cause.status, cause.code)) {
+            localStorage.removeItem(scope); setPendingIntent(null);
+          }
+          throw cause;
+        }
+      });
+      if (result.created) reset();
+      setReceiptQuantities({}); setSelected(result.order);
+      try { await refresh(result.order.id); }
+      catch { setError('Operación confirmada. No se pudo actualizar la consulta; vuelve a consultarla.'); }
+    } catch (cause) {
+      setError(cause instanceof TypeError ? 'No se pudo comprobar el resultado. Recupera la operación pendiente.'
+        : cause instanceof Error ? cause.message : 'La operación requiere recuperación.');
+    }
+    finally { inFlight.current = false; setBusy(false); }
+  };
+  const createOrder = async () => {
+    if (mutationDisabled) return;
       const payload = {
         legal_entity_id: legalEntityId, supplier_id: supplierId, folio, order_date: orderDate,
         currency: 'MXN', notes: notes || null,
@@ -78,46 +131,33 @@ export function CorporatePurchaseWorkspace({ canManage }: { canManage: boolean }
           }),
         })),
       };
-      const created = await fetchApi<CorporateOrder>('/corporate-purchases', { method: 'POST', headers: { 'Idempotency-Key': `corporate-create:${uid()}` }, body: JSON.stringify(payload) });
-      reset(); setSelected(created); await refresh();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible crear la orden.'); }
-    finally { setBusy(false); }
+      await runMutation('/corporate-purchases', JSON.stringify(payload));
   };
   const approve = async (order: CorporateOrder) => {
-    setBusy(true); setError('');
-    try {
-      const result = await fetchApi<CorporateOrder>(`/corporate-purchases/${order.id}/approve`, { method: 'POST', headers: { 'Idempotency-Key': `corporate-approve:${uid()}` }, body: JSON.stringify({ expected_version: order.version }) });
-      setSelected(result); await refresh();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible aprobar.'); }
-    finally { setBusy(false); }
+    await runMutation(`/corporate-purchases/${order.id}/approve`, JSON.stringify({ expected_version: order.version }));
   };
   const cancel = async (order: CorporateOrder) => {
     const reason = window.prompt('Motivo obligatorio de cancelación');
     if (!reason) return;
-    setBusy(true); setError('');
-    try {
-      const result = await fetchApi<CorporateOrder>(`/corporate-purchases/${order.id}/cancel`, { method: 'POST', headers: { 'Idempotency-Key': `corporate-cancel:${uid()}` }, body: JSON.stringify({ expected_version: order.version, reason }) });
-      setSelected(result); await refresh();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible cancelar.'); }
-    finally { setBusy(false); }
+    await runMutation(`/corporate-purchases/${order.id}/cancel`, JSON.stringify({ expected_version: order.version, reason }));
   };
-  const receive = async (order: CorporateOrder, allocation: Allocation) => {
-    const quantity = receiptQuantities[allocation.id] || allocation.pending_quantity;
-    setBusy(true); setError('');
+  const receive = async (order: CorporateOrder, line: CorporateLine, allocation: Allocation) => {
     try {
-      const response = await fetchApi<{order: CorporateOrder}>(`/corporate-purchases/${order.id}/receipts`, { method: 'POST', headers: { 'Idempotency-Key': `corporate-receive:${uid()}` }, body: JSON.stringify({ expected_version: order.version, branch_id: allocation.branch_id, warehouse_id: allocation.warehouse_id, received_at: new Date().toISOString().slice(0, 10), lines: [{ allocation_id: allocation.id, quantity }] }) });
-      setReceiptQuantities(current => ({ ...current, [allocation.id]: '' })); setSelected(response.order); await refresh();
+      const quantity = explicitReceiptQuantity(receiptQuantities[allocation.id], allocation.pending_quantity);
+      const destination = options.data?.destinations.find(item => item.branch_id === allocation.branch_id && item.warehouse_id === allocation.warehouse_id);
+      if (!window.confirm(`Confirmar recepción: ${quantity} de ${line.presentation_snapshot.name} (${line.presentation_snapshot.item_name || line.item_id}) en ${destination?.branch_name || allocation.branch_id} · ${destination?.warehouse_name || allocation.warehouse_id}.`)) return;
+      await runMutation(`/corporate-purchases/${order.id}/receipts`, JSON.stringify({ expected_version: order.version, branch_id: allocation.branch_id, warehouse_id: allocation.warehouse_id, received_at: new Date().toISOString().slice(0, 10), lines: [{ allocation_id: allocation.id, quantity }] }));
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible recibir.'); }
-    finally { setBusy(false); }
   };
 
   return <section aria-label="Compras corporativas">
     <div className="corporate-purchase-header">
       <div><h1 className="premium-header-title">Compra corporativa</h1><p className="premium-header-subtitle">Ordena una vez y distribuye la recepción a los almacenes de cada sucursal.</p></div>
-      {canManage && <button className="premium-add-btn" onClick={() => setCreating(value => !value)}><Plus size={18} /> Nueva orden corporativa</button>}
+      {canManage && <button className="premium-add-btn" disabled={mutationDisabled} onClick={() => setCreating(value => !value)}><Plus size={18} /> Nueva orden corporativa</button>}
     </div>
     {error && <p role="alert" style={{ color: '#b91c1c', display: 'flex', gap: 8 }}><AlertCircle size={18} />{error}</p>}
-    {creating && <div className="premium-card" style={{ padding: 24, marginBottom: 24, display: 'grid', gap: 18 }}>
+    {pendingIntent && <div role="status" className="premium-card" style={{ padding: 16, marginBottom: 16 }}><p>Hay una operación pendiente de comprobar. Recupera su resultado antes de iniciar otra.</p>{canManage && <Button variant="primary" disabled={busy || !journalReady} onClick={() => void runMutation(undefined, undefined, true)}>Recuperar operación pendiente</Button>}</div>}
+    {creating && <fieldset disabled={mutationDisabled} className="premium-card" style={{ padding: 24, marginBottom: 24, display: 'grid', gap: 18, minWidth: 0, border: 0 }}>
       <h2 style={{ margin: 0 }}>Nueva orden</h2>
       <div className="corporate-purchase-meta-grid">
         <label className="corporate-purchase-field">Razón social<select className="premium-select" value={legalEntityId} onChange={event => { setLegalEntityId(event.target.value); setLines([emptyLine()]); }}><option value="">Selecciona</option>{options.data?.legal_entities.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -145,16 +185,30 @@ export function CorporatePurchaseWorkspace({ canManage }: { canManage: boolean }
       <div style={{ display: 'flex', gap: 10 }}><Button variant="secondary" onClick={() => setLines(current => [...current, emptyLine()])}><Plus size={15} /> Agregar partida</Button><Button variant="primary" disabled={busy} onClick={() => void createOrder()}>Guardar borrador</Button><Button variant="secondary" onClick={reset}>Cancelar</Button></div>
       <label className="corporate-purchase-field">Notas<input className="premium-input" value={notes} onChange={event => setNotes(event.target.value)} /></label>
       <small>Guardar o aprobar no mueve inventario ni caja. Los efectos nacen al recibir en cada almacén.</small>
-    </div>}
+    </fieldset>}
     <div className="corporate-purchase-master-detail">
       <div className="premium-card"><table className="premium-table"><thead><tr><th>Folio</th><th>Total</th><th>Estado</th></tr></thead><tbody>{visibleOrders.map(order => <tr key={order.id} onClick={() => void selectOrder(order.id)} style={{ cursor: 'pointer' }}><td><strong>{order.folio}</strong></td><td>${order.total}</td><td><Badge variant={order.status === 'RECEIVED' ? 'success' : 'info'}>{statusLabel[order.status] || order.status}</Badge></td></tr>)}</tbody></table>{visibleOrders.length === 0 && <p style={{ padding: 20 }}>No hay órdenes corporativas.</p>}<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12 }}><Button variant="secondary" disabled={page === 0 || orders.isFetching} onClick={() => setPage(current => Math.max(0, current - 1))}>Anterior</Button><small>Página {page + 1}</small><Button variant="secondary" disabled={!hasNextPage || orders.isFetching} onClick={() => setPage(current => current + 1)}>Siguiente</Button></div></div>
       <div className="premium-card" style={{ padding: 22 }}>
         {!selected ? <div className="premium-empty-state"><Building2 size={48} /><h3>Selecciona una orden</h3></div> : <div style={{ display: 'grid', gap: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}><div><h2 style={{ margin: 0 }}>{selected.folio}</h2><small>{statusLabel[selected.status]}</small></div><div style={{ display: 'flex', gap: 8 }}>{canManage && selected.status === 'DRAFT' && <><Button variant="primary" disabled={busy} onClick={() => void approve(selected)}><CheckCircle2 size={16} /> Aprobar</Button><Button variant="secondary" disabled={busy} onClick={() => void cancel(selected)}><XCircle size={16} /> Cancelar</Button></>}</div></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><div><h2 style={{ margin: 0 }}>{selected.folio}</h2><small>{statusLabel[selected.status]}</small></div><div style={{ display: 'flex', gap: 8 }}>{canManage && selected.status === 'DRAFT' && <><Button variant="primary" disabled={mutationDisabled} onClick={() => void approve(selected)}><CheckCircle2 size={16} /> Aprobar</Button><Button variant="secondary" disabled={mutationDisabled} onClick={() => void cancel(selected)}><XCircle size={16} /> Cancelar</Button></>}</div></div>
           {selected.lines.flatMap(line => line.allocations.map(allocation => {
             const destination = options.data?.destinations.find(item => item.branch_id === allocation.branch_id && item.warehouse_id === allocation.warehouse_id);
-            const pending = Number(allocation.pending_quantity);
-            return <div key={allocation.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 14 }}><strong>{destination?.branch_name || allocation.branch_id} · {destination?.warehouse_name || allocation.warehouse_id}</strong><p>Cantidad pendiente: {allocation.pending_quantity}</p>{canManage && pending > 0 && ['APPROVED', 'PARTIALLY_RECEIVED'].includes(selected.status) && <div className="corporate-purchase-receipt-row"><input className="premium-input" inputMode="decimal" aria-label="Cantidad a recibir" value={receiptQuantities[allocation.id] ?? allocation.pending_quantity} onChange={event => setReceiptQuantities(current => ({ ...current, [allocation.id]: event.target.value }))} /><Button variant="primary" disabled={busy} onClick={() => void receive(selected, allocation)}><PackageCheck size={16} /> Recibir</Button></div>}</div>;
+            let hasPending = false;
+            let validQuantity = false;
+            try { explicitReceiptQuantity(allocation.pending_quantity, allocation.pending_quantity); hasPending = true; } catch { /* No positive remainder. */ }
+            try { explicitReceiptQuantity(receiptQuantities[allocation.id], allocation.pending_quantity); validQuantity = true; } catch { /* Capture remains incomplete. */ }
+            const snapshot = line.presentation_snapshot;
+            return <div key={allocation.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 14 }}>
+              <strong>{snapshot.item_name || line.item_id} · {snapshot.item_sku ? `SKU: ${snapshot.item_sku}` : `SKU no conservado · ID del insumo: ${line.item_id}`}</strong>
+              <p>{snapshot.name || line.presentation_id} · Unidad comercial: {snapshot.commercial_unit_code || snapshot.commercial_unit_id} · Unidad base: {snapshot.base_unit_code || snapshot.base_unit_id}</p>
+              <strong>{destination?.branch_name || allocation.branch_id} · {destination?.warehouse_name || allocation.warehouse_id}</strong>
+              <p>Comercial — Ordenado: {allocation.quantity} · Recibido: {allocation.received_quantity} · Cantidad pendiente: {allocation.pending_quantity}</p>
+              <p>Base — Ordenado: {allocation.base_quantity} · Recibido: {allocation.received_base_quantity} · Pendiente: {pendingBaseQuantity(allocation.base_quantity, allocation.received_base_quantity)}</p>
+              {canManage && hasPending && ['APPROVED', 'PARTIALLY_RECEIVED'].includes(selected.status) && <div className="corporate-purchase-receipt-row">
+                <input className="premium-input" inputMode="decimal" aria-label="Cantidad a recibir" disabled={mutationDisabled} value={receiptQuantities[allocation.id] ?? ''} onChange={event => setReceiptQuantities(current => ({ ...current, [allocation.id]: event.target.value }))} />
+                <Button variant="primary" disabled={mutationDisabled || !validQuantity} onClick={() => void receive(selected, line, allocation)}><PackageCheck size={16} /> Recibir</Button>
+              </div>}
+            </div>;
           }))}
           {['APPROVED', 'PARTIALLY_RECEIVED', 'RECEIVED'].includes(selected.status) && <small>Las recepciones confirmadas son inmutables; una corrección requiere compensación autorizada.</small>}
         </div>}

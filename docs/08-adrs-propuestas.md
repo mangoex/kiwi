@@ -435,3 +435,26 @@ Supervisor/Administrador en Dueño o conceder permisos por etiqueta, porque esca
 clonar catálogos por sucursal, porque diverge identidad e historia; permitir cambio offline, porque
 no puede revalidarse; y actualizar directamente `user_roles` desde UI, porque omite locks,
 idempotencia, bloqueadores y auditoría.
+
+## SDD-ADR-043 Aceptada para implementación local — comandos fiscales y evidencia final
+
+La autorización del paquete AUD-2026-10-13 y D02 incorporan facturación directa mediante adaptador,
+limitada a pedidos pagados por completo y no cancelados. FISCAL-001, SDD §62, gobierna permisos
+propios, emisor por razón social, snapshot fiscal exacto, relaciones completas e intenciones
+durables. El worker libera la transacción antes de red y recupera incertidumbre con la misma
+identidad externa. UUID y estados finales necesitan evidencia final, nunca fallback local.
+
+Se descartan emisión síncrona sin intención persistida, permisos heredados de orders.read,
+IVA/datos fiscales inventados, mock implícito ante configuración ausente y cancelación final al
+recibir una mera solicitud pendiente. Son necesarios schema aditivo, recuperación, proyecciones
+sin secretos y pruebas de fallos/concurrencia. No introduce una dependencia crítica nueva: conserva
+Facturapi detrás del adaptador. Sandbox, configuración, migración y emisión productiva requieren
+autorización separada; el contrato especificado aún no acredita los gates runtime F02..F04.
+
+F02 separa el registro organizacional legacy de identidades explícitas por razón social y revisiones
+append-only cifradas con AES-256-GCM, usando `cryptography` ya declarada. AAD liga organización,
+configuración y versión; keyring/clave activa son explícitos, sin fallback a la clave de sesión.
+Documentos nuevos retienen la revisión del emisor; una rotación no cambia su origen histórico.
+Las migraciones no copian claves ni inventan asignaciones para documentos antiguos. Se descarta
+sobrescribir el registro legacy o guardar claves por emisor en texto plano porque rompe identidad,
+historia y separación de secretos. La provisión/rotación productiva conserva autorización separada.

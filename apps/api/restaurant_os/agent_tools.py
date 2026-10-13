@@ -487,7 +487,7 @@ def update_grokbot_identity(
     previous_capability_set = set(identity["capabilities"] or [])
     if not capability_set <= BASELINE_CAPABILITIES[profile]:
         _fail(400, "agent_capability_denied", "Policy cannot expand the profile baseline")
-    current_branch_ids = list(
+    current_branch_ids: list[str] = list(
         session.scalars(
             sa.select(models.external_agent_identity_branches.c.branch_id).where(
                 models.external_agent_identity_branches.c.identity_id == identity["id"]
@@ -499,7 +499,7 @@ def update_grokbot_identity(
         _fail(400, "agent_schema_invalid", "branch_ids must be a string list")
     if len(set(branch_ids)) != len(branch_ids):
         _fail(400, "agent_schema_invalid", "branch_ids must be unique")
-    known = (
+    known: set[str] = (
         set(
             session.scalars(
                 sa.select(models.branches.c.id).where(
@@ -664,14 +664,14 @@ class AgentPrincipal:
 def _principal_from_row(
     session: Session, identity: dict[str, Any], integration: dict[str, Any]
 ) -> AgentPrincipal:
-    branches = frozenset(
-        str(value)
-        for value in session.scalars(
+    branch_rows: list[str] = list(
+        session.scalars(
             sa.select(models.external_agent_identity_branches.c.branch_id).where(
                 models.external_agent_identity_branches.c.identity_id == identity["id"]
             )
         ).all()
     )
+    branches = frozenset(str(value) for value in branch_rows)
     return AgentPrincipal(
         identity_id=str(identity["id"]),
         integration_id=str(integration["id"]),
@@ -2811,7 +2811,7 @@ def create_recipe_proposal(
         _fail(409, "stale_reference", "Active recipe changed")
     item_ids = {component.item_id for component in command.components}
     unit_ids = {component.unit_id for component in command.components} | {command.yield_unit_id}
-    known_items = set(
+    known_items: set[str] = set(
         session.scalars(
             sa.select(models.inventory_items.c.id).where(
                 models.inventory_items.c.organization_id == principal.organization_id,
@@ -2820,7 +2820,7 @@ def create_recipe_proposal(
             )
         ).all()
     )
-    known_units = set(
+    known_units: set[str] = set(
         session.scalars(
             sa.select(models.inventory_units.c.id).where(
                 models.inventory_units.c.organization_id == principal.organization_id,
