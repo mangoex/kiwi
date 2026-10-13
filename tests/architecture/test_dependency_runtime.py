@@ -35,7 +35,13 @@ def test_ci_provisions_and_supplies_both_financial_database_gates():
 def test_required_postgres_evidence_rejects_omitted_or_unexecuted_case(tmp_path, fault):
     collection = tmp_path / "collection.txt"
     report = tmp_path / "report.xml"
-    modules = ["cash_ledger", "purchase_workspace", "operating_expenses", "system_remediation"]
+    modules = [
+        "cash_ledger",
+        "purchase_workspace",
+        "operating_expenses",
+        "system_remediation",
+        "corporate_purchases",
+    ]
     collection.write_text(
         "\n".join(f"apps/api/tests/test_{module}_postgres.py::test_case" for module in modules)
         if fault != "empty_collection"

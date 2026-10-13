@@ -645,8 +645,7 @@ export const ProductsList: React.FC = () => {
           <div className="productos-window-title">
             <Package size={18} />
             <h1 style={{ fontSize: 'inherit', fontWeight: 'inherit', margin: 0 }}>Productos</h1>
-            <div className="productos-window-context" aria-label="Contexto del catálogo de productos">
-              <span className="productos-context-badge corporate">Configuración para todas las sucursales</span>
+            <div className="productos-window-context" aria-label="Contexto de vista previa del catálogo">
               <span className="productos-context-badge preview">Vista previa POS: {session.active_branch.name}</span>
             </div>
           </div>

@@ -10824,6 +10824,8 @@ def _assign_default_role_permissions(
             "recipes.manage",
             "purchases.manage",
             "purchases.read",
+            "purchases.corporate.manage",
+            "purchases.corporate.read",
             "inventory.read",
             "inventory.adjust",
             "inventory.waste",
@@ -10875,6 +10877,8 @@ def _assign_default_role_permissions(
             "recipes.manage",
             "purchases.manage",
             "purchases.read",
+            "purchases.corporate.manage",
+            "purchases.corporate.read",
             "inventory.read",
             "inventory.adjust",
             "inventory.waste",
@@ -10976,6 +10980,8 @@ def _assign_default_role_permissions(
             "recipes.manage",
             "purchases.manage",
             "purchases.read",
+            "purchases.corporate.manage",
+            "purchases.corporate.read",
             "inventory.read",
             "inventory.adjust",
             "inventory.waste",
@@ -20196,11 +20202,22 @@ def list_purchase_presentations(
     result = []
     for row in rows:
         presentation = dict(row)
+        price_history_scope = (
+            sa.or_(
+                models.supplier_price_history.c.branch_id.is_(None),
+                models.supplier_price_history.c.branch_id == branch_id,
+            )
+            if branch_id
+            else sa.true()
+        )
         presentation["price_history"] = [
             dict(item)
             for item in session.execute(
                 sa.select(models.supplier_price_history)
-                .where(models.supplier_price_history.c.presentation_id == row["id"])
+                .where(
+                    models.supplier_price_history.c.presentation_id == row["id"],
+                    price_history_scope,
+                )
                 .order_by(models.supplier_price_history.c.effective_at)
             ).mappings()
         ]
@@ -25356,7 +25373,8 @@ def build_session_profile(
     capability_codes = (
         "pos.operate", "dashboard.read", "admin.manage", "catalog.manage", "recipes.manage",
         "branch.admin.access", "catalog.branch.manage", "branch.staff.read",
-        "purchases.read", "purchases.manage", "production.manage", "inventory.read",
+        "purchases.read", "purchases.manage", "purchases.corporate.read",
+        "purchases.corporate.manage", "production.manage", "inventory.read",
         "inventory.waste", "inventory.transfer.send", "inventory.transfer.receive",
         "inventory.count.capture", "inventory.count.review", "inventory.count.approve",
         "cash.concept.manage", "orders.read", "reports.sales.read",

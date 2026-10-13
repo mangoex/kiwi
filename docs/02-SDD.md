@@ -5591,3 +5591,93 @@ la migración aditiva `0078_grokbot_agent_tools` con la versión anterior aún s
 después se despliega el runtime nuevo conservando ambos flags apagados; al final, en otra autorización,
 se configuran secretos y se habilita el canary. Desplegar el runtime antes de `0078` está prohibido
 porque los modelos y las transiciones humanas ya proyectan provenance/callbacks en el esquema nuevo.
+
+## 60. CORP-PUR-001 — órdenes corporativas y recepción distribuida
+
+**Estado:** implementado y verificado localmente; riesgo R3 por inventario, costo, permisos,
+concurrencia y migración. No autoriza migración ni despliegue productivo.
+
+### 60.1 Límites y autoridad
+
+`corporate_purchase_orders` es un agregado distinto de `purchase_documents`. Una orden pertenece a
+una organización y una razón social, tiene proveedor, folio, moneda, estado y versión. Sus líneas
+congelan presentación, insumo, conversión, precio, descuento e impuesto. Cada línea se distribuye en
+`corporate_purchase_allocations` hacia una sucursal y su único almacén activo; la suma asignada debe
+coincidir exactamente con la cantidad ordenada. La API valida que razón social, proveedor,
+presentación, sucursal y almacén pertenecen a la misma organización, y que la sucursal pertenece a la
+razón social de la orden.
+
+`purchases.corporate.read` y `purchases.corporate.manage` requieren un rol de alcance organización;
+no se satisfacen con un rol local aunque éste administre compras directas. Dueño y Administrador
+corporativo reciben ambos permisos en la migración. Una orden de otra organización nunca es
+consultable ni operable. El backend Python conserva autoridad de cálculo con `Decimal`.
+
+### 60.2 Estado, recepción y costo
+
+Crear persiste `DRAFT`; aprobar bloquea la orden y la lleva a `APPROVED` sin inventario, costo o caja.
+Recibir bloquea orden, asignaciones, almacén e insumos en orden estable, revalida cantidades
+pendientes y crea `corporate_purchase_receipts` con líneas inmutables. Cada línea produce un
+`inventory_movements` `CORPORATE_PURCHASE_RECEIPT` en el destino, actualiza sólo su
+`inventory_cost_states` y agrega historial de precio con organización, sucursal, almacén, orden,
+recepción y línea. La orden queda `PARTIALLY_RECEIVED` mientras haya saldo y `RECEIVED` al agotarlo.
+El costo y cantidad base de cada asignación se prorratean con precisión fija; la última asignación
+absorbe el remanente de costo de la partida. Cada recepción parcial calcula sus acumulados objetivo y
+la recepción final absorbe sus remanentes, de modo que la suma del ledger coincide exactamente con
+el costo y la cantidad base congelados aunque la división decimal no sea finita.
+Una recepción parcial se rechaza con `corporate_purchase_quantity_below_base_precision` antes de
+escribir si su delta base cuantizado es cero o si consumiría todo el delta base dejando cantidad
+comercial pendiente. La recepción total continúa permitida; así una conversión mínima no puede
+producir división por cero ni dejar una asignación imposible de completar.
+
+Los comandos create/approve/receive/cancel usan clave de idempotencia por organización, hash de body
+canónico y resultado durable. Igual clave e igual hash recuperan el mismo resultado; un hash distinto
+falla. PostgreSQL usa locks de fila/advisory para impedir sobrerrecepción concurrente; SQLite prueba
+invariantes funcionales sin acreditar la carrera. Ninguna ruta corporativa acepta caja ni turno.
+
+### 60.3 Reversibilidad y compatibilidad
+
+Cancelar sólo aplica a `DRAFT` sin recepción. Una recepción confirmada no se edita; su corrección
+posterior será un comando compensatorio que referencia movimientos originales y recalcula la
+proyección sin borrarlos. Hasta que ese comando quede implementado, la API no ofrece cancelación de
+recepciones y la UI lo comunica explícitamente. Las compras directas y sus contratos permanecen sin
+cambio; no se reinterpretan como corporativas ni se migran documentos históricos.
+
+La migración 0082 es aditiva y crea tablas, índices, constraints y permisos. El downgrade se niega si
+existe cualquier orden, recepción o comando. No se crea almacén central: los destinos continúan
+siendo los almacenes canónicos de cada sucursal.
+
+### 60.4 Experiencia y operación
+
+Compras abre con dos acciones inequívocas. **Compra corporativa** muestra razón social, proveedor,
+partidas, distribución por sucursal/almacén y progreso de recepción; no muestra una sucursal global
+en la cabecera. **Compra de sucursal** conserva el contexto operativo activo, caja y turno. Las
+pantallas corporativas sin alternativa local omiten el selector de alcance redundante. El POS sólo
+enlaza a Administración y no replica el editor.
+
+`GET /corporate-purchases/options` sirve razones sociales, destinos, proveedores y presentaciones
+activas bajo `purchases.corporate.read`; el cliente corporativo no depende de `purchases.read` ni de
+una sucursal activa. Un actor de sólo lectura puede consultar órdenes y referencias, pero la UI no
+muestra crear, aprobar, cancelar o recibir y el backend vuelve a exigir `purchases.corporate.manage`.
+El lector local `GET /purchase-presentations` limita `price_history` a filas legacy globales
+(`branch_id IS NULL`) y a la sucursal autorizada; sólo un actor organizacional que consulta sin
+alcance local obtiene el historial de todas las sucursales.
+`GET /corporate-purchases` devuelve sólo cabeceras resumidas, orden estable y paginación acotada
+`limit=1..100`, `offset=0..10000`; líneas, asignaciones y recepciones se cargan únicamente mediante
+`GET /corporate-purchases/{id}` al abrir una orden. Esto evita serializar toda la historia y el
+patrón N+1 en la lista administrativa. El cliente solicita una fila centinela adicional y ofrece
+Anterior/Siguiente, por lo que las órdenes abiertas no quedan inaccesibles al superar la primera
+página.
+
+Preguntas operativas:
+
+1. ¿Qué órdenes permanecen aprobadas o parcialmente recibidas y desde cuándo?
+2. ¿Qué destino, cantidad y código estable produjo cada rechazo de recepción, sin texto libre?
+3. ¿Algún replay o carrera intentó duplicar o exceder una asignación?
+4. ¿Coinciden por orden las cantidades asignadas, recibidas y pendientes por almacén?
+
+Eventos auditables: `corporate_purchase.created|approved|received|cancelled`, con IDs, estado,
+versión, destino, cantidades, conteos e IDs de movimientos. El log estructurado
+`corporate_purchase_command` registra sólo operación, resultado `rejected|replay`, ID de orden
+cuando existe y código estable; nunca cuerpos completos, evidencia, notas, precios ni claves de
+idempotencia. Rollback de aplicación deshabilita nuevas órdenes/recepciones y conserva lectura e
+historia. Migración, despliegue, activación y canary productivos requieren autorización separada.

@@ -109,11 +109,13 @@ const AdminLayout = () => {
     '/suppliers',
     '/purchase-presentations',
   ].some((prefix) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`));
-  const isCorporateProductsRoute = location.pathname === '/products'
-    || location.pathname.startsWith('/products/');
-  const showCorporateProductsScope = !branchScopeV2Enabled
-    && session.scope.level === 'organization'
-    && isCorporateProductsRoute;
+  const globalOnlyRoute = [
+    '/catalog', '/products', '/recipes', '/categories', '/variations', '/modifiers',
+    '/ingredient-extras', '/category-priorities', '/recipes/bulk', '/suppliers',
+    '/purchase-presentations', '/purchases',
+  ].some((prefix) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`));
+  const hideRedundantTopbarScope = !isDashboard && globalOnlyRoute
+    && !(branchScopeV2Enabled && configurationRoute);
   const localConfigurationBlocked = branchScopeV2Enabled && configurationRoute && configurationScope.kind === 'branch';
   const changeConfigurationScope = (id:string):boolean => {
     setScopeError('');
@@ -447,7 +449,7 @@ const AdminLayout = () => {
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div className="admin-configuration-scope-control">
+            {!hideRedundantTopbarScope && <div className="admin-configuration-scope-control">
               <Store size={17} />
               {allowDashboardScopeSelection || (!isDashboard && allowConfigurationScopeSelection) ? (
                 <select
@@ -463,15 +465,8 @@ const AdminLayout = () => {
                   <option value="">Todas las sucursales</option>
                   {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
                 </select>
-              ) : showCorporateProductsScope ? (
-                <span
-                  className="admin-configuration-scope-static"
-                  aria-label="Alcance de configuración: todas las sucursales"
-                >
-                  Todas las sucursales
-                </span>
               ) : <span className="admin-active-branch-label">{session.active_branch.name}</span>}
-            </div>
+            </div>}
             <button style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><Bell size={18} /></button>
             {hasCatalogManage && <button type="button" aria-label="Abrir asistente de configuración" title="Asistente de configuración" onClick={() => setIsAssistantOpen(true)} style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><UserRound size={18} /></button>}
             <div 
@@ -487,7 +482,7 @@ const AdminLayout = () => {
         {/* Main Content Area */}
         <div className="admin-content">
           <CategorySubNav />
-          {(isDashboard || branchScopeV2Enabled) && <div className={`configuration-scope-indicator ${isDashboard ? (dashboardBranchId ? 'branch' : 'organization') : configurationScope.kind}`} role="status">
+          {(isDashboard || (branchScopeV2Enabled && configurationRoute)) && <div className={`configuration-scope-indicator ${isDashboard ? (dashboardBranchId ? 'branch' : 'organization') : configurationScope.kind}`} role="status">
             <Store size={18} aria-hidden="true" />
             <div>
               {isDashboard ? <>

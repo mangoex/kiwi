@@ -5773,6 +5773,124 @@ def post_purchase_preview(
     return _workspace_response(lambda: preview_purchase(session, payload, actor))
 
 
+@router.get("/corporate-purchases/options")
+def get_corporate_purchase_options(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.corporate_purchases import corporate_purchase_options
+
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: corporate_purchase_options(session, actor_id))
+
+
+@router.get("/corporate-purchases")
+def get_corporate_purchases(
+    session: SessionDep,
+    limit: int = 50,
+    offset: int = 0,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    from restaurant_os.corporate_purchases import list_corporate_purchase_orders
+
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(
+        lambda: list_corporate_purchase_orders(session, actor_id, limit, offset)
+    )
+
+
+@router.get("/corporate-purchases/{order_id}")
+def get_corporate_purchase(
+    order_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.corporate_purchases import get_corporate_purchase_order
+
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(
+        lambda: get_corporate_purchase_order(session, order_id, actor_id)
+    )
+
+
+@router.post("/corporate-purchases")
+def post_corporate_purchase(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.corporate_purchases import create_corporate_purchase_order
+
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(
+        lambda: create_corporate_purchase_order(
+            session, payload, actor_id, idempotency_key or ""
+        )
+    )
+
+
+@router.post("/corporate-purchases/{order_id}/approve")
+def approve_corporate_purchase(
+    order_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.corporate_purchases import approve_corporate_purchase_order
+
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(
+        lambda: approve_corporate_purchase_order(
+            session, order_id, payload, actor_id, idempotency_key or ""
+        )
+    )
+
+
+@router.post("/corporate-purchases/{order_id}/receipts")
+def receive_corporate_purchase(
+    order_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.corporate_purchases import receive_corporate_purchase_order
+
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(
+        lambda: receive_corporate_purchase_order(
+            session, order_id, payload, actor_id, idempotency_key or ""
+        )
+    )
+
+
+@router.post("/corporate-purchases/{order_id}/cancel")
+def cancel_corporate_purchase(
+    order_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.corporate_purchases import cancel_corporate_purchase_order
+
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(
+        lambda: cancel_corporate_purchase_order(
+            session, order_id, payload, actor_id, idempotency_key or ""
+        )
+    )
+
+
 @router.post("/purchase-presentations/preview")
 def post_presentation_preview(
     payload: dict[str, Any],

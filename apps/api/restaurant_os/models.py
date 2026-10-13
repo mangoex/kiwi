@@ -1022,6 +1022,12 @@ supplier_price_history = sa.Table(
         "effective_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
     sa.Column("recorded_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=True),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=True),
+    sa.Column("warehouse_id", sa.String(36), sa.ForeignKey("warehouses.id"), nullable=True),
+    sa.Column("source_type", sa.String(48), nullable=True),
+    sa.Column("source_id", sa.String(36), nullable=True),
+    sa.Column("source_line_id", sa.String(36), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
 
@@ -1717,6 +1723,172 @@ purchase_documents = sa.Table(
         "AND origin = 'GROKBOT')",
         name="ck_purchase_documents_creator_origin",
     ),
+)
+
+corporate_purchase_orders = sa.Table(
+    "corporate_purchase_orders",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("legal_entity_id", sa.String(36), sa.ForeignKey("legal_entities.id"), nullable=False),
+    sa.Column("supplier_id", sa.String(36), sa.ForeignKey("suppliers.id"), nullable=False),
+    sa.Column("folio", sa.String(80), nullable=False),
+    sa.Column("order_date", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False, server_default="MXN"),
+    sa.Column("subtotal", sa.Numeric(18, 6), nullable=False),
+    sa.Column("discount_total", sa.Numeric(18, 6), nullable=False),
+    sa.Column("tax_total", sa.Numeric(18, 6), nullable=False),
+    sa.Column("total", sa.Numeric(18, 6), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
+    sa.Column("notes", sa.String(600), nullable=True),
+    sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("approved_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("cancelled_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("cancellation_reason", sa.String(400), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "legal_entity_id", "supplier_id", "folio",
+        name="uq_corporate_purchase_order_identity",
+    ),
+    sa.CheckConstraint(
+        "status IN ('DRAFT', 'APPROVED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CANCELLED')",
+        name="ck_corporate_purchase_orders_status",
+    ),
+    sa.CheckConstraint("version >= 1", name="ck_corporate_purchase_orders_version"),
+)
+
+corporate_purchase_order_lines = sa.Table(
+    "corporate_purchase_order_lines",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column(
+        "order_id", sa.String(36), sa.ForeignKey("corporate_purchase_orders.id"), nullable=False
+    ),
+    sa.Column(
+        "presentation_id", sa.String(36), sa.ForeignKey("purchase_presentations.id"), nullable=False
+    ),
+    sa.Column("item_id", sa.String(36), sa.ForeignKey("inventory_items.id"), nullable=False),
+    sa.Column("presentation_snapshot", sa.JSON(), nullable=False),
+    sa.Column("presentation_quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column("base_quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column("unit_price", sa.Numeric(18, 6), nullable=False),
+    sa.Column("discount", sa.Numeric(18, 6), nullable=False),
+    sa.Column("tax", sa.Numeric(18, 6), nullable=False),
+    sa.Column("line_total", sa.Numeric(18, 6), nullable=False),
+    sa.Column("inventory_cost", sa.Numeric(18, 6), nullable=False),
+    sa.Column("cost_per_base_unit", sa.Numeric(18, 6), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+corporate_purchase_allocations = sa.Table(
+    "corporate_purchase_allocations",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column(
+        "order_line_id", sa.String(36), sa.ForeignKey("corporate_purchase_order_lines.id"),
+        nullable=False,
+    ),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("warehouse_id", sa.String(36), sa.ForeignKey("warehouses.id"), nullable=False),
+    sa.Column("presentation_quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column("base_quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column(
+        "received_presentation_quantity",
+        sa.Numeric(18, 6),
+        nullable=False,
+        server_default="0",
+    ),
+    sa.Column("received_base_quantity", sa.Numeric(18, 6), nullable=False, server_default="0"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "order_line_id", "branch_id", "warehouse_id", name="uq_corporate_purchase_allocation"
+    ),
+    sa.CheckConstraint("presentation_quantity > 0", name="ck_corporate_allocation_quantity"),
+    sa.CheckConstraint(
+        "received_presentation_quantity >= 0 AND "
+        "received_presentation_quantity <= presentation_quantity",
+        name="ck_corporate_allocation_received",
+    ),
+)
+
+corporate_purchase_receipts = sa.Table(
+    "corporate_purchase_receipts",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column(
+        "order_id", sa.String(36), sa.ForeignKey("corporate_purchase_orders.id"), nullable=False
+    ),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("warehouse_id", sa.String(36), sa.ForeignKey("warehouses.id"), nullable=False),
+    sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("received_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+corporate_purchase_receipt_lines = sa.Table(
+    "corporate_purchase_receipt_lines",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column(
+        "receipt_id", sa.String(36), sa.ForeignKey("corporate_purchase_receipts.id"), nullable=False
+    ),
+    sa.Column(
+        "allocation_id", sa.String(36), sa.ForeignKey("corporate_purchase_allocations.id"),
+        nullable=False,
+    ),
+    sa.Column("presentation_quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column("base_quantity", sa.Numeric(18, 6), nullable=False),
+    sa.Column("inventory_cost", sa.Numeric(18, 6), nullable=False),
+    sa.Column(
+        "inventory_movement_id", sa.String(36), sa.ForeignKey("inventory_movements.id"),
+        nullable=False,
+    ),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("receipt_id", "allocation_id", name="uq_corporate_receipt_allocation"),
+)
+
+corporate_purchase_commands = sa.Table(
+    "corporate_purchase_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("command_type", sa.String(24), nullable=False),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column(
+        "order_id",
+        sa.String(36),
+        sa.ForeignKey("corporate_purchase_orders.id"),
+        nullable=True,
+    ),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "idempotency_key", name="uq_corporate_purchase_command_org_key"
+    ),
+    sa.CheckConstraint(
+        "command_type IN ('create', 'approve', 'receive', 'cancel')",
+        name="ck_corporate_purchase_commands_type",
+    ),
+)
+
+sa.Index(
+    "ix_corporate_purchase_orders_org_status_updated",
+    corporate_purchase_orders.c.organization_id,
+    corporate_purchase_orders.c.status,
+    corporate_purchase_orders.c.updated_at,
+)
+sa.Index(
+    "ix_corporate_purchase_receipts_order_created",
+    corporate_purchase_receipts.c.order_id,
+    corporate_purchase_receipts.c.created_at,
 )
 
 # PCO-007 reporting indexes mirror migration 0042 for isolated metadata schemas.
