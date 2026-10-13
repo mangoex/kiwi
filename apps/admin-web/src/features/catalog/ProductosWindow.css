@@ -35,6 +35,44 @@
   color: #f8fafc;
 }
 
+.productos-window-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.productos-context-badge {
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.productos-context-badge.corporate {
+  border-color: rgba(110, 231, 183, 0.45);
+  background: rgba(16, 185, 129, 0.18);
+  color: #a7f3d0;
+}
+
+.productos-context-badge.preview {
+  border-color: #334155;
+  background: #1e293b;
+  color: #cbd5e1;
+}
+
+@media (max-width: 1180px) {
+  .productos-window-title {
+    flex-wrap: wrap;
+  }
+
+  .productos-window-context {
+    flex-wrap: wrap;
+  }
+}
+
 .productos-window-controls {
   display: flex;
   gap: 8px;

@@ -348,6 +348,17 @@
   font-weight: 700;
 }
 
+.admin-configuration-scope-static {
+  min-width: 150px;
+  padding: 10px 12px;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #065f46;
+  font-weight: 700;
+  text-align: center;
+}
+
 .admin-configuration-scope-control select:focus-visible {
   outline: 3px solid rgba(16, 185, 129, .24);
   outline-offset: 2px;

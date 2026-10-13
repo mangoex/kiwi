@@ -6,7 +6,9 @@ const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), '
 const adminSession = read('apps/admin-web/src/lib/adminSession.tsx');
 const adminLayout = read('apps/admin-web/src/components/AdminLayout.tsx');
 const overview = read('apps/admin-web/src/features/dashboard/Overview.tsx');
+const productsList = read('apps/admin-web/src/features/catalog/ProductsList.tsx');
 const adminStyles = read('apps/admin-web/src/App.css');
+const productsStyles = read('apps/admin-web/src/features/catalog/ProductosWindow.css');
 const posSession = read('apps/pos-web/src/session.ts');
 const pointOfSale = read('apps/pos-web/src/features/pos/PointOfSale.tsx');
 const settings = read('apps/pos-web/src/features/settings/Settings.tsx');
@@ -28,6 +30,9 @@ assert.match(adminLayout, /VITE_BRANCH_SCOPE_V2_ENABLED\s*===\s*'true'/);
 assert.match(adminLayout, /allowDashboardScopeSelection\s*=\s*isDashboard\s*&&\s*session\.scope\.level\s*===\s*'organization'/);
 assert.match(adminLayout, /allowDashboardScopeSelection\s*\|\|\s*\(!isDashboard\s*&&\s*allowConfigurationScopeSelection\)/);
 assert.match(adminLayout, /<option value="">Todas las sucursales<\/option>/);
+assert.match(adminLayout, /isCorporateProductsRoute/);
+assert.match(adminLayout, /admin-configuration-scope-static/);
+assert.match(adminLayout, /Alcance de configuración: todas las sucursales/);
 assert.match(adminLayout, /Los cambios se aplicarán sólo a/);
 assert.match(adminLayout, /configuration-scope-indicator/);
 assert.match(adminLayout, /configuration-scope-unsupported/);
@@ -40,6 +45,14 @@ assert.match(overview, /new AbortController\(\)/);
 
 assert.match(adminStyles, /\.admin-content\s*\{[^}]*padding:\s*20px 32px 32px/s);
 assert.match(adminStyles, /\.configuration-scope-indicator/);
+assert.match(adminStyles, /\.admin-configuration-scope-static/);
+
+assert.match(productsList, /Configuración para todas las sucursales/);
+assert.match(productsList, /Vista previa POS:/);
+assert.match(productsList, /session\.active_branch\.name/);
+assert.match(productsStyles, /\.productos-window-context/);
+assert.match(productsStyles, /\.productos-context-badge\.corporate/);
+assert.match(productsStyles, /\.productos-context-badge\.preview/);
 
 assert.match(posSession, /allowed_branches:\s*\{/);
 assert.match(posSession, /if \(!confirmWorkspaceNavigation\(\)\) return false/);
