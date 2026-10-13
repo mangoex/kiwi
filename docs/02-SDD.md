@@ -5957,7 +5957,11 @@ emisión/recibo del mismo conjunto mientras su resultado sea pendiente o inciert
 cancelación usan comandos explícitos y relaciones, nunca una nueva clave para repetir el efecto.
 
 La proyección de elegibilidad conserva al menos un pago CONFIRMED del mismo alcance y moneda.
-Su neto, sumando CHARGE y restando REFUND confirmados, debe cubrir el importe vigente. Una
+Su neto, sumando CHARGE y restando REFUND confirmados, debe coincidir exactamente con el importe
+vigente: menor conserva rechazo por pago incompleto; mayor requiere revisión de evidencia antes
+de emisión, recibo o preparación durable. No se factura un total menor al neto cobrado ni se
+modifican fuentes para forzar conciliación. El efectivo entregado y su cambio pertenecen al
+contrato de cobro; no se suman al importe confirmado aplicado al pedido. Una
 corrección APPLIED aporta el importe corregido; la última por applied_at/id gobierna esa proyección.
 Cada compensación debe enlazar un pago original confirmado del pedido y corresponder exactamente
 al delta y moneda de su corrección. Evidencia incompleta/inconsistente requiere revisión antes del

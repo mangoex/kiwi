@@ -274,7 +274,12 @@
         "output/audit-remediation/fiscal-exact-json-transport-regressions.xml",
         "output/audit-remediation/sol-exact-fiscal-json/AUDIT.md",
         "output/audit-remediation/fiscal-exact-json-chunked-current.xml",
-        "output/audit-remediation/fiscal-exact-json-legacy-compatibility.xml"
+        "output/audit-remediation/fiscal-exact-json-legacy-compatibility.xml",
+        "output/audit-remediation/fiscal-net-reconciliation-red.xml",
+        "output/audit-remediation/fiscal-net-reconciliation-current.xml",
+        "output/audit-remediation/fiscal-net-reconciliation-retry.xml",
+        "output/audit-remediation/fiscal-net-traceability.xml",
+        "output/audit-remediation/sol-fiscal-net/AUDIT.md"
       ]
     },
     {
@@ -944,7 +949,8 @@
     "fiscal_eligibility": "independent_one_p1_one_p2_corrected_snapshot_only",
     "fiscal_transport": "independent_json_deadline_and_document_truncation_review_closed",
     "fiscal_command": "preparation audit closed: privacy/atomicity/authority/source-audit/migration refutations and independent PG XML validation; private foundation only",
-    "fiscal_exact_json": "31 initial +11 chunked escape refutations passed; no blockers; memory residual corrected, total process/input/concurrency budget not claimed"
+    "fiscal_exact_json": "31 initial +11 chunked escape refutations passed; no blockers; memory residual corrected, total process/input/concurrency budget not claimed",
+    "fiscal_net_reconciliation": "Independent R3 audit closed without blockers;10 actual cash/valid adjustment refutations green; no new SQL/PG claim"
   },
   "latest_local_evidence": {
     "authority": "9 boundary tests passed; PostgreSQL shared-role barrier passed",
@@ -964,6 +970,7 @@
     "fiscal_transports": "51 permanent JSON/document/TLS transport and download cases passed; 7 issuer response boundary regressions passed, 34 deselected; independent TLS-local 12 passed and document truncation RED then 1 passed; Ruff, focal mypy and diff check green; JSON initial RED 2 failed/1 passed and two mixed attempts (43 passed/1 failed, 2 passed/1 failed) retained; read1, remaining per-read timeout, normal EOF completion and incomplete Content-Length guards corrected; DNS/TCP/TLS before socket and CPU/scheduler hard wall time remain limited; no retry does not prove absence of remote emission; F03 durable reconciliation and exact money pending; no PostgreSQL change/test, CI/PAC/production not run",
     "fiscal_command": "Private prepare_invoice only: 22 preparation + 9 traceability passed; migration/head 14; PostgreSQL 5; eligibility/gateway regressions 20; mandatory verifier gate 21; focal Ruff/mypy green; independent audit closed foundation. Additive 0087 draft, no HTTP/PAC/worker. Exact fiscal concepts/taxes, external recovery and F04 pending. Initial REDs and PG fixture failures retained separately.",
     "plan_integrity_current_attempt": "verificar_plan.py rejects current HEAD 914679c because manifest retains original audit baseline e1422dc. Historical planning guard retained, no relaxation; this attempt is not a green current implementation gate. Current spec links verified independently by test_traceability.",
-    "fiscal_exact_json": "Decimal JSON transport: initial34 directed +17 transport regressions green; chunked35 directed +5 legacy green; independent31 initial +11 chunking refutations green. Same1MiB-control probe: traced peak12584934 before/1154124 after; retains body/finalcopy/input/concurrency residual. RED1 TypeError retained. Ruff/mypy6-source package, traceability9 and diffcheck green. Synthetic fixture provenance/exact hash/path verified. Tax decision requested; concepts/taxes/worker/API/recovery pending; new increment not integrated in main, CI pending."
+    "fiscal_exact_json": "Decimal JSON transport: initial34 directed +17 transport regressions green; chunked35 directed +5 legacy green; independent31 initial +11 chunking refutations green. Same1MiB-control probe: traced peak12584934 before/1154124 after; retains body/finalcopy/input/concurrency residual. RED1 TypeError retained. Ruff/mypy6-source package, traceability9 and diffcheck green. Synthetic fixture provenance/exact hash/path verified. Tax decision requested; concepts/taxes/worker/API/recovery pending; new increment not integrated in main, CI pending.",
+    "fiscal_net_reconciliation": "Net must equal current total.6 negative excess cases across issue/receipt/prepare +3 positive balanced-adjustment cases. Final eligibility/evidence/preparation suite67passed; independent10 green, Ruff/mypy1/traceability9/diff green. RED:6 expected +3 invalid duplicate-payment fixtures; first mixed64passed/6fixture failures retained; independent mixed33passed/6old-fixture failures retained. Confirmed payment uniqueness unchanged; no source writes. Current diff not covered by baseline7366de9 CI run38483537392, still in progress when checked; final SHA CI pending."
   }
 }

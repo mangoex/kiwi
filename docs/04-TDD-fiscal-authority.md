@@ -23,7 +23,11 @@ descarta respuesta tardía y revoca blob; navegador verifica descarga y el estad
 ## TDD-TC-383 Elegibilidad y conservación de dinero
 
 BDD-SC-680: conjunto vacío/duplicado/missing, mezcla branch/emisor/org/moneda, pago parcial,
-PENDING, ausencia de pago, cancelado pagado y compensación confirmada. Comparar conjunto exacto de
+PENDING, ausencia de pago, cancelado pagado y compensación confirmada. Sobrepago de un centavo,
+cargos sucesivos respecto del pago original requieren revisión en emisión,
+recibo y preparación; importe inferior conserva rechazo por pago incompleto. Un pago confirmado y ajustes CHARGE/REFUND cuyo neto
+coincide exactamente con el total son positivos; se conserva la unicidad del pago confirmado. Se comprueban cero llamadas/efectos fiscales y fuentes
+históricas iguales después del rechazo y de commit posterior. Comparar conjunto exacto de
 relaciones y versión fuente. Config ausente/apagada/ambigua y datos fiscales incompletos generan
 rechazo sin PAC. Centavos como 19.99, medio centavo y acumulados no usan float; total de conceptos e
 impuestos conserva el total autorizado. No se acepta IVA ni datos de identidad por fallback.
@@ -202,3 +206,15 @@ ausencia de emisión tras timeout. Una intención durable debe reconciliar esa i
 F03 requiere comando/relaciones/snapshot durable/worker/recuperación y dinero/impuestos exactos;
 el deadline total JSON está revisado y con gate combinado focal verde. F04 requiere estados finales. Ninguna evidencia
 local acredita CI, sandbox externo, migración o comportamiento productivo.
+
+
+Evidencia focal de conciliación del neto (TDD-TC-383): el RED original conserva seis rechazos
+ausentes y tres fixtures incompatibles con unicidad de pago confirmado. La primera repetición
+tuvo 64 verdes y seis fallas de esos fixtures; se corrigió el diseño de la prueba, preservando
+el constraint. La repetición definitiva `fiscal-net-reconciliation-retry.xml` pasó 67 casos:
+seis negativos de sobrepago/cargos sucesivos y tres positivos de ajustes balanceados, más las
+regresiones existentes de elegibilidad/preparación. Diez refutaciones independientes verdes
+incluyen cobro real sintético 9500 con recibido 10000/cambio 500 y REFUND/CHARGE/delta cero.
+`sol-fiscal-net/AUDIT.md` conserva también el intento mixto independiente de 33 verdes/seis
+fixtures antiguos ya cargados. Ruff, mypy focal, nueve enlaces y diff-check verdes. No cambia
+SQL/locks ni activa una nueva afirmación PostgreSQL; CI final, worker/PAC y producción pendientes.
