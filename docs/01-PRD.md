@@ -1200,15 +1200,35 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
 - `PRD-FR-266`: El Administrador debe abrir la configuración de insumos, proveedores,
   presentaciones, recetas, productos y precios con alcance **Todas las sucursales** por defecto. Ese
   alcance representa la definición corporativa heredable por sucursales actuales y futuras, no una
-  copia masiva de filas. La interfaz debe separar el selector del borde superior y del contenido,
-  identificar permanentemente el alcance activo y nunca convertir la primera sucursal disponible en
-  valor predeterminado. Elegir una sucursal exige confirmación explícita con su nombre y mantiene un
-  aviso persistente de “Sólo esta sucursal” hasta abandonar ese alcance. Cancelar conserva el alcance
-  corporativo. Cada escritura envía un alcance discriminado explícito; un payload ausente, ambiguo o
+  copia masiva de filas. Cuando la pantalla sólo permite configuración corporativa no muestra un
+  selector ni una etiqueta redundante de sucursal; el título y el contenido explican el efecto
+  heredable. Sólo una superficie con una excepción local realmente implementada ofrece selector de
+  sucursal. Elegirla exige confirmación explícita con su nombre y mantiene un aviso persistente de
+  “Sólo esta sucursal” hasta abandonar ese alcance. Nunca se convierte la primera sucursal disponible
+  ni `active_branch` en valor predeterminado. Cancelar conserva el alcance corporativo. Cada escritura
+  envía un alcance discriminado explícito; un payload ausente, ambiguo o
   incompatible falla cerrado sin guardar. La identidad central de insumos, proveedores,
   presentaciones y productos no se clona: las diferencias locales se representan únicamente en el
   contrato de excepción/versionado autorizado para cada módulo. Una sucursal sin excepción hereda el
   valor corporativo vigente.
+
+### 4.28 CORP-PUR-001 — compra corporativa distribuida
+
+- `PRD-FR-274`: Dueño y Administrador corporativo con permiso organizacional explícito deben poder
+  crear una orden de compra corporativa para una sola razón social, proveedor y moneda, con una o más
+  partidas y asignaciones exactas hacia almacenes de sucursales activas de esa misma razón social.
+  La orden corporativa es un compromiso de abastecimiento: crearla o aprobarla no recibe inventario,
+  no modifica costos y no retira caja. Cada recepción es parcial o total, identifica una única
+  sucursal y su almacén canónico, no excede lo pendiente y genera movimientos inmutables, costo
+  promedio e historial de precio en ese destino. Reintentos y carreras no pueden duplicar ni
+  sobrerrecibir. Un destino ajeno, inactivo, de otra razón social o cuyo almacén no corresponde se
+  rechaza sin efectos. La orden transita `DRAFT → APPROVED → PARTIALLY_RECEIVED → RECEIVED`; sólo un
+  borrador sin recepciones puede cancelarse. Una corrección posterior conserva originales mediante
+  compensación explícita, nunca edición o borrado. Las compras directas continúan separadas y ligadas
+  a la sucursal activa; efectivo conserva su requisito de caja/turno abierto. El POS no aloja el
+  editor corporativo: puede elegir sucursal para operación y abrir Administración, donde se elige
+  entre **Compra corporativa** y **Compra de sucursal**. No existe almacén central implícito ni se
+  inventan cuentas por pagar, transferencias bancarias o efectos fiscales fuera del documento.
 - `PRD-FR-267`: En el POS, Cajero, Cajero jefe y Líder deben resolver exactamente una sucursal asignada
   y no mostrar ni aceptar un selector. Supervisor, Administrador y Dueño deben poder elegir una sucursal
   activa autorizada cuando posean `pos.branch.select`; la respuesta canónica del servidor determina

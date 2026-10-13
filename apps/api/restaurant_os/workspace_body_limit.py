@@ -20,6 +20,7 @@ class WorkspaceBodyLimitMiddleware:
         )
         workspace_covered = (
             path.startswith("/api/v1/purchases")
+            or path.startswith("/api/v1/corporate-purchases")
             or path.startswith("/api/v1/purchase-presentations")
             or (path.startswith("/api/v1/recipes/") and path.endswith("/preview"))
             or (

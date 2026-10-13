@@ -1,5 +1,7 @@
 """Online confirmation intent; persisted document and cash links identify replays."""
 
+from __future__ import annotations
+
 from collections import Counter
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any

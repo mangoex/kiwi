@@ -19,13 +19,15 @@ concurrentes. Ningún fixture usa datos productivos ni secretos.
 
 ## TDD-TC-348 Scope corporativo explícito
 
-Pruebas puras y API verifican la unión `organization|branch`: Admin inicia en organización; payload
+Pruebas puras y API verifican la unión `organization|branch`: Admin inicia en organización; las rutas
+global-only no muestran selector ni etiqueta redundante y las rutas con excepción muestran el alcance; payload
 ausente, branch en organización, branch faltante, sucursal ajena o módulo sin excepción fallan sin
 escritura; nunca existe fallback a `active_branch` o primera sucursal.
 
 ## TDD-TC-349 Confirmación y señal visual de alcance
 
-Prueba semántica Admin y Playwright verifican selector **Todas las sucursales**, diálogo con nombre,
+Prueba semántica Admin y Playwright verifican ausencia del control en global-only y, donde exista
+excepción local, selector **Todas las sucursales**, diálogo con nombre,
 Cancelar/Escape, foco contenido, banner **Sólo {Sucursal}**, scope de la mutación, separación mínima y
 ausencia de overflow a 1440x900 y 1024x768.
 

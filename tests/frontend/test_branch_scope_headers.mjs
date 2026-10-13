@@ -30,9 +30,9 @@ assert.match(adminLayout, /VITE_BRANCH_SCOPE_V2_ENABLED\s*===\s*'true'/);
 assert.match(adminLayout, /allowDashboardScopeSelection\s*=\s*isDashboard\s*&&\s*session\.scope\.level\s*===\s*'organization'/);
 assert.match(adminLayout, /allowDashboardScopeSelection\s*\|\|\s*\(!isDashboard\s*&&\s*allowConfigurationScopeSelection\)/);
 assert.match(adminLayout, /<option value="">Todas las sucursales<\/option>/);
-assert.match(adminLayout, /isCorporateProductsRoute/);
-assert.match(adminLayout, /admin-configuration-scope-static/);
-assert.match(adminLayout, /Alcance de configuración: todas las sucursales/);
+assert.match(adminLayout, /globalOnlyRoute/);
+assert.match(adminLayout, /hideRedundantTopbarScope/);
+assert.doesNotMatch(adminLayout, /showCorporateProductsScope/);
 assert.match(adminLayout, /Los cambios se aplicarán sólo a/);
 assert.match(adminLayout, /configuration-scope-indicator/);
 assert.match(adminLayout, /configuration-scope-unsupported/);
@@ -47,7 +47,7 @@ assert.match(adminStyles, /\.admin-content\s*\{[^}]*padding:\s*20px 32px 32px/s)
 assert.match(adminStyles, /\.configuration-scope-indicator/);
 assert.match(adminStyles, /\.admin-configuration-scope-static/);
 
-assert.match(productsList, /Configuración para todas las sucursales/);
+assert.doesNotMatch(productsList, /Configuración para todas las sucursales/);
 assert.match(productsList, /Vista previa POS:/);
 assert.match(productsList, /session\.active_branch\.name/);
 assert.match(productsStyles, /\.productos-window-context/);

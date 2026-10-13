@@ -9,6 +9,7 @@ import '../../premium-catalogs.css';
 import { SuggestedPurchasesModal } from './SuggestedPurchasesModal';
 import type { PurchaseCashContextV1 } from '../../../../../packages/contracts/purchase-workspace-v1';
 import { createPurchaseAttempt, isDefinitivePurchaseRejection, purchaseAttemptKey, purchaseMethodLabels, purchaseScopeKey, readPurchaseAttempt, selectedPurchaseRegister, type PurchaseAttempt } from './purchaseConfirmation';
+import { CorporatePurchaseWorkspace } from './CorporatePurchaseWorkspace';
 
 interface Supplier { id: string; commercial_name: string; }
 interface Presentation { id: string; supplier_id: string; supplier_name: string; item_id: string; item_name: string; item_sku: string; name: string; last_net_price: number; base_unit_yield: number; base_unit_code: string; }
@@ -18,10 +19,22 @@ interface InventoryCost { item_id: string; item_name: string; item_sku: string; 
 
 const PurchasesList = () => {
   const { session } = useAdminSession();
-  return <PurchasesWorkspace key={`${session.organization_id}:${session.user.id}:${session.active_branch.id}`} />;
+  const canCorporate = useAdminPermission('purchases.corporate.read');
+  const canCorporateManage = useAdminPermission('purchases.corporate.manage');
+  const canBranch = useAdminPermission('purchases.read');
+  const [mode, setMode] = useState<'corporate' | 'branch'>(canCorporate ? 'corporate' : 'branch');
+  return <>
+    <div role="tablist" aria-label="Tipo de compra" style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
+      {canCorporate && <button type="button" role="tab" aria-selected={mode === 'corporate'} className={mode === 'corporate' ? 'premium-add-btn' : 'premium-action-btn'} onClick={() => setMode('corporate')}>Compra corporativa</button>}
+      {canBranch && <button type="button" role="tab" aria-selected={mode === 'branch'} className={mode === 'branch' ? 'premium-add-btn' : 'premium-action-btn'} onClick={() => setMode('branch')}>Compra de sucursal</button>}
+    </div>
+    {mode === 'corporate'
+      ? <CorporatePurchaseWorkspace canManage={canCorporateManage} />
+      : <BranchPurchaseWorkspace key={`${session.organization_id}:${session.user.id}:${session.active_branch.id}`} />}
+  </>;
 };
 
-const PurchasesWorkspace = () => {
+const BranchPurchaseWorkspace = () => {
   const {session:canonicalSession} = useAdminSession();
   const authority = { organization_id: canonicalSession.organization_id || '', actor_id: canonicalSession.user.id, branch_id: canonicalSession.active_branch.id };
   const scope = purchaseScopeKey(authority);
@@ -127,7 +140,8 @@ const PurchasesWorkspace = () => {
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
-          <h1 className="premium-header-title">Compras directas</h1>
+          <p style={{ margin: '0 0 4px', color: '#64748b', fontWeight: 700 }}>Sucursal: {canonicalSession.active_branch.name}</p>
+          <h1 className="premium-header-title">Compra de sucursal</h1>
           <p className="premium-header-subtitle">Recepciones, retiro de caja y costo promedio conciliados.</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>

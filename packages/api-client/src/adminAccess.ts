@@ -21,7 +21,7 @@ const routeRules: Record<string, string[][]> = {
   '/inventory/thresholds': [['catalog.manage']], '/production': [['production.manage']],
   '/inventory/waste': [['inventory.read']], '/inventory/transfers': [['inventory.read']],
   '/inventory/counts': [['inventory.count.capture'], ['inventory.count.review']],
-  '/purchases': [['purchases.read']], '/suppliers': [['purchases.read']],
+  '/purchases': [['purchases.read'], ['purchases.corporate.read']], '/suppliers': [['purchases.read']],
   '/expenses': [['expenses.read']], '/expense-concepts': [['expense.concept.read']],
   '/purchase-presentations': [['purchases.read']],
   '/branches': [['admin.manage']], '/drivers': [['admin.manage']], '/integrations': [['admin.manage']],

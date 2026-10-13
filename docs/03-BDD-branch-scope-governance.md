@@ -12,7 +12,8 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
     Given un actor con permiso corporativo para configurar el módulo solicitado
     When abre Insumos, Proveedores, Presentaciones, Recetas, Productos o Precios
     Then configuration_scope es organization con branch_id nulo
-    And el selector muestra Todas las sucursales
+    And si el módulo sólo admite configuración corporativa no muestra selector ni etiqueta de sucursal
+    But si admite excepciones locales el selector muestra Todas las sucursales
     And active_branch, la primera sucursal y localStorage no sustituyen ese alcance
 
   @PRD-FR-266
@@ -148,7 +149,7 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
   @PRD-FR-266
   @BDD-SC-644
   Scenario: El selector mantiene separación y accesibilidad
-    Given Admin se muestra a 1440x900 o 1024x768
+    Given un módulo con excepción local se muestra a 1440x900 o 1024x768
     When el usuario navega por teclado al selector de alcance
     Then existe separación visible respecto del borde superior y del contenido
     And foco etiqueta estado y diálogo son perceptibles sin solapamiento
