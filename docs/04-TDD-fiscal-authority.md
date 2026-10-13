@@ -41,6 +41,22 @@ respuesta perdida y reinicio. FakePAC guarda clave/ref remota; inyectar caída a
 y antes/después de commit. Resultado desconocido permanece recuperable; nuevo key no evade la
 reserva del pedido. Comparar una intención, outbox/inbox coherentes y una identidad externa.
 
+Preparación incremental de TDD-TC-384: `test_fiscal_command_preparation.py` exige confirmación
+atómica de comando/vínculos/reservas/outbox, snapshot cifrado, replay con las fuentes cambiadas,
+receptor explícito, clave estricta, conflicto de otro payload/clave y rollback ante fallo de audit.
+RED inicial: falta `prepare_invoice`; no llega al proveedor. Las pruebas del núcleo no acreditan
+HTTP/worker, payload con impuestos ni recuperación externa; esos recorridos siguen pendientes.
+
+Evidencia local de este incremento privado, sobre baseline publicada `914679c`: 22 casos de
+preparación y 9 de trazabilidad verdes (`fiscal-command-sqlite-final.xml`); 14 de migración/head,
+5 PostgreSQL de concurrencia/autoridad/FK-audit, 20 regresiones de elegibilidad/gateway y 21 del
+gate de evidencia verdes. Los XML residen en `output/audit-remediation/`. El RED de error SQLAlchemy
+se conserva en `fiscal-command-error-red.xml`: propagaba parámetros privados; el caso verde exige
+error de negocio sanitizado, contexto suprimido y rollback completo. La auditoría independiente
+registra las refutaciones y los fallos anteriores en `sol-fiscal-intents/AUDIT.md`.
+CI del paquete anterior PR68 está verde; este incremento 0087 no está integrado en main ni cubierto por
+esa ejecución. No acredita envío al PAC, worker, impuestos ni migración productiva.
+
 ## TDD-TC-385 Proyección monotónica de emisión y cancelación
 
 BDD-SC-682: pending/verifying sin UUID, valid con/sin UUID, rejected/desconocida, cancelación
@@ -63,6 +79,20 @@ pagados, intención incierta recuperable por cuenta, doble clic/tabs, reload y r
 Estados pendientes no muestran UUID/enlace final ni permiten nueva emisión. Descargas pasan por
 API autenticada. BDD-SC-680 verifica petición estricta y conserva importes/versiones, sin cálculo
 fiscal paralelo en JavaScript. Typecheck, prueba semántica y navegador dirigidos al flujo afectado.
+
+Transporte exacto de TDD-TC-383: `test_fiscal_exact_json.py` inspecciona bytes POST reales en
+loopback, decodificados con Decimal: 19.99, seis decimales, tasa y centavos altos conservan valor
+y tipo numérico aun con contexto Decimal de baja precisión. Prueba invoice/receipt, Unicode y
+strings que parecen JSON, y rechaza entrada inválida antes de red sin exponer payload. Los
+límites de profundidad, cifra/exponente y cuerpo son límites técnicos del serializador; no
+definen catálogo SAT ni tratamientos fiscales. La cobertura del cálculo/worker sigue pendiente. RED inicial: 1 TypeError al serializar Decimal;
+Primera implementación: 34 casos dirigidos y 17 regresiones JSON/TLS/documento verdes.
+Tras la refutación de amplificación de strings se usa escape por bloques: 35 casos dirigidos
+verdes, incluido escape idéntico al estándar en fronteras Unicode/control; cinco legacy verdes. Ruff, mypy de dos fuentes y
+9 enlaces de trazabilidad verdes; auditoría independiente en
+`output/audit-remediation/sol-exact-fiscal-json/AUDIT.md`. La clave literal del test es sintética,
+identificada por provenance y hash/ruta exactos en el mecanismo SEC001 existente; no se altera
+el scanner ni se excluyen pruebas. No acredita cálculo fiscal, PAC ni CI del nuevo incremento.
 
 Las pruebas legacy `test_facturapi_integration.py` no acreditan este contrato. F02..F04 implementan
 los casos progresivamente; los archivos y gates todavía no ejecutados permanecen pendientes.

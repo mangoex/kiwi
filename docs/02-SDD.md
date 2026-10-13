@@ -5972,6 +5972,15 @@ descuentos, moneda, tratamiento por concepto, tasa/exención y si los importes i
 No se presume IVA 16%. Si el snapshot comercial no contiene información fiscal suficiente, se
 requiere configuración explícita y se identifica su versión/fuente; la ausencia falla cerrada.
 El adaptador serializa decimales exactos como números JSON válidos sin convertirlos a float.
+El transporte admite `Decimal` finito de hasta 128 dígitos y exponente entre -128 y 128,
+sin depender de la precisión global de Decimal. El escape de strings usa bloques de 4096 caracteres
+y comprueba el acumulado UTF-8 antes de ampliar el cuerpo; no materializa toda la expansión de una
+cadena antes del rechazo. El límite del cuerpo no incluye la memoria de entrada ni de Python.
+Conserva strings como strings y no interpola
+fragmentos JSON. Rechaza ciclos, claves no textuales, tipos desconocidos, números no finitos,
+profundidad superior a 64 y cuerpos mayores de 32 MiB antes de abrir la conexión; el error público
+es `fiscal_provider_payload_invalid`, sin contenido. Los floats finitos legacy siguen serializando
+como antes: esta compatibilidad de transporte no acredita cálculo fiscal exacto del flujo antiguo.
 La suma del total fiscal debe conservar el total autorizado; diferencias de redondeo se resuelven
 de forma determinista por concepto y quedan en el snapshot, sin alterar el pedido original.
 
@@ -5985,6 +5994,35 @@ original sensibles se cifran; auditoría conserva IDs/códigos/estado sin RFC ni
 `fiscal_command_orders` y `cfdi_invoice_orders` enlazan todos los pedidos y versiones, no sólo el
 campo compatible order_id. Unique por organización/actor/operación/key impide duplicar intención.
 Mismo key con otro payload falla; replay reautoriza antes de devolver el resultado.
+
+Primer incremento de persistencia F03: `prepare_invoice` conserva en una transacción comando,
+snapshot de pago/receptor cifrado, vínculos de todos los pedidos, reservas activas y outbox de
+preparación. Gobierno y fila física de organización, actor, sucursal/emisor y pedidos se bloquean antes de
+capturar evidencia; la confirmación incluye auditoría mínima. La clave se acota a 128 caracteres
+ASCII visibles; el hash canónico incluye actor/organización/operación/sucursal, IDs ordenados y
+receptor explícito. Un replay autorizado conserva el snapshot y la revisión del emisor originales,
+aunque cambien las fuentes. Otra clave no elude una reserva activa; no impone exclusividad fiscal
+perpetua. La revisión aditiva 0087 conserva las tablas previas y bloquea downgrade con intenciones.
+
+Este snapshot inicial no es un payload enviable: `dispatch_ready=false` y el outbox identifica
+`fiscal.issue.prepare`; falta materializar conceptos/impuestos exactos antes de habilitar dispatch.
+No se conecta aún a rutas HTTP ni al PAC. El constraint del snapshot de pago sólo admite readiness
+falsa y su lector sólo proyecta pending; otro estado/readiness sin evidencia final requiere revisión.
+Una materialización fiscal completa deberá versionar ese contrato antes de permitir dispatch.
+No se infiere IVA/receptor ni se fabrica una factura.
+AES-GCM liga el snapshot a actor/scope/comando/revisión del emisor; se verifica antes del replay.
+El sobre conserva el límite de 64 KiB del lector cifrado; un snapshot mayor rechaza antes de guardar.
+Preguntas operativas: ¿se confirmó la intención completa? Command ID/estado/conteo de vínculos y
+audit `invoicing.command.prepared`. ¿otro intento repite o cambia el efecto? Audit de replay y
+códigos `fiscal_idempotency_conflict`/`fiscal_order_reserved`, sin clave/receptor/payload en logs.
+La proyección de replay comprueba además vínculos/reservas/outbox íntegros; una reserva perdida
+no permite otra clave mientras exista un vínculo a una intención activa. Las identidades usan
+`FOR NO KEY UPDATE` en PostgreSQL para bloquear cambios de autoridad sin bloquear FK KEY SHARE
+de un writer financiero que ya tomó el pedido y necesita auditar antes de confirmar. Los locks
+fuente del snapshot mantienen su contrato existente. Replay toma también el lock físico de
+organización compartido por desactivación de sucursal y la fila branch antes de autorizar.
+Un fallo SQLAlchemy revierte la preparación y devuelve `fiscal_persistence_unavailable` sin
+exponer statement, parámetros, clave de idempotencia ni ciphertext en la excepción pública.
 
 Worker reclama en una transacción corta, libera locks antes de red y confirma evidencia en una
 transacción nueva. Error de transporte después de enviar implica `unknown`, nunca rechazo definitivo.

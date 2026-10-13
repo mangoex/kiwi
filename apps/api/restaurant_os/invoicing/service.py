@@ -42,6 +42,19 @@ logger = logging.getLogger(__name__)
 class InvoicingService:
     """Orchestrator for Mexican electronic invoicing CFDI 4.0 via Facturapi."""
 
+    def prepare_invoice(
+        self, session: Session, org_id: str, branch_id: str | None,
+        order_ids: Any, receptor: Any, *, actor_user_id: str,
+        idempotency_key: Any, branch_context: str | None = None,
+    ) -> dict[str, Any]:
+        """Durable preparation only; HTTP issue/dispatch is a subsequent F03 increment."""
+        from .commands import prepare_issue
+
+        return prepare_issue(
+            session, org_id, branch_id, order_ids, receptor, actor=actor_user_id,
+            idempotency_key=idempotency_key, branch_context=branch_context,
+        )
+
     def get_client(
         self, session: Session, organization_id: str, configuration: dict[str, Any] | None = None
     ) -> FacturapiClient:

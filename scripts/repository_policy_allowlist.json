@@ -194,6 +194,11 @@
       "path": "tests/browser/test_fiscal_artifacts.mjs",
       "sha256": "f17646426eb3ecfc3db0c4bc33e59969cb1ac9c60e973128066229fad6396fdc",
       "provenance": "restaurantos-fiscal-artifacts-browser-v1"
+    },
+    {
+      "path": "apps/api/tests/test_fiscal_exact_json.py",
+      "sha256": "ab2afced8d0b48b36ba8ba7378ee0c1ac459d5a40fd9783bc8e80b1752efdbd2",
+      "provenance": "restaurantos-fiscal-exact-json-tests-v1"
     }
   ]
 }

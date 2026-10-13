@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 
 from restaurant_os.expense_schema_v1 import tables as expense_tables
+from restaurant_os.fiscal_command_schema import ORDER_SCOPE_INDEX
+from restaurant_os.fiscal_command_schema import tables as fiscal_command_tables
 from restaurant_os.fiscal_emitter_schema import LEGAL_ENTITY_INDEX
 from restaurant_os.fiscal_emitter_schema import tables as fiscal_emitter_tables
 
@@ -3753,6 +3755,11 @@ cfdi_invoices = sa.Table(
         "(emitter_configuration_id IS NOT NULL AND emitter_configuration_version IS NOT NULL)",
         name="ck_cfdi_emitter_reference_complete",
     ),
+)
+
+sa.Index(ORDER_SCOPE_INDEX, orders.c.id, orders.c.organization_id, orders.c.branch_id, unique=True)
+fiscal_commands, fiscal_command_orders, fiscal_order_reservations, fiscal_command_outbox = (
+    fiscal_command_tables(metadata)
 )
 
 customer_feedbacks = sa.Table(
