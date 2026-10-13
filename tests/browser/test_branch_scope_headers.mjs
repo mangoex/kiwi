@@ -108,7 +108,14 @@ try {
     await admin.getByRole('button', { name: 'Productos', exact: true }).click();
     if (!expectV2Enabled) {
       assert.equal(await admin.getByLabel('Alcance de configuración').count(), 0);
-      await admin.locator('.admin-active-branch-label').getByText('Centro', { exact: true }).waitFor();
+      await admin.locator('.admin-configuration-scope-static').getByText('Todas las sucursales', { exact: true }).waitFor();
+      await admin.locator('.productos-context-badge.corporate').getByText('Configuración para todas las sucursales', { exact: true }).waitFor();
+      await admin.locator('.productos-context-badge.preview').getByText('Vista previa POS: Centro', { exact: true }).waitFor();
+      assert.equal(
+        await admin.locator('.admin-active-branch-label').getByText('Centro', { exact: true }).count(),
+        0,
+        'Products must not present the preview branch as its configuration scope',
+      );
       await admin.screenshot({ path: `${output}/admin-default-off-${label}.png`, fullPage: true });
       await admin.close();
 

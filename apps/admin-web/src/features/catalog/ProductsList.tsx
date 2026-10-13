@@ -1,4 +1,5 @@
-import { getSessionUser } from '../../lib/branchContext';
+import { getSessionUser, resolveBranchId } from '../../lib/branchContext';
+import { useAdminSession } from '../../lib/adminSession';
 import { classificationLabel, type ClassificationCode } from './catalogClassification';
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -40,7 +41,6 @@ import {
 } from './ProductTaxonomyQuickCreateModal';
 import { FastTabDrawer } from '../../components/FastTabDrawer';
 import CapsuleTabs from '../../components/ui/CapsuleTabs';
-import { resolveBranchId } from '../../lib/branchContext';
 import { RecipeManager, type RecipeWorkspaceItem } from './RecipeManager';
 
 export const formatMoney = (cents: number | null | undefined): string => {
@@ -156,6 +156,7 @@ type ProductConfigurationTab = (typeof PRODUCT_CONFIGURATION_TABS)[number]['valu
 
 export const ProductsList: React.FC = () => {
   const queryClient = useQueryClient();
+  const { session } = useAdminSession();
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get('search') || '';
 
@@ -644,9 +645,10 @@ export const ProductsList: React.FC = () => {
           <div className="productos-window-title">
             <Package size={18} />
             <h1 style={{ fontSize: 'inherit', fontWeight: 'inherit', margin: 0 }}>Productos</h1>
-            <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: '#94a3b8', marginLeft: 8 }}>
-              Catálogo corporativo · la sucursal se usa sólo para previsualizar POS
-            </span>
+            <div className="productos-window-context" aria-label="Contexto del catálogo de productos">
+              <span className="productos-context-badge corporate">Configuración para todas las sucursales</span>
+              <span className="productos-context-badge preview">Vista previa POS: {session.active_branch.name}</span>
+            </div>
           </div>
           <div className="productos-window-controls">
             <button type="button" className="productos-win-btn" title="Minimizar">_</button>
