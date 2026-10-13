@@ -85,7 +85,7 @@ def _alembic(url: str, *arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _reset_and_upgrade(url: str) -> sa.Engine:
+def _reset_and_upgrade(url: str, revision: str = "head") -> sa.Engine:
     reset_engine = create_engine(url, future=True)
     try:
         with reset_engine.begin() as connection:
@@ -93,7 +93,7 @@ def _reset_and_upgrade(url: str) -> sa.Engine:
             connection.execute(sa.text("CREATE SCHEMA public"))
     finally:
         reset_engine.dispose()
-    upgraded = _alembic(url, "upgrade", "0055_admin_ai_proposals")
+    upgraded = _alembic(url, "upgrade", revision)
     assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
     return create_engine(url, future=True, pool_pre_ping=True)
 
@@ -223,7 +223,7 @@ def test_tdd_tc_203_postgres_different_keys_have_one_winner() -> None:
 
 def test_tdd_tc_203_postgres_migration_roundtrip_and_history_guard() -> None:
     url = _postgres_url()
-    engine = _reset_and_upgrade(url)
+    engine = _reset_and_upgrade(url, "0055_admin_ai_proposals")
     engine.dispose()
 
     downgraded = _alembic(url, "downgrade", "0054_seed_standard_cash_movement_concepts")

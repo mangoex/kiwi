@@ -77,6 +77,34 @@ def _sqlite_engine() -> sa.Engine:
     return engine
 
 
+def test_signed_seed_preserves_explicit_user_authorization_version() -> None:
+    source_engine, source, catalog, _ = _bundle_source()
+    target = _sqlite_engine()
+    snapshot = None
+    try:
+        source.execute(
+            models.users.update().where(models.users.c.id == ACTOR).values(authorization_version=7)
+        )
+        source.commit()
+        seed = build_operational_seed(
+            source, organization_id=ORG_ID, branch_id=BRANCH_A, actor_ids=[ACTOR]
+        )
+        actor = next(row for row in seed["tables"]["users"] if row["id"] == ACTOR)
+        assert actor["authorization_version"] == 7
+        snapshot = hydrate_catalog_snapshot(
+            target, manifest=_manifest(), catalog=catalog, operational_seed=seed
+        )
+        assert snapshot.scalar(
+            sa.select(models.users.c.authorization_version).where(models.users.c.id == ACTOR)
+        ) == 7
+    finally:
+        if snapshot is not None:
+            snapshot.close()
+        target.dispose()
+        source.close()
+        source_engine.dispose()
+
+
 def test_bundle_hydrates_exact_catalog_and_replays_domain_against_frozen_values() -> None:
     source_engine, operational, catalog, seed = _bundle_source()
     catalog_engine = _sqlite_engine()

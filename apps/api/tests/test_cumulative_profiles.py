@@ -179,7 +179,13 @@ def test_owner_assignment_requires_persisted_authority_and_role_updates_are_addi
                 owner_role_id,
                 actor_user_id="018f6f73-2d0a-74f0-8f1c-000000001021",
             )
-        assert cross_organization_assignment.value.code == "role_organization_mismatch"
+        assert cross_organization_assignment.value.code == "user_not_found"
+        assert session.execute(
+            models.user_roles.select().where(
+                models.user_roles.c.user_id == "018f6f73-2d0a-74f0-8f1c-000000001025",
+                models.user_roles.c.role_id == owner_role_id,
+            )
+        ).first() is None
 
         session.execute(
             models.user_roles.delete().where(

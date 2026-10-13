@@ -3447,6 +3447,11 @@ trabajo; el comportamiento online por defecto conserva su commit actual.
 
 ### 47.2 Catálogo congelado y ejecución determinista
 
+La captura selecciona explícitamente las columnas del contrato de cada tabla del bundle;
+en particular conserva `users.authorization_version` aunque las lecturas implícitas de usuarios
+la omitan por compatibilidad de expansión. No sintetiza una versión 1 durante la hidratación.
+La semilla sigue sin transportar credenciales y el lector conserva el rechazo de filas incompletas.
+
 La API emite y conserva un bundle inmutable, versionado y limitado a la sucursal/dispositivo:
 productos y disponibilidad, categorías, precios, modificadores, recetas/componentes/unidades,
 composiciones de combos y costos canónicos. Su manifiesto incluye schema version, hash, emisión y

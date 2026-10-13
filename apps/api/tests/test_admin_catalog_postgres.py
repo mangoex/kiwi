@@ -81,7 +81,7 @@ def _downgrade(url: str, revision: str) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def _engine() -> sa.Engine:
+def _engine(revision: str = "head") -> sa.Engine:
     url = _postgres_url()
     reset = create_engine(url, future=True)
     try:
@@ -90,7 +90,7 @@ def _engine() -> sa.Engine:
             connection.execute(sa.text("CREATE SCHEMA public"))
     finally:
         reset.dispose()
-    _alembic(url, "head")
+    _alembic(url, revision)
     engine = create_engine(url, future=True)
     with engine.begin() as connection:
         tables = connection.execute(
@@ -124,7 +124,7 @@ def test_postgres_url_guard_rejects_driver_query_override(monkeypatch: pytest.Mo
 
 def test_admin_catalog_migration_downgrade_preserves_canonical_recipes() -> None:
     url = _postgres_url()
-    engine = _engine()
+    engine = _engine("0065_admin_catalog")
     try:
         _seed(engine)
         with Session(engine) as session:

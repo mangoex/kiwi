@@ -12,7 +12,7 @@
     },
     {
       "path": "apps/api/tests/test_admin_ai_postgres.py",
-      "sha256": "8be4f89bf23329799ccd1c1c1570498e2e33aaca1de94336809ea5651534fad6",
+      "sha256": "1f452679b9500ed4f4cc10ec293b91e162ed8a02d6425dc55df73abcf5bf340f",
       "provenance": "restaurantos-admin-ai-postgres-tests-v1"
     },
     {

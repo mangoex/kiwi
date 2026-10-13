@@ -20,6 +20,15 @@ bundle original. Probar producto local ajeno, unidades/costos exactos, extras/co
 multidestación y componentes de igual nombre. Rechazar hash/schema/firma alterados; no aceptar
 filas/saldos/precios del payload cliente. Inventario deriva de movimientos y snapshots.
 
+Regresión de publicación 2026-10-13: la selección implícita omitía
+`users.authorization_version` y rechazaba su propio bundle al hidratar. RED real:
+`test_gateway_runtime_hydrates_signed_bundle_and_preserves_it_on_restart` rechaza fila incompleta;
+`test_signed_seed_preserves_explicit_user_authorization_version` falla por columna ausente.
+Seleccionar columnas explícitas conserva la versión 7 en captura/hidratación. Suites focales
+`test_offline_order_catalog.py` y `test_gateway_order_runtime.py`: 10 verdes en 15.94 s.
+Evidencia local: `output/audit-remediation/publication-gateway-green.xml`; los dos RED se conservan.
+La auditoría independiente y el E2E real se registran en el cierre de publicación; no inferir CI verde.
+
 ### TDD-TC-251 Ciclo operacional y autoridad
 
 Crear/aceptar POS una vez, preparar, pagar, entregar, editar/cancelar con sus guardas actuales.

@@ -10,7 +10,8 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 from alembic.config import Config
-from restaurant_os.operations import build_session_profile
+from restaurant_os.config import get_settings
+from restaurant_os.operations import BusinessError, build_session_profile
 from sqlalchemy.orm import Session
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -120,13 +121,25 @@ def test_pos_branch_selection_migration_roundtrip_and_history_guard(tmp_path: Pa
 
     engine = sa.create_engine(env["RESTAURANTOS_DATABASE_URL"])
     try:
-        with Session(engine) as session:
-            profile = build_session_profile(
-                session, "018f6f73-2d0a-74f0-8f1c-000000000006"
-            )
-        assert profile["scope"]["authorization_version"] == 3
-        assert profile["scope"]["can_select_branch"] is True
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setenv("RESTAURANTOS_BRANCH_SCOPE_V2_ENABLED", "false")
+            get_settings.cache_clear()
+            with Session(engine) as session:
+                profile = build_session_profile(
+                    session, "018f6f73-2d0a-74f0-8f1c-000000000006"
+                )
+            assert profile["scope"]["authorization_version"] == 3
+            assert len(profile["scope"]["allowed_branch_ids"]) > 1
+            assert profile["scope"]["can_select_branch"] is False
+            patch.setenv("RESTAURANTOS_BRANCH_SCOPE_V2_ENABLED", "true")
+            get_settings.cache_clear()
+            with Session(engine) as session, pytest.raises(
+                BusinessError, match="Workspace migration is required"
+            ) as incomplete_schema:
+                build_session_profile(session, "018f6f73-2d0a-74f0-8f1c-000000000006")
+            assert incomplete_schema.value.code == "authorization_migration_required"
     finally:
+        get_settings.cache_clear()
         engine.dispose()
 
     blocked = run_alembic("downgrade", "0076_operating_expenses")
