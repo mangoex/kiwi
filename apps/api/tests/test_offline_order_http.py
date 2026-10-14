@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
-from restaurant_os import models
+from restaurant_os import models, offline_orders
 from restaurant_os.auth import create_session_token
 from restaurant_os.database import get_session
 from restaurant_os.main import create_app
@@ -173,6 +173,29 @@ def test_http_bootstrap_grant_minimum_and_reconcile_receipt(monkeypatch) -> None
             "device_signature": "",
         }
         envelope["device_signature"] = _b64(device_key.sign(canonical_envelope(envelope)))
+        original_insert = offline_orders._insert_reconciliation_receipt
+        with monkeypatch.context() as failure:
+            def sql_failure(*args, **kwargs):
+                original_insert(*args, **kwargs)
+                raise sa.exc.OperationalError(
+                    "synthetic SQL", {"grant": envelope["grant"]},
+                    RuntimeError("synthetic failure"),
+                )
+
+            failure.setattr(offline_orders, "_insert_reconciliation_receipt", sql_failure)
+            retryable = client.post(
+                "/api/v1/offline-orders/reconcile", headers=gateway_headers, json=envelope,
+            )
+            assert retryable.status_code == 503, retryable.text
+            assert retryable.json()["detail"]["code"] == (
+                "offline_reconciliation_persistence_unavailable"
+            )
+            assert envelope["grant"] not in retryable.text
+            with factory() as persisted:
+                assert persisted.scalar(sa.select(sa.func.count()).select_from(models.orders)) == 0
+                assert persisted.scalar(
+                    sa.select(sa.func.count()).select_from(models.offline_order_inbox)
+                ) == 0
         first = client.post(
             "/api/v1/offline-orders/reconcile", headers=gateway_headers, json=envelope
         )
@@ -184,6 +207,38 @@ def test_http_bootstrap_grant_minimum_and_reconcile_receipt(monkeypatch) -> None
         )
         assert replay.status_code == 200, replay.text
         assert replay.json() == receipt
+        # The HTTP boundary supplies current, scoped transport identity for ACK-only recovery.
+        with factory() as persisted:
+            persisted.execute(models.users.update().where(models.users.c.id == ACTOR).values(
+                status="inactive", authorization_version=2,
+            ))
+            persisted.execute(models.offline_order_gateway_leases.update().values(lease_epoch=2))
+            persisted.commit()
+
+        def retired_material():
+            raise AssertionError("confirmed HTTP ACK attempted to read retired signing material")
+
+        monkeypatch.setattr(api_module, "offline_order_signing_material", retired_material)
+        recovered = client.post(
+            "/api/v1/offline-orders/reconcile", headers=gateway_headers, json=envelope,
+        )
+        assert recovered.status_code == 200, recovered.text
+        assert recovered.json() == receipt
+        changed = {**envelope, "payload": {**envelope["payload"], "owner_name": "changed"}}
+        rejected = client.post(
+            "/api/v1/offline-orders/reconcile", headers=gateway_headers, json=changed,
+        )
+        assert rejected.status_code == 409, rejected.text
+        assert rejected.json()["detail"]["code"] == "offline_order_idempotency_conflict"
+        with factory() as persisted:
+            assert persisted.scalar(sa.select(sa.func.count()).select_from(models.orders)) == 1
+            persisted.execute(models.device_credentials.update().values(revoked_at=now))
+            persisted.commit()
+        denied = client.post(
+            "/api/v1/offline-orders/reconcile", headers=gateway_headers, json=envelope,
+        )
+        assert denied.status_code == 403, denied.text
+        assert denied.json()["detail"]["code"] == "device_scope_denied"
     finally:
         if "app" in locals():
             app.dependency_overrides.clear()

@@ -111,8 +111,13 @@ def _grant_matches(
 ) -> bool:
     return bool(
         grant
-        and grant.get("kind") == "offline_grant.v2"
-        and grant.get("version") == 2
+        and (
+            (grant.get("kind") == "offline_grant.v2" and grant.get("version") == 2
+             and "authorization_version" not in grant)
+            or (grant.get("kind") == "offline_grant.v3" and grant.get("version") == 3
+                and type(grant.get("authorization_version")) is int
+                and 1 <= grant["authorization_version"] <= 2147483647)
+        )
         and grant.get("capabilities") == [CAPABILITY]
         and isinstance(grant.get("actor_user_id"), str)
         and grant["actor_user_id"]

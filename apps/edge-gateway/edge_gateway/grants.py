@@ -24,6 +24,29 @@ def verify_offline_grant_v2(
     *,
     check_expiry: bool = True,
 ) -> dict[str, Any] | None:
+    return _verify_offline_grant(token, public_keys, now, check_expiry=check_expiry, versions=(2,))
+
+
+def verify_offline_grant(
+    token: str,
+    public_keys: Mapping[str, Ed25519PublicKey],
+    now: int | None = None,
+    *,
+    check_expiry: bool = True,
+) -> dict[str, Any] | None:
+    return _verify_offline_grant(
+        token, public_keys, now, check_expiry=check_expiry, versions=(2, 3),
+    )
+
+
+def _verify_offline_grant(
+    token: str,
+    public_keys: Mapping[str, Ed25519PublicKey],
+    now: int | None,
+    *,
+    check_expiry: bool,
+    versions: tuple[int, ...],
+) -> dict[str, Any] | None:
     if not isinstance(token, str) or not isinstance(public_keys, Mapping):
         return None
     parts = token.split(".")
@@ -41,8 +64,9 @@ def verify_offline_grant_v2(
         and header.get("alg") == "EdDSA"
         and isinstance(header.get("kid"), str)
         and header["kid"]
-        and header.get("typ") == KIND
-        and header.get("version") == 2
+        and type(header.get("version")) is int
+        and header["version"] in versions
+        and header.get("typ") == f"offline_grant.v{header['version']}"
     ):
         return None
     key = public_keys.get(header["kid"])
@@ -52,7 +76,7 @@ def verify_offline_grant_v2(
         key.verify(signature, f"{encoded_header}.{encoded_body}".encode("ascii"))
     except InvalidSignature:
         return None
-    if not _valid_payload(payload):
+    if not _valid_payload(payload, header["version"]):
         return None
     current_time = int(time.time()) if now is None else now
     if isinstance(current_time, bool) or not isinstance(current_time, int):
@@ -79,7 +103,7 @@ def parse_public_keyring(values: Mapping[str, str]) -> dict[str, Ed25519PublicKe
     return parsed
 
 
-def _valid_payload(payload: dict[str, Any]) -> bool:
+def _valid_payload(payload: dict[str, Any], version: int) -> bool:
     required = {
         "actor_user_id",
         "branch_id",
@@ -91,7 +115,15 @@ def _valid_payload(payload: dict[str, Any]) -> bool:
         "source_device_id",
         "version",
     }
-    if set(payload) != required or payload.get("kind") != KIND or payload.get("version") != 2:
+    if version == 3:
+        required.add("authorization_version")
+        value = payload.get("authorization_version")
+        if type(value) is not int or not 1 <= value <= 2147483647:
+            return False
+    if (
+        set(payload) != required or payload.get("kind") != f"offline_grant.v{version}"
+        or type(payload.get("version")) is not int or payload["version"] != version
+    ):
         return False
     if payload.get("capabilities") != [CAPABILITY]:
         return False

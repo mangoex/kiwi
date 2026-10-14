@@ -22,6 +22,7 @@ from restaurant_os.offline_order_catalog import (
 )
 from restaurant_os.offline_orders import (
     acquire_gateway_lease,
+    issue_order_grant,
     reconcile_order_command,
     retain_bundle,
     sign_bundle,
@@ -33,7 +34,7 @@ from test_cash_concepts import _seed_cash_concept_scope
 from test_cash_ledger import _insert_shift
 from test_combo_compositions import ACTOR, BRANCH_A, COMBO, ORG_ID
 from test_domain_offline_orders import ACCEPTED_AT, _seed_combo_order_scope
-from test_gateway_order_service import LocalOrderService, OrderOutbox, _token
+from test_gateway_order_service import LocalOrderService, OrderOutbox
 
 API = Path(__file__).resolve().parents[1]
 
@@ -174,28 +175,26 @@ def test_postgres_duplicate_replay_uses_retained_catalog_and_one_effect(tmp_path
             now=ACCEPTED_AT,
         )
         retain_bundle(session, bundle, {"central": issuer.public_key()}, now=ACCEPTED_AT)
+        session.execute(models.device_credentials.insert().values(
+            id=device_id, organization_id=ORG_ID, branch_id=BRANCH_A, capability="gateway.sync",
+            token_hash="0" * 64, key_version="synthetic", created_at=ACCEPTED_AT,
+            expires_at=ACCEPTED_AT + timedelta(hours=3), revoked_at=None,
+        ))
         session.commit()
-    claims = {
-        "schema_version": "ord-off-grant/v3",
-        "organization_id": ORG_ID,
-        "branch_id": BRANCH_A,
-        "device_id": device_id,
-        "bundle_id": bundle["manifest"]["bundle_id"],
-        "bundle_hash": bundle["hash"],
-        "actor_id": ACTOR,
-        "lease_epoch": 1,
-        "capabilities": ["orders.create"],
-        "iat": issued,
-        "exp": issued + 7200,
-    }
     outbox, catalog = OrderOutbox(tmp_path / "local.db"), OrderOutbox(tmp_path / "catalog.db")
     hydrate_bundle(outbox.engine, bundle, include_operational_seed=True)
     hydrate_bundle(catalog.engine, bundle)
     local = LocalOrderService(
         outbox, catalog.engine, bundle, {"central": issuer.public_key()}, device
     )
+    with Session(engine) as session:
+        grant = issue_order_grant(
+            session, organization_id=ORG_ID, branch_id=BRANCH_A, source_device_id=device_id,
+            actor_id=ACTOR, bundle_id=bundle["manifest"]["bundle_id"], lease_epoch=1,
+            capabilities=["orders.create"], private_key=issuer, kid="central", now=ACCEPTED_AT,
+        )["grant"]
     order = local.execute(
-        _token(issuer, claims),
+        grant,
         "create",
         {"lines": [{"product_id": COMBO, "quantity": 1}], "register_id": "CAJA-01"},
         "offline-pg-replay-001",
@@ -242,19 +241,57 @@ def test_postgres_duplicate_replay_uses_retained_catalog_and_one_effect(tmp_path
             == 15900
         )
         assert session.scalar(sa.select(sa.func.count()).select_from(models.production_tasks)) == 2
+        inventory_movements = session.scalar(
+            sa.select(sa.func.count()).select_from(models.inventory_movements)
+        )
+    local.execute(
+        grant,
+        "create",
+        {"lines": [{"product_id": COMBO, "quantity": 1}], "register_id": "CAJA-01"},
+        "offline-pg-replay-002",
+        now=ACCEPTED_AT,
+    )
+    new_envelope = next(
+        row["envelope"] for row in outbox.pending()
+        if row["envelope"]["command_id"] != envelope["command_id"]
+    )
     with engine.begin() as connection:
         connection.execute(
             models.users.update().where(models.users.c.id == ACTOR).values(status="inactive")
         )
     with Session(engine) as session:
-        with pytest.raises(BusinessError):
-            reconcile_order_command(
-                session,
-                envelope,
-                keyring={"central": issuer.public_key()},
-                now=ACCEPTED_AT + timedelta(hours=3),
-                commit=True,
-            )
+        assert reconcile_order_command(
+            session,
+            envelope,
+            keyring={"central": issuer.public_key()},
+            now=ACCEPTED_AT + timedelta(hours=3),
+            commit=True,
+        ) == results[0]
+        denied = reconcile_order_command(
+            session,
+            new_envelope,
+            keyring={"central": issuer.public_key()},
+            now=ACCEPTED_AT + timedelta(hours=3),
+            commit=True,
+        )
+        assert denied["status"] == "conflict"
+        assert denied["code"] == "actor_not_authorized"
+        assert denied["checkpoint"] > results[0]["checkpoint"]
+        assert reconcile_order_command(
+            session,
+            new_envelope,
+            keyring={"central": issuer.public_key()},
+            now=ACCEPTED_AT + timedelta(hours=3),
+            commit=True,
+        ) == denied
+        assert session.scalar(sa.select(sa.func.count()).select_from(models.orders)) == 1
+        assert session.scalar(sa.select(sa.func.count()).select_from(models.production_tasks)) == 2
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(models.inventory_movements)
+        ) == inventory_movements
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(models.offline_order_inbox)
+        ) == 2
     engine.dispose()
     if revision == "head":
         return
@@ -277,7 +314,7 @@ def test_postgres_duplicate_replay_uses_retained_catalog_and_one_effect(tmp_path
     with engine.connect() as connection:
         assert (
             connection.scalar(sa.select(sa.func.count()).select_from(models.offline_order_inbox))
-            == 1
+            == 2
         )
         assert (
             connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one()

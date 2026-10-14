@@ -144,8 +144,17 @@ jobs:
             python-tests.xml
       - name: Strict backend typecheck
         run: python -m mypy apps/api/restaurant_os
+      - name: Strict offline gateway boundary typecheck
+        run: >-
+          python -m mypy
+          apps/edge-gateway/edge_gateway/grants.py
+          apps/edge-gateway/edge_gateway/local_api.py
+          apps/edge-gateway/edge_gateway/runtime.py
+          apps/edge-gateway/edge_gateway/order_service.py
       - name: Ruff
         run: python -m ruff check apps/api tests
+      - name: Offline gateway lint
+        run: python -m ruff check apps/edge-gateway/edge_gateway
   docker:
     runs-on: ubuntu-latest
     steps:

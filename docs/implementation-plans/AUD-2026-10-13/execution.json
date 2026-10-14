@@ -98,7 +98,7 @@
         "W02"
       ],
       "decisions": [],
-      "status": "shared_registry_emitters_and_transition_blockers_tested_adoption_signed_version_and_uncertain_registry_pending",
+      "status": "signed_claims_reconciliation_fences_and_minimum_ack_locally_tested_controlled_adoption_and_uncertain_registry_pending",
       "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone",
       "evidence": [
         "output/audit-remediation/offline-authority-registry-red.xml",
@@ -112,7 +112,18 @@
         "output/audit-remediation/offline-authority-cash-sync-head.xml",
         "output/audit-remediation/offline-authority-clock-current.xml",
         "output/audit-remediation/offline-authority-clock-positive.xml",
-        "output/audit-remediation/sol-offline-authority/AUDIT.md"
+        "output/audit-remediation/sol-offline-authority/AUDIT.md",
+        "apps/api/tests/test_signed_offline_authority.py",
+        "apps/api/tests/test_signed_offline_reconciliation.py",
+        "output/audit-remediation/signed-authority-red.xml",
+        "output/audit-remediation/signed-authority-reconcile-red.xml",
+        "output/audit-remediation/signed-authority-final-directed.xml",
+        "output/audit-remediation/signed-authority-reconcile-postgres-final.xml",
+        "output/audit-remediation/signed-authority-persistence-final.xml",
+        "output/audit-remediation/signed-authority-verification-result-red.xml",
+        "output/audit-remediation/signed-authority-verification-result-green.xml",
+        "output/audit-remediation/sol-signed-authority-runtime/AUDIT.md",
+        "output/audit-remediation/signed-authority-pg-replay-ci-correction.xml"
       ]
     },
     {
@@ -986,7 +997,8 @@
     "fiscal_history": "Independent scope audit closed: mobile-portability scope leak refuted and corrected;29 refutations plus76 directed green; login/UI without active branch not certified"
   },
   "latest_local_evidence": {
-    "offline_authorization": "Additive0088 starts existing orgs unprepared, no token/history rewrite or fabricated legacy version. Registered cash/orders hash/version/audit own commit and rollback; current V2 workspace required before signer. Transition blocks live incompatible leases incl centralrevoked and retained-untracked legacy; inclusive final second covered. Local17directed+2foreignorg, PG3 observed governance/FK cases+5workspace cases, architecture32+cashsync/head25 green. Initial cashsync12green/1old-mock signature failure retained; strict new arg+None assertion, no guard relaxation. Ruff/mypy6/scanner/ratchet/whitespace green, exact synthetic fixture hash provenance updated. Claim version, central reconciliation, controlled cutover/adoption, uncertain/reconciliation registry pending; finalSHA CI pending.",
+    "signed_offline_authority": "Cashv3/ordersv4 opt-in defaultfalse; strictlegacy, realissuer samehash/version, seedversion, governance/actor fences and minimalACK. Release-directed110green153.97s; PG4 observed Lock/advisory244.23s; SQLdurable4green35.14s incl rollbackfailure; HTTP1green19.64s; architecture36+trace9green. Root crypto8expectedRED26P, reconcile6RED1P, SQL2RED, rollback2RED, verification-result1RED preserved. Independent Sol2P2 corrected:35early+16new+11singleverification focal green, PG received separately; no blockers. Finalmypy81/Ruffgreen; scanner/ratchet/finalCI pending. W04 controlled adoption and uncertain-command registry still pending; no production action.",
+    "offline_authorization": "Additive0088 starts existing orgs unprepared, no token/history rewrite or fabricated legacy version. Registered cash/orders hash/version/audit own commit and rollback; current V2 workspace required before signer. Transition blocks live incompatible leases incl centralrevoked and retained-untracked legacy; inclusive final second covered. Local17directed+2foreignorg, PG3 observed governance/FK cases+5workspace cases, architecture32+cashsync/head25 green. Initial cashsync12green/1old-mock signature failure retained; strict new arg+None assertion, no guard relaxation. Ruff/mypy6/scanner/ratchet/whitespace green, exact synthetic fixture hash provenance updated. Signed-version/fence/ACK follow-up is recorded under signed_offline_authority; controlled cutover/adoption and uncertain-command registry remain pending; finalSHA CI pending.",
     "workspace_replay_audit": "Replay audits each rotation without secret/key; select/reissue own rollback before propagating Exception. RED5 expected, directed41 + existing rollback1 + PostgreSQL race1 passed. Ruff/mypy1/traceability9/scanner/diff-ratchet/whitespace green. Independent audit closed:30 canonical,4 refutations/20 fault injections green; auditor's initial denial-audit expectation failure retained separately. Final SHA CI pending; W02/W04 remain partial.",
     "authority": "9 boundary tests passed; PostgreSQL shared-role barrier passed",
     "ui": "blank input, token switched before click, response lost/reload exact replay, stale replay detail, two tabs and failed refresh passed with synthetic API",
@@ -1009,6 +1021,7 @@
     "plan_integrity_current_attempt": "verificar_plan.py rejects current HEAD 914679c because manifest retains original audit baseline e1422dc. Historical planning guard retained, no relaxation; this attempt is not a green current implementation gate. Current spec links verified independently by test_traceability.",
     "fiscal_exact_json": "Decimal JSON transport: initial34 directed +17 transport regressions green; chunked35 directed +5 legacy green; independent31 initial +11 chunking refutations green. Same1MiB-control probe: traced peak12584934 before/1154124 after; retains body/finalcopy/input/concurrency residual. RED1 TypeError retained. Ruff/mypy6-source package, traceability9 and diffcheck green. Synthetic fixture provenance/exact hash/path verified. Tax decision requested; concepts/taxes/worker/API/recovery pending; new increment not integrated in main, CI pending.",
     "fiscal_net_reconciliation": "Net must equal current total.6 negative excess cases across issue/receipt/prepare +3 positive balanced-adjustment cases. Final eligibility/evidence/preparation suite67passed; independent10 green, Ruff/mypy1/traceability9/diff green. RED:6 expected +3 invalid duplicate-payment fixtures; first mixed64passed/6fixture failures retained; independent mixed33passed/6old-fixture failures retained. Confirmed payment uniqueness unchanged; no source writes. Current diff not covered by baseline7366de9 CI run38483537392, still in progress when checked; final SHA CI pending.",
-    "fiscal_history": "Corporate fiscal read is resource-scoped without operational context. Closed history requires current corporate-read or exact assigned-read role; mobile workspace grant remains active-branch only. Final76 directed and29 independent green; earlier4RED + mixed2passed/2fixture failures and72passed/2fixture failures retained; root/mobile and independent mobile scope RED retained.3 real PostgreSQL cases (2corp active/inactive +1assigned inactive) passed; both actual revoker and document PID Lock observed through audit commit. Ruff/mypy1/traceability9/diff green. PRD/SDD/BDD/TDD/matrix updated. No UI/login-without-active-branch proof, no PAC/production; current increment CI pending, F02/F03/F04 remain partial."
+    "fiscal_history": "Corporate fiscal read is resource-scoped without operational context. Closed history requires current corporate-read or exact assigned-read role; mobile workspace grant remains active-branch only. Final76 directed and29 independent green; earlier4RED + mixed2passed/2fixture failures and72passed/2fixture failures retained; root/mobile and independent mobile scope RED retained.3 real PostgreSQL cases (2corp active/inactive +1assigned inactive) passed; both actual revoker and document PID Lock observed through audit commit. Ruff/mypy1/traceability9/diff green. PRD/SDD/BDD/TDD/matrix updated. No UI/login-without-active-branch proof, no PAC/production; current increment CI pending, F02/F03/F04 remain partial.",
+    "signed_authority_pg_replay_ci_correction": "CI f6f79ed run38514602872:1954passed/2old-expectation-failures/8existing-skips/7warnings996.38s; mandatory71cases in11PGmodules green, other4jobs green. Current/historical replay expect minimum persisted ACK for inactive actor, real second signed command denied actor_not_authorized with stable conflict replay and unchanged order/production/inventory effects; historical0077 guard preserves2inbox records. Local complete PGmodule3passed138.76s/1existingwarning; XML signed-authority-pg-replay-ci-correction.xml; traceability9green/Ruffgreen. Independent focal review no findings, no own PG; runtime unchanged vs f6f79ed. Corrected SHA requires finalCI before merge."
   }
 }

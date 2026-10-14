@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from restaurant_os import models
 from restaurant_os.config import get_settings
+from restaurant_os.offline_grants import valid_authorization_version
 from restaurant_os.offline_order_contracts import (
     canonical_envelope,
     command_hash,
@@ -150,8 +151,9 @@ def verify_order_grant(
     if (
         set(header) != {"alg", "kid", "typ", "version"}
         or header.get("alg") != "EdDSA"
-        or header.get("typ") != "order_grant.v3"
-        or header.get("version") != 3
+        or type(header.get("version")) is not int
+        or header["version"] not in (3, 4)
+        or header.get("typ") != f"order_grant.v{header['version']}"
         or not isinstance(header.get("kid"), str)
         or not header["kid"]
     ):
@@ -170,7 +172,12 @@ def verify_order_grant(
         "exp",
         "schema_version",
     }
-    if set(payload) != required or not _valid_grant_payload(payload):
+    if header["version"] == 4:
+        required.add("authorization_version")
+    if (
+        set(payload) != required
+        or not _valid_grant_payload(payload, header["version"])
+    ):
         raise BusinessError("offline_order_grant_invalid", "Order grant is invalid")
     if check_expiry and (
         now.tzinfo is None or not payload["iat"] <= int(now.timestamp()) < payload["exp"]
@@ -189,6 +196,27 @@ COMMAND_CAPABILITIES = {
 }
 READ_CAPABILITIES = {"pos.operate", "orders.read", "cash.shift.read"}
 ALLOWED_GRANT_CAPABILITIES = set(COMMAND_CAPABILITIES.values()) | READ_CAPABILITIES
+
+
+def require_seed_authority(
+    seed: dict[str, Any], organization_id: str, actor_id: str, version: int,
+) -> None:
+    """A new grant cannot replace authority absent from its signed frozen seed."""
+    tables = seed.get("tables") if isinstance(seed, dict) else None
+    users = tables.get("users") if isinstance(tables, dict) else None
+    matches = [row for row in users if isinstance(row, dict) and row.get("id") == actor_id] \
+        if isinstance(users, list) else []
+    if (
+        len(matches) != 1
+        or matches[0].get("organization_id") != organization_id
+        or matches[0].get("status") != "active"
+        or not valid_authorization_version(matches[0].get("authorization_version"))
+        or matches[0]["authorization_version"] != version
+    ):
+        raise BusinessError(
+            "offline_bundle_authority_stale",
+            "Refresh the operational bundle before granting authority",
+        )
 
 
 def require_grant_scope(grant: dict[str, Any], envelope: dict[str, Any]) -> None:
@@ -424,6 +452,7 @@ def _issue_order_grant(
     version, registered = lock_grant_actor(
         session, actor_id, organization_id, branch_id, branch_context
     )
+    signed_version = get_settings().signed_offline_authority_enabled
     if type(lease_epoch) is not int or not 1 <= lease_epoch <= 2147483647:
         raise BusinessError("offline_order_grant_invalid", "Order lease epoch is invalid")
     if (
@@ -459,6 +488,8 @@ def _issue_order_grant(
     )
     if bundle is None or _stored_utc(bundle["expires_at"]) <= issued_at:
         raise BusinessError("offline_order_bundle_unavailable", "Retained bundle is unavailable")
+    if signed_version:
+        require_seed_authority(bundle["operational_seed"], organization_id, actor_id, version)
     device = session.execute(sa.select(models.device_credentials).where(
         models.device_credentials.c.id == source_device_id,
         models.device_credentials.c.organization_id == organization_id,
@@ -487,7 +518,7 @@ def _issue_order_grant(
         _stored_utc(lease["expires_at"]),
     )
     claims = {
-        "schema_version": "ord-off-grant/v3",
+        "schema_version": "ord-off-grant/v4" if signed_version else "ord-off-grant/v3",
         "organization_id": organization_id,
         "branch_id": branch_id,
         "device_id": source_device_id,
@@ -498,6 +529,7 @@ def _issue_order_grant(
         "capabilities": sorted(set(capabilities)),
         "iat": int(issued_at.timestamp()),
         "exp": int(expires_at.timestamp()),
+        **({"authorization_version": version} if signed_version else {}),
     }
     if signing_material is not None:
         private_key, kid = signing_material()
@@ -702,7 +734,8 @@ def _sign_grant(
 ) -> str:
     if not isinstance(kid, str) or not kid:
         raise ValueError("grant signing key id is required")
-    header = {"alg": "EdDSA", "kid": kid, "typ": "order_grant.v3", "version": 3}
+    version = 4 if claims.get("schema_version") == "ord-off-grant/v4" else 3
+    header = {"alg": "EdDSA", "kid": kid, "typ": f"order_grant.v{version}", "version": version}
     encoded_header = _b64encode(_canonical_json(header))
     encoded_claims = _b64encode(_canonical_json(claims))
     signed = f"{encoded_header}.{encoded_claims}".encode("ascii")
@@ -898,7 +931,9 @@ def _json_object(value: bytes) -> dict[str, Any]:
     return decoded
 
 
-def _valid_grant_payload(payload: dict[str, Any]) -> bool:
+def _valid_grant_payload(payload: dict[str, Any], version: int = 3) -> bool:
+    if version == 4 and not valid_authorization_version(payload.get("authorization_version")):
+        return False
     if any(
         not isinstance(payload[field], str) or not payload[field]
         for field in (
@@ -921,7 +956,7 @@ def _valid_grant_payload(payload: dict[str, Any]) -> bool:
     ):
         return False
     if (
-        payload.get("schema_version") != "ord-off-grant/v3"
+        payload.get("schema_version") != f"ord-off-grant/v{version}"
         or payload["lease_epoch"] < 1
         or not (payload["iat"] < payload["exp"] <= payload["iat"] + 7200)
     ):
@@ -998,15 +1033,49 @@ def reconcile_order_command(
     envelope: dict[str, Any],
     catalog_session: Session | None = None,
     *,
-    keyring: dict[str, Any],
+    keyring: dict[str, Any] | Callable[[], dict[str, Any]],
     now: datetime,
     commit: bool = False,
+    authenticated_device_id: str | None = None,
+) -> dict[str, Any]:
+    try:
+        return _reconcile_order_command(
+            session, envelope, catalog_session, keyring=keyring, now=now, commit=commit,
+            authenticated_device_id=authenticated_device_id,
+        )
+    except SQLAlchemyError:
+        from restaurant_os.offline_authorization import rollback_reconciliation
+
+        rollback_reconciliation(session)
+        raise BusinessError(
+            "offline_reconciliation_persistence_unavailable",
+            "Offline reconciliation could not be persisted; retry the same command",
+        ) from None
+
+
+def _reconcile_order_command(
+    session: Session,
+    envelope: dict[str, Any],
+    catalog_session: Session | None = None,
+    *,
+    keyring: dict[str, Any] | Callable[[], dict[str, Any]],
+    now: datetime,
+    commit: bool = False,
+    authenticated_device_id: str | None = None,
 ) -> dict[str, Any]:
     """Validate a retained offline command and atomically execute/domain-inbox it."""
     del catalog_session
     command = validate_envelope(envelope)
     digest = command_hash(command)
     intent = intention_hash(command)
+    from restaurant_os.offline_authorization import (
+        lock_reconciliation_actor,
+        reconciliation_authority_error,
+    )
+
+    authority_version = lock_reconciliation_actor(
+        session, command["actor_id"], command["organization_id"],
+    )
     _lock_reconciliation(session, command)
     existing = (
         session.execute(
@@ -1017,6 +1086,16 @@ def reconcile_order_command(
         .mappings()
         .first()
     )
+    if authenticated_device_id is not None:
+        if authenticated_device_id != command["device_id"]:
+            raise BusinessError("device_scope_denied", "Gateway device scope does not match")
+        if existing is not None:
+            receipt = _persisted_reconciliation_ack(existing, command, digest, intent)
+            if commit:
+                session.commit()
+            return receipt
+    if callable(keyring):
+        keyring = keyring()
     accepted_at = _parse_accepted_at(command["accepted_at"])
     if accepted_at > _utc(now):
         raise BusinessError(
@@ -1033,7 +1112,7 @@ def reconcile_order_command(
         now=accepted_at,
     )
     verify_device_signature(lease["public_key"], command)
-    from restaurant_os.operations import AuthorizationError, require_permission
+    from restaurant_os.operations import require_permission
     from restaurant_os.order_execution import (
         ExecutionContext,
         defer_authorization_audit,
@@ -1048,27 +1127,19 @@ def reconcile_order_command(
         execution_mode="offline_reconcile",
     )
     if existing is not None:
-        with defer_authorization_audit() as denials:
-            try:
-                with order_execution_context(context):
-                    require_permission(
-                        session,
-                        command["actor_id"],
-                        COMMAND_CAPABILITIES[command["command_type"]],
-                        command["branch_id"],
-                    )
-            except AuthorizationError:
-                _persist_deferred_authorization_denials(session, command, denials, now)
-                if commit:
-                    session.commit()
-                raise
-        if existing["command_hash"] != digest or existing["intention_hash"] != intent:
-            raise BusinessError("offline_order_idempotency_conflict", "Command intention differs")
-        return _domain_result(existing["result"])
+        receipt = _persisted_reconciliation_ack(existing, command, digest, intent)
+        if commit:
+            session.commit()
+        return receipt
+    authority_error = reconciliation_authority_error(
+        session, actor=command["actor_id"], branch=command["branch_id"], kind="orders",
+        token=command["grant"], device_id=command["device_id"], current_version=authority_version,
+        signed_version=grant.get("authorization_version"),
+        bundle_id=command["bundle_id"], epoch=command["lease_epoch"],
+    )
     bundle = _retained_bundle(session, command)
     verify_bundle(bundle, keyring)
     _require_bundle_scope(bundle["manifest"], command, accepted_at)
-    receipt: dict[str, Any]
     try:
         _require_predecessor(session, command)
     except BusinessError as exc:
@@ -1100,6 +1171,10 @@ def reconcile_order_command(
                             COMMAND_CAPABILITIES[command["command_type"]],
                             command["branch_id"],
                         )
+                    if authority_error:
+                        raise BusinessError(
+                            authority_error, "Offline authority could not be verified",
+                        )
                     execute_order_intent(session, command, retained_catalog, commit=False)
                     receipt = _reconciliation_receipt(
                         command, _next_checkpoint(session), "confirmed"
@@ -1116,6 +1191,14 @@ def reconcile_order_command(
             except BusinessError as exc:
                 receipt = _reconciliation_receipt(command, _next_checkpoint(session), exc.code)
                 _persist_deferred_authorization_denials(session, command, denials, now)
+                if exc.code.startswith("offline_authorization_"):
+                    from restaurant_os.operations import _audit
+
+                    _audit(
+                        session, "auth.offline_reconciliation_denied", "offline_order_command",
+                        command["command_id"], {"code": exc.code},
+                        branch_id=command["branch_id"], actor_user_id=command["actor_id"],
+                    )
                 _insert_reconciliation_receipt(
                     session,
                     command,
@@ -1131,6 +1214,32 @@ def reconcile_order_command(
     if commit:
         session.commit()
     return receipt
+
+
+def _persisted_reconciliation_ack(
+    existing: Any, command: dict[str, Any], digest: str, intent: str,
+) -> dict[str, Any]:
+    if any(existing[field] != command[field] for field in (
+        "organization_id", "branch_id", "device_id", "actor_id", "bundle_id", "lease_epoch",
+    )) or existing["command_hash"] != digest or existing["intention_hash"] != intent:
+        raise BusinessError("offline_order_idempotency_conflict", "Command intention differs")
+    result = existing["result"]
+    if (
+        not isinstance(result, dict)
+        or set(result) != {"command_id", "status", "checkpoint", "code"}
+        or result.get("command_id") != command["command_id"]
+        or result.get("status") != str(existing["status"]).lower()
+        or type(result.get("checkpoint")) is not int
+        or result["checkpoint"] < 1
+        or result["checkpoint"] != existing["checkpoint"]
+        or not isinstance(result.get("code"), str) or not result["code"]
+        or (result["status"] == "confirmed" and result["code"] != "confirmed")
+        or result["status"] not in ("confirmed", "conflict")
+    ):
+        raise BusinessError(
+            "offline_order_receipt_invalid", "Persisted acknowledgement is incomplete",
+        )
+    return dict(result)
 
 
 def _reconciliation_receipt(command: dict[str, Any], checkpoint: int, code: str) -> dict[str, Any]:
@@ -1204,13 +1313,15 @@ def dispatch_order_command(
     envelope: dict[str, Any],
     catalog_session: Session | None = None,
     *,
-    keyring: dict[str, Any],
+    keyring: dict[str, Any] | Callable[[], dict[str, Any]],
     now: datetime,
     commit: bool = False,
+    authenticated_device_id: str | None = None,
 ) -> dict[str, Any]:
     """Compatibility name for the fully guarded central reconciliation boundary."""
     return reconcile_order_command(
-        session, envelope, catalog_session, keyring=keyring, now=now, commit=commit
+        session, envelope, catalog_session, keyring=keyring, now=now, commit=commit,
+        authenticated_device_id=authenticated_device_id,
     )
 
 

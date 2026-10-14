@@ -7431,6 +7431,31 @@ def receive_sync_command(
     actor_device_id: str | None = None,
     grant_verifier: Callable[[dict[str, Any]], str | None] | None = None,
 ) -> dict[str, Any]:
+    try:
+        return _receive_sync_command(
+            session, envelope, expected_organization_id, expected_branch_id, expected_device_id,
+            actor_device_id=actor_device_id, grant_verifier=grant_verifier,
+        )
+    except SQLAlchemyError:
+        from restaurant_os.offline_authorization import rollback_reconciliation
+
+        rollback_reconciliation(session)
+        raise BusinessError(
+            "offline_reconciliation_persistence_unavailable",
+            "Offline reconciliation could not be persisted; retry the same command",
+        ) from None
+
+
+def _receive_sync_command(
+    session: Session,
+    envelope: dict[str, Any],
+    expected_organization_id: str | None = None,
+    expected_branch_id: str | None = None,
+    expected_device_id: str | None = None,
+    *,
+    actor_device_id: str | None = None,
+    grant_verifier: Callable[[dict[str, Any]], str | None] | None = None,
+) -> dict[str, Any]:
     """Atomically reconcile the sole allowlisted offline cash command."""
     _validate_sync_envelope(envelope)
     if str(envelope["command_type"]) != "cash.movement.create.v1":
@@ -7460,6 +7485,14 @@ def receive_sync_command(
     source_device_id = str(envelope["source_device_id"])
     idempotency_key = str(envelope["idempotency_key"])
     request_hash = _sync_request_hash(envelope)
+    from restaurant_os.offline_authorization import (
+        lock_reconciliation_actor,
+        reconciliation_authority_error,
+    )
+
+    authority_version = lock_reconciliation_actor(
+        session, str(envelope["actor_user_id"]), organization_id,
+    )
     _lock_sync_branch(session, organization_id, branch_id)
     existing = (
         session.execute(
@@ -7475,47 +7508,23 @@ def receive_sync_command(
         .first()
     )
     if existing:
-        if existing["request_hash"] != request_hash:
-            raise BusinessError("idempotency_conflict", "Sync command changed")
-        if existing["status"] == "CONFLICT":
-            code = _sync_conflict_code(session, str(existing["id"]))
-            _record_pco008_metric(
-                result="replay",
-                error_code=code,
-                organization_id=organization_id,
-                branch_id=branch_id,
-                source_device_id=source_device_id,
-                checkpoint=int(existing["checkpoint"]),
-            )
-            return {
-                "status": "CONFLICT",
-                "code": code,
-                "checkpoint": existing["checkpoint"],
-                "replayed": True,
-            }
-        event = _get_sync_event_for_command(session, str(existing["id"]))
-        movement_id = str(dict(event["payload"])["movement_id"])
-        movement = (
-            session.execute(
-                sa.select(models.cash_movements).where(models.cash_movements.c.id == movement_id)
-            )
-            .mappings()
-            .one()
-        )
-        _record_pco008_metric(
-            result="replay",
-            organization_id=organization_id,
-            branch_id=branch_id,
-            source_device_id=source_device_id,
-            checkpoint=int(existing["checkpoint"]),
-        )
-        return {
-            **_sync_confirmation(dict(existing), replayed=True),
-            "movement": _redact_sync_movement(_serialize_cash_movement(dict(movement))),
-        }
-    grant_error = (grant_verifier or _validate_pco008_offline_grant)(envelope)
+        return _persisted_cash_sync_ack(session, dict(existing), envelope)
+    grant = None
+    if grant_verifier is not None:
+        grant_error = grant_verifier(envelope)
+    else:
+        grant = _pco008_grant_claims(envelope)
+        grant_error = _pco008_grant_error(envelope, grant)
     if grant_error:
         return _store_sync_conflict(session, envelope, grant_error)
+    authority_error = reconciliation_authority_error(
+        session, actor=str(envelope["actor_user_id"]), branch=branch_id, kind="cash",
+        token=str(envelope["offline_grant"]), device_id=source_device_id,
+        current_version=authority_version,
+        signed_version=grant.get("authorization_version") if grant else None,
+    )
+    if authority_error:
+        return _store_sync_conflict(session, envelope, authority_error)
 
     now = _now()
     try:
@@ -7529,6 +7538,17 @@ def receive_sync_command(
         _pco008_fault("after_cash_core")
     except BusinessError as exc:
         session.rollback()
+        # Domain denials may own a rollback. Reacquire the original lock order before receipt.
+        lock_reconciliation_actor(session, str(envelope["actor_user_id"]), organization_id)
+        _lock_sync_branch(session, organization_id, branch_id)
+        # Another reconciler may have persisted the exact receipt while rollback released locks.
+        existing = session.execute(sa.select(models.sync_commands).where(
+            models.sync_commands.c.organization_id == organization_id,
+            sa.or_(models.sync_commands.c.idempotency_key == idempotency_key,
+                   models.sync_commands.c.command_id == str(envelope["command_id"])),
+        )).mappings().first()
+        if existing:
+            return _persisted_cash_sync_ack(session, dict(existing), envelope)
         return _store_sync_conflict(session, envelope, exc.code)
     except Exception:
         session.rollback()
@@ -9027,12 +9047,77 @@ def _redact_sync_movement(movement: dict[str, Any]) -> dict[str, Any]:
     return {key: movement[key] for key in ("id", "status")}
 
 
-def _validate_pco008_offline_grant(envelope: dict[str, Any]) -> str | None:
-    from restaurant_os.offline_grants import verify_offline_grant_v2
+def _persisted_cash_sync_ack(
+    session: Session, existing: dict[str, Any], envelope: dict[str, Any],
+) -> dict[str, Any]:
+    if existing["request_hash"] != _sync_request_hash(envelope) or any(
+        existing[field] != envelope[field] for field in (
+            "organization_id", "branch_id", "source_device_id", "actor_user_id", "command_id",
+            "idempotency_key", "command_type",
+        )
+    ):
+        raise BusinessError("idempotency_conflict", "Sync command changed")
+    checkpoint = existing["checkpoint"]
+    if type(checkpoint) is not int or checkpoint < 1 or existing["status"] not in (
+        "CONFIRMED", "CONFLICT",
+    ):
+        raise BusinessError("sync_receipt_invalid", "Persisted acknowledgement is incomplete")
+    if existing["status"] == "CONFLICT":
+        code = _sync_conflict_code(session, str(existing["id"]))
+        result = {**_sync_confirmation(existing, replayed=True), "code": code}
+    else:
+        events = session.execute(sa.select(models.sync_events).where(
+            models.sync_events.c.sync_command_id == existing["id"],
+        )).mappings().all()
+        if len(events) != 1:
+            raise BusinessError("sync_receipt_invalid", "Persisted acknowledgement is incomplete")
+        event = events[0]
+        payload = event["payload"]
+        if (
+            any(event[field] != existing[field] for field in (
+                "organization_id", "branch_id", "checkpoint",
+            ))
+            or event["event_type"] != "cash.movement.create.v1.confirmed"
+            or not isinstance(payload, dict)
+            or payload.get("command_id") != envelope["command_id"]
+            or payload.get("command_type") != envelope["command_type"]
+            or not isinstance(payload.get("movement_id"), str)
+        ):
+            raise BusinessError("sync_receipt_invalid", "Persisted acknowledgement is incomplete")
+        movement = session.execute(sa.select(models.cash_movements).where(
+            models.cash_movements.c.id == payload["movement_id"],
+            models.cash_movements.c.organization_id == existing["organization_id"],
+            models.cash_movements.c.branch_id == existing["branch_id"],
+        )).mappings().first()
+        if movement is None:
+            raise BusinessError("sync_receipt_invalid", "Persisted acknowledgement is incomplete")
+        result = {
+            **_sync_confirmation(existing, replayed=True),
+            "movement": _redact_sync_movement(_serialize_cash_movement(dict(movement))),
+        }
+        code = None
+    _record_pco008_metric(
+        result="replay", error_code=code, organization_id=str(existing["organization_id"]),
+        branch_id=str(existing["branch_id"]), source_device_id=str(existing["source_device_id"]),
+        checkpoint=checkpoint,
+    )
+    session.commit()
+    return result
 
-    grant = verify_offline_grant_v2(
+
+def _pco008_grant_claims(envelope: dict[str, Any]) -> dict[str, Any] | None:
+    from restaurant_os.offline_grants import verify_offline_grant
+
+    return verify_offline_grant(
         str(envelope["offline_grant"]), _offline_grant_keyring(), check_expiry=False
     )
+
+
+def _validate_pco008_offline_grant(envelope: dict[str, Any]) -> str | None:
+    return _pco008_grant_error(envelope, _pco008_grant_claims(envelope))
+
+
+def _pco008_grant_error(envelope: dict[str, Any], grant: dict[str, Any] | None) -> str | None:
     if not grant or any(
         str(grant.get(key)) != str(envelope[key])
         for key in ("actor_user_id", "organization_id", "branch_id", "source_device_id")
@@ -9078,11 +9163,13 @@ def _offline_grant_signing_material() -> tuple[Any, str]:
     return key, settings.offline_grant_key_id
 
 
-def _offline_grant_keyring() -> dict[str, Any]:
+def _offline_grant_keyring(
+    signing_material: Callable[[], tuple[Any, str]] | None = None,
+) -> dict[str, Any]:
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-    private_key, kid = _offline_grant_signing_material()
+    private_key, kid = (signing_material or _offline_grant_signing_material)()
     keyring: dict[str, Any] = {kid: private_key.public_key()}
     configured = get_settings().offline_grant_public_keyring
     if configured is None:
@@ -9153,7 +9240,11 @@ def _issue_offline_cash_grant(
     branch_context: str | None,
 ) -> dict[str, Any]:
     from restaurant_os.offline_authorization import lock_grant_actor, register_grant
-    from restaurant_os.offline_grants import OFFLINE_GRANT_TTL_SECONDS, create_offline_grant_v2
+    from restaurant_os.offline_grants import (
+        OFFLINE_GRANT_TTL_SECONDS,
+        create_offline_grant_v2,
+        create_offline_grant_v3,
+    )
 
     actor_id = _actor_user_id(actor_user_id)
     version, registered = lock_grant_actor(session, actor_id, organization_id, branch_id, branch_context)
@@ -9181,13 +9272,15 @@ def _issue_offline_cash_grant(
         raise BusinessError("gateway_device_inactive", "Gateway device is not active")
     private_key, kid = _offline_grant_signing_material()
     now = int(now_dt.timestamp())
-    grant = create_offline_grant_v2(
+    signed_version = get_settings().signed_offline_authority_enabled
+    grant = (create_offline_grant_v3 if signed_version else create_offline_grant_v2)(
         {
             "actor_user_id": actor_id,
             "organization_id": organization_id,
             "branch_id": branch_id,
             "source_device_id": source_device_id,
             "capabilities": ["cash.movement.create.v1"],
+            **({"authorization_version": version} if signed_version else {}),
         },
         private_key,
         kid=kid,

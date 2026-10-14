@@ -162,7 +162,7 @@ sin cambiar runtime ni el estado de las 31 tareas. No sustituye los límites del
 paquete: esquema 0088 requerido, organizaciones existentes unprepared, adopción offline
 y cierre fiscal aún pendientes. CI acredita el código integrado; producción no fue modificada.
 
-## Publicación de especificación pendiente W04
+## Publicación de especificación W04 previa al incremento de código
 
 La rama `codex/offline-authority-version` publica el contrato previsto de versión firmada y
 recuperación de acuse mínimo: PRD-FR-185/267, SDD §58.3, BDD-SC-639 y TDD-TC-354. El diseño
@@ -180,3 +180,48 @@ trazabilidad repetidas tras enlazar PRD-FR-185 con BDD-SC-639/TDD-TC-354. Scanne
 y `git diff --check` verdes. La revisión independiente detectó ese enlace faltante y se corrigió
 sin cambiar estado de implementación. No se ejecutó una suite de runtime ni CI nuevo para este
 diff documental; el código coincide con el publicado y probado en PR 69.
+
+## Incremento W04: versión firmada y reconciliación
+
+Caja v3/pedidos v4 transportan `authorization_version` firmado; API y gateway mantienen formatos
+legacy estrictos. La emisión nueva se activa mediante
+`RESTAURANTOS_SIGNED_OFFLINE_AUTHORITY_ENABLED=true`, apagada por defecto, y exige esquema 0088.
+Actualizar primero los gateways verificadores compatibles y luego habilitar el emisor dentro de
+una autorización de configuración productiva. Este paquete no activa esa configuración.
+
+El fence central se aplica también a concesiones legacy con versión registrada conocida: actor,
+hash/bindings y versión actual se comprueban antes del efecto. Ausencia, NULL histórico, revocación
+o versión obsoleta generan rechazo sin inferir autoridad. Un acuse mínimo exacto ya confirmado
+se recupera sin renovar permiso humano; pedidos exige transporte técnico vigente propio para
+recuperar tras cambio de época/clave. No se ejecuta otra vez dinero, pedidos ni inventario.
+
+SQL y limpieza fallidos devuelven un error redactado HTTP 503 y conservan la misma intención para
+reintento. Si se perdió el acuse tras un commit real, se recupera la historia persistida; no se
+declara ausencia de efectos ni se genera una compensación. La evidencia y los intentos originales
+se concentran en TDD-TC-354. Auditoría independiente cerró dos P2 reproducidos y corregidos,
+con refutaciones de bindings/checkpoint, rollback/invalidate y pérdida de acuse tras commit real.
+
+Verificación local: 110 pruebas dirigidas verdes, cuatro carreras PostgreSQL con Lock/advisory
+observado, cuatro fallos SQL/rollback probados en SQLite persistente y HTTP real redactado/retry.
+Ruff completo de API/tests y gateway, mypy81 y 36 pruebas de arquitectura verdes. CI del SHA final
+permanece pendiente; los batches anteriores no lo sustituyen. No hay nueva migración respecto
+a 0088, ni cambio de UI que requiera QA visual de este incremento.
+Gateway focal: mypy de cuatro módulos verde en Linux; CI lo incorpora junto con lint del gateway.
+En Windows, cuatro diagnósticos de atributos POSIX en helpers sin cambios se reprodujeron también
+en `main` bc55e2b; no se silencian ni se presentan como un gate Windows verde.
+
+W04 continúa parcial: faltan adopción controlada y registro completo de comandos inciertos.
+`execution.json` conserva las 31 tareas y decisiones; no habilita movilidad de organizaciones
+existentes `unprepared`, emisión productiva fiscal, canary, migraciones ni despliegue.
+
+### Corrección del primer CI de W04
+
+Run [38514602872](https://github.com/mangoex/kiwi/actions/runs/38514602872), SHA `f6f79ed`:
+1954 pruebas verdes y dos fallos de expectativa en replay PostgreSQL, ocho skips existentes y
+siete warnings. Las variantes actual/histórica esperaban denegar un acuse ya confirmado tras
+desactivar al actor. Se ajustan al contrato aprobado y comprueban separadamente rechazo de un
+comando firmado nuevo, recuperación exacta del conflicto y conservación de efectos/historia.
+No cambia runtime, migraciones ni skips. El gate obligatorio de once módulos PG confirmó 71 casos;
+frontend, Docker, políticas y dependencias pasaron. CI del SHA corregido queda pendiente.
+Corrección local: módulo PostgreSQL completo con tres casos verdes en 138.76 s, un warning
+existente; Ruff y nueve pruebas de trazabilidad verdes. Revisión independiente focal sin hallazgos.

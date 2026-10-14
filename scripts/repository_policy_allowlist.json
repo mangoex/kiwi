@@ -2,7 +2,7 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "60bcd655232e8724e0dae03dba17b89392452499e5e97c254869bcda96b18a55",
+      "sha256": "4e326e3f067b1bb74810c34b670364c93e70075c68038f345f24f389e1f6f8a7",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {
@@ -32,7 +32,7 @@
     },
     {
       "path": "apps/api/tests/test_pco008_cash_sync.py",
-      "sha256": "88e9d3cf0f8f50da615376a63348144184380962961bae959bfd015b7c6d2d0e",
+      "sha256": "910a5c3436be5e32e67ecf720a4de4b8196f3f58a1dd755c3a31d5429eb4f179",
       "provenance": "restaurantos-pco008-cash-sync-tests-v1"
     },
     {

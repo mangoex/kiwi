@@ -13,12 +13,28 @@ from restaurant_os import api as api_module
 from restaurant_os import models, operations
 from restaurant_os.auth import create_session_token
 from restaurant_os.config import get_settings
+from restaurant_os.offline_authorization import register_grant
 from restaurant_os.operations import BusinessError, receive_sync_command
 from test_cash_concepts import BRANCH_A, CASHIER_ID, ORG_ID, _cash_concept_client
-from test_cash_ledger import _movement_payload, _new_session, _withdrawal_concept
+from test_cash_ledger import _movement_payload, _withdrawal_concept
+from test_cash_ledger import _new_session as _cash_session
 
 DEVICE_ID = "018f6f73-2d0a-74f0-8f1c-000000000401"
 UTC = timezone.utc
+
+
+def _new_session():
+    engine, session = _cash_session()
+    # This module injects crypto, but retains explicitly issued fixture authority at version 1.
+    # The production registry guard is always exercised; no unknown lease is adopted.
+    issued = datetime(2026, 8, 12, 12, tzinfo=UTC)
+    register_grant(
+        session, actor=CASHIER_ID, branch=BRANCH_A, kind="cash",
+        token="synthetic.offline.grant.for.injected.verifier", version=1, device_id=DEVICE_ID,
+        issued_at=issued, expires_at=issued + timedelta(hours=2),
+    )
+    session.commit()
+    return engine, session
 
 
 def _envelope(concept_id: str, **overrides: Any) -> dict[str, Any]:

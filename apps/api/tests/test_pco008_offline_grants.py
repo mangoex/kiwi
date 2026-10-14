@@ -15,6 +15,7 @@ pytest.importorskip("cryptography")
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 from restaurant_os.offline_grants import (  # noqa: E402
     create_offline_grant_v2,
+    verify_offline_grant,
     verify_offline_grant_v2,
 )
 
@@ -85,7 +86,7 @@ def test_grant_issuance_rechecks_human_permission_and_active_device(
             branch_id=BRANCH_A,
             source_device_id=DEVICE_ID,
         )
-        verified = verify_offline_grant_v2(
+        verified = verify_offline_grant(
             issued["offline_grant"], {"active": private_key.public_key()}
         )
         assert verified is not None

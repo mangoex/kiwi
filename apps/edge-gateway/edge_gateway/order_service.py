@@ -13,7 +13,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.encoders import jsonable_encoder
 from restaurant_os import models
 from restaurant_os.offline_order_contracts import canonical_envelope, validate_envelope
-from restaurant_os.offline_orders import require_grant_scope, verify_bundle, verify_order_grant
+from restaurant_os.offline_orders import (
+    require_grant_scope,
+    require_seed_authority,
+    verify_bundle,
+    verify_order_grant,
+)
 from restaurant_os.operations import BusinessError, _audit
 from restaurant_os.order_execution import (
     ExecutionContext,
@@ -55,6 +60,11 @@ class LocalOrderService:
                 )
         if grant["bundle_hash"] != self.bundle["hash"]:
             raise BusinessError("offline_order_bundle_mismatch", "Authorization catalog differs")
+        if grant["schema_version"] == "ord-off-grant/v4":
+            require_seed_authority(
+                self.bundle["operational_seed"], grant["organization_id"],
+                grant["actor_id"], grant["authorization_version"],
+            )
         expires = datetime.fromtimestamp(self.manifest["expires_at"], UTC)
         issued = datetime.fromtimestamp(self.manifest["issued_at"], UTC)
         if not issued <= now < expires:
