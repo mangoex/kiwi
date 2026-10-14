@@ -35,7 +35,7 @@
         "D05",
         "D06"
       ],
-      "status": "three_user_decisions_recorded",
+      "status": "three_domain_decisions_and_two_design_delegations_recorded",
       "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
     },
     {
@@ -59,7 +59,7 @@
         "W01"
       ],
       "decisions": [],
-      "status": "durable_workspace_cash_kds_print_sync_document_fences_tested_remaining_routes_pending",
+      "status": "document_and_prior_workspace_fences_published_remaining_routes_pending",
       "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone",
       "evidence": [
         "output/audit-remediation/workspace-denial-final.xml",
@@ -87,7 +87,7 @@
         "W02"
       ],
       "decisions": [],
-      "status": "client_memory_and_document_only_admin_handshake_tested_remaining_admin_scope_pending",
+      "status": "document_only_admin_handshake_published_remaining_admin_scope_pending",
       "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone",
       "evidence": [
         "tests/frontend/test_branch_workspace_memory.mjs",
@@ -1068,6 +1068,13 @@
     "ci_cash_lifecycle": "PR73 final9aefe9090ec0f3cb800c8d7c88a41a1140346b81 run38559919244 completed success:2047passed/8existing-skips/7warnings1962.01s; mandatory90cases in12PGmodules including17operational_intents; mypy85API/mypy4gateway/Ruff; all5jobs green including explicit8realhandlers and fivekinds browser1440/390. Earlier7e95e9e run38556274577:frontend memory positive missingbody/key and Python3F2044P8skips7warnings1197.75s;260dbe1 run38557374877:frontendgreen/Python same3F2044P1612.40s. Final fixes preserve 403+nullable audit, all12keybounds and directCIgate; no newskip/suppressions. Independent finaldenial2P10.17s preserves prepared intent/workspace/shifts/logs and one redacted audit; failed owner-grant fixture retained separately. No production action.",
     "publication_git_cash_lifecycle": "PR73 merged main8903520447b705ef2025f52ce04260daef82c7b5; fullGit tree exactly matches tested9aefe9090ec0f3cb800c8d7c88a41a1140346b81. Primary main synchronized; R0 closure only PUBLICATION/execution evidence. Requiredschema0091; signedoffline defaultfalse. Seven central types only; remainingcommands/offline/adoption/full31 pending. No deployment/migration/configuration/operator/canary production action.",
     "document_workspace": "Eight direct purchase/expense HTTP writes require current V2 workspace, branch from original resource; global concept resolution and V2off preserved. Canonical27P114.64s plus nonPOS2P48.46s; invalid snapshot/confirm/request harness failures preserved, validexactbase7RED200+resolve1RED20038.66s. PG6P411.00s observedLock: selectionbothorders4, writerbeforeauthority2; no claimauthorityfirstPG. IndependentSolP1/P2closed, permission8P and atomicity/privacy8paths; sourceRuff/mypy86 andAdminbuildgreen. Nodeprovider3capabilities andcase/slash/globalcatalogaliasgreen. Existingregression/browser/finalSHA CI andGitpublication remain gate; full31/W04 remainpartial; no productionaction. Existingpurchase/expense/workspace/trace115P543.14s; builtAdminbrowser1440/390 currentheaders andvisiblecaptures/no pageerror, corporatealias no reissue. Initialinvalidbrowserreadcap/pagination fixtures corrected without runtime weakening; source/header semantic GREEN. CI finalSHA andpublication pending.",
-    "ci_document_workspace_first": "PR74 f414d602e790da24db65e43656323aae907d0af5 run38571663719: Python1F2081P8existing-skips7warnings1697.80s; fourotherjobs success. Config-onlyfixture retainedadmin.manage/catalog.manage and thereforepurchases.manage true; context200 legitimate. Testfixtures nowexact fiscalpermissions; negative403 retained. Additionalconfig+catalogpositive remains organization and uses existingpermissionID, no fiscal/POS capability. Local2P18.18s plusalias1P10.90s; duplicatepermission fixtureerror retained. Independent3P12.01s admin/catalogaliases, all fiscalwrites/reads403, no PAC/invoiceeffects. Runtimeunchanged; correctedSHA CI pending."
+    "ci_document_workspace_first": "PR74 f414d602e790da24db65e43656323aae907d0af5 run38571663719: Python1F2081P8existing-skips7warnings1697.80s; fourotherjobs success. Config-onlyfixture retainedadmin.manage/catalog.manage and thereforepurchases.manage true; context200 legitimate. Testfixtures nowexact fiscalpermissions; negative403 retained. Additionalconfig+catalogpositive remains organization and uses existingpermissionID, no fiscal/POS capability. Local2P18.18s plusalias1P10.90s; duplicatepermission fixtureerror retained. Independent3P12.01s admin/catalogaliases, all fiscalwrites/reads403, no PAC/invoiceeffects. Runtimeunchanged; correctedSHA CI pending.",
+    "ci_document_workspace_final": "PR74 e7651675dafd0fbe00857897cc470b61338a4439 run38577161984 completed success:2083P8existing-skips7warnings1820.39s; mandatory96cases12PGmodules including11branch_workspace and17operational_intents; mypy86API/mypy4gateway/Ruff; all5jobs green incl frontendsemantic/build/browser. Corrected fiscalmodule3P10.89s andindependent3P12.01s confirmstrict config403, fiscalreader200, catalog/adminpurchasealiases200 without fiscal/POS grant. Runtimeunchanged fromf414d60; no newskip/suppression. FirstCI failure retained separately.",
+    "publication_git_document_workspace": "PR74 merged main4cbe2a33a93f483131b0fe97f2a4617777f4982e; fullGit tree exactlymatches testede7651675dafd0fbe00857897cc470b61338a4439. Primary synchronized0/0. R0closure PUBLICATION/execution/DECISIONES only; userdelegationsD05/D06 recorded without newruntimepolicy. Requiredschema0091; eightdocumentwritefences only, W02/W03/W04 andfull31 remainpartial. No productionaction.",
+    "publication_integrity_document": "R0traceability9P4.62s; structural31task DAG/coverage23 andapprovedD02/D03/D04 unchanged, D05/D06 delegation separatelyrecorded; release IDs match verifiedGit/CI, runtime unchanged. Immutableplanningverifier deliberately requires e142baseline and didnot run againstnewmain4cbe: baseline mismatch retained in output/audit-remediation/document-publication-integrity.log; checker/manifest notrelaxed. Focal structural checks used foractivated3documents."
+  },
+  "delegated_decisions": {
+    "D05": "2026-10-14 user delegates demand/reorder policy to verified best practices and Soft Restaurant; concrete design/specification remains required, no more user answer gate.",
+    "D06": "2026-10-14 user delegates costing/tax policy to verified best practices and Soft Restaurant; no inferred tax recoverability/rate per legal entity; concrete design/specification remains required, no more user answer gate."
   }
 }

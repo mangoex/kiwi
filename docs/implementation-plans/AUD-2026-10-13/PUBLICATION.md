@@ -7,20 +7,30 @@ de sucursales, cuentas por pagar y compensaciones. No se modifica producción de
 
 ## Versión de código publicada para el redeploy
 
-PR [73](https://github.com/mangoex/kiwi/pull/73) integrada en `main` como
-`8903520447b705ef2025f52ce04260daef82c7b5`. El árbol completo coincide exactamente con
-`9aefe9090ec0f3cb800c8d7c88a41a1140346b81`, aprobado por
-[CI 38559919244](https://github.com/mangoex/kiwi/actions/runs/38559919244): **2047 pruebas aprobadas**,
-ocho skips existentes y siete warnings en 1962.01 s. El gate obligatorio confirmó 90 casos
-ejecutados entre doce módulos PostgreSQL, incluidos 17 de operational_intents. Mypy API85/gateway4,
-Ruff, frontend completo, Docker, políticas y dependencias aprobados; los cinco jobs quedaron verdes.
-Auditoría Sol independiente sin bloqueadores. Las fases fallidas anteriores y sus correcciones
-permanecen en TC354 y execution.json; no se agregaron skips, filtros ni silenciamientos.
+PR [74](https://github.com/mangoex/kiwi/pull/74) integrada en `main` como
+`4cbe2a33a93f483131b0fe97f2a4617777f4982e`. El árbol completo coincide exactamente con
+`e7651675dafd0fbe00857897cc470b61338a4439`, aprobado por
+[CI 38577161984](https://github.com/mangoex/kiwi/actions/runs/38577161984): **2083 pruebas aprobadas**,
+ocho skips existentes y siete warnings en 1820.39 s. El gate obligatorio confirmó **96 casos**
+ejecutados entre doce módulos PostgreSQL, incluidos once de branch_workspace y diecisiete de
+operational_intents. Mypy API86/gateway4, Ruff, frontend completo, Docker, políticas y dependencias
+aprobados; los cinco jobs quedaron verdes. Auditoría Sol independiente favorable.
 
-El registro central ahora incorpora apertura, ambos cierres y compensación de caja, además de
-pedido/pago/movimiento. Conserva el cuerpo/clave originales, namespaces de dominio, evidencia
-canónica y un solo owner de commit. Este incremento de W04 no declara completados W04 ni el plan31.
-Otros comandos, pendientes offline, adopción, movilidad y las demás tareas permanecen pendientes.
+Compras directas y gastos requieren workspace vigente en ocho escrituras HTTP cuando V2 está
+activo. El documento original determina la sucursal; contexto y gobernanza permanecen cercados
+hasta el commit. Los operadores documentales obtienen contexto con sus permisos existentes, sin
+conceder POS; el catálogo corporativo conserva acceso sin reemisión. Este incremento no agrega
+migraciones: sigue requiriendo `0091_cash_lifecycle_intents`.
+
+Primera CI f414d60/run38571663719: 2081 aprobadas y un fallo de fixture en 1697.80 s. Un perfil
+etiquetado sólo configuración fiscal conservaba aliases de compras. Se aisló la capacidad del
+fixture, manteniendo el 403, y se agregó el positivo de compatibilidad sin acceso fiscal/POS;
+no cambió runtime ni se desactivaron pruebas. La evidencia fallida permanece en TDD/execution.
+
+W02/W03 continúan parciales; otros módulos y registro central de estos comandos siguen pendientes.
+El plan de 31 tareas sigue en implementación. Las respuestas nuevas D05/D06 autorizan diseñar con
+fuentes oficiales/buenas prácticas; se registran como delegación de diseño y no como políticas ya
+implementadas. El cierre posterior es R0: evidencia de Git/CI y esas respuestas, con runtime intacto.
 
 ### Procedimiento para el redeploy del operador
 
@@ -36,7 +46,7 @@ python -m alembic -c alembic.ini current
 ```
 
 La revisión final debe ser `0091_cash_lifecycle_intents (head)`. Un error de migración detiene la
-promoción. Desplegar API/POS del mismo commit, comprobar `/health/ready` y `/health/version` y
+promoción. Desplegar API/POS/Admin del mismo commit, comprobar `/health/ready` y `/health/version` y
 conservar el SHA reportado; readiness verifica conectividad, por lo que no sustituye Alembic current.
 0091 deriva namespaces sin cambiar las columnas originales de filas0090. No forzar downgrade0091
 con historia de cualquiera de sus cuatro tipos nuevos, incluso terminal; conservar el esquema y
@@ -46,6 +56,24 @@ Conservar `RESTAURANTOS_SIGNED_OFFLINE_AUTHORITY_ENABLED` apagado salvo activaci
 separada y autorizada. Este cierre acredita Git/CI; no ejecutó despliegue, migración, configuración,
 CLI de operador, canary ni cambios de datos productivos. El cierre posterior es R0 y sólo actualiza
 esta guía y execution.json, sin cambiar el runtime aprobado ni las decisiones del usuario.
+
+
+## Publicación anterior (PR 73; esquema0091)
+
+PR [73](https://github.com/mangoex/kiwi/pull/73) integrada en `main` como
+`8903520447b705ef2025f52ce04260daef82c7b5`. El árbol completo coincide exactamente con
+`9aefe9090ec0f3cb800c8d7c88a41a1140346b81`, aprobado por
+[CI 38559919244](https://github.com/mangoex/kiwi/actions/runs/38559919244): **2047 pruebas aprobadas**,
+ocho skips existentes y siete warnings en 1962.01 s. El gate obligatorio confirmó 90 casos
+ejecutados entre doce módulos PostgreSQL, incluidos 17 de operational_intents. Mypy API85/gateway4,
+Ruff, frontend completo, Docker, políticas y dependencias aprobados; los cinco jobs quedaron verdes.
+Auditoría Sol independiente sin bloqueadores. Las fases fallidas anteriores y sus correcciones
+permanecen en TC354 y execution.json; no se agregaron skips, filtros ni silenciamientos.
+
+El registro central ahora incorpora apertura, ambos cierres y compensación de caja, además de
+pedido/pago/movimiento. Conserva el cuerpo/clave originales, namespaces de dominio, evidencia
+canónica y un solo owner de commit. Este incremento de W04 no declara completados W04 ni el plan31.
+Otros comandos, pendientes offline, adopción, movilidad y las demás tareas permanecen pendientes.
 
 ## Publicación anterior (PR 72; esquema0090 histórico)
 
