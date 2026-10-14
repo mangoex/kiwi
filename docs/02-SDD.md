@@ -6300,3 +6300,112 @@ después de la llamada/commit, payload cambiado, dos workers/lease, UUID ausente
 pending/verifying y evento duplicado/tardío. PostgreSQL verifica unicidad/locks/migración, SQLite
 verifica atomicidad y frontend verifica recuperación/estado/descarga autorizada. CI, sandbox externo
 y comportamiento productivo son gates independientes; documentar este contrato no los aprueba.
+
+
+## 63. PROC-POLICY-001 — D05/D06 versionadas
+
+La delegación del 14-10-2026 permite elegir diseño, no atribuir algoritmos no documentados a un
+competidor. Soft Restaurant documenta stock mínimo/máximo, órdenes por stock y recetas; Oracle
+ofrece referencia pública de posición de inventario, lead time y seguridad configurable. Las
+fuentes y decisiones propias están en DECISIONES.md. D05_v1/D06_v1 son contratos objetivo:
+`policy_reference.py` prueba aritmética sin SQL, red ni efectos. No acredita I03/I04, X01/X02,
+A01/A02 o C02; la integración respeta sus dependencias del plan.
+
+### 63.1 Demanda y disponibilidad — D05_v1
+
+- Historial: 28 días calendario completos anteriores al inicio del día local de la sucursal;
+  fechas locales se convierten a UTC con zona IANA, intervalo [inicio, fin). El día en curso se
+  excluye. Promedio por día de semana sobre fechas abiertas con información completa; hacen falta
+  dos observaciones completas por cada día de semana abierto del horizonte. Cierre programado
+  no es cero de demanda; cero observado durante operación completa sí. Datos ausentes, cortes
+  offline pendientes o venta censurada por desabasto requieren revisión/insuficiencia.
+- Demanda: consumo confirmado normalizado a unidad base del artículo y versiones históricas,
+  neto de recuperaciones vinculadas. Merma regular independiente puede integrarse una sola vez;
+  registros que describen el mismo consumo no se suman otra vez. Transferencias, conteos,
+  devoluciones al proveedor y ajustes extraordinarios no son demanda de venta. Unidades,
+  movimientos originales y criterios de exclusión quedan trazables.
+- Revisión: siete días calendario por defecto, configurable 1..90. El horizonte total es plazo
+  de entrega explícito L (0..90 días) más revisión R, total 1..180; no se agrega L dos veces.
+  Plazos fuera del dominio requieren revisión, no truncamiento. L procede de proveedor y
+  presentación vigentes, sin inventarlo cuando falta. Se proyecta por fecha con el calendario
+  futuro; cada día cerrado tiene demanda futura cero conocida.
+- Seguridad: 20% de la demanda prevista durante L+R, Decimal exacto, configurable 0..100%.
+  Es una elección inicial de RestaurantOS, no una norma universal ni una fórmula de Soft Restaurant.
+  Debe revisarse según rotación, merma y confiabilidad del proveedor; cambios son versionados.
+- Posición: stock utilizable físico menos reservas vigentes una vez; sumar sólo pendientes
+  aprobados con ETA firme y cantidad residual después de recepciones/cierres/compensaciones.
+  Borradores, cancelados, vencidos sin ETA reconfirmada y recibidos no vuelven a contarse.
+  El corte de stock, consumo y reservas es el mismo instante UTC. En el día actual se resta
+  consumo confirmado desde apertura del pronóstico diario (piso cero); después se resta la
+  parte del pronóstico cubierta por reservas identificadas y se agrega la reserva una vez como
+  compromiso firme. No se resta consumo de fechas futuras ni reservas de otra fecha/artículo.
+  La demanda restante así derivada, no todo el día ya consumido, alimenta el cálculo.
+  ETA al inicio del bucket puede cubrir ese día; una ETA intradía se asigna conservadoramente
+  al siguiente día. Una llegada fuera del horizonte no reduce la necesidad. La simulación diaria
+  muestra déficit por bucket; no acredita ausencia de faltantes intradía. Hora/calendario o
+  atribución de consumo/reservas desconocidos requieren revisión.
+- Necesidad: objetivo = max(demanda restante(L+R)*(1+seguridad), mínimo configurado o cero);
+  compra base = max(0, objetivo+reservas-stock utilizable-pendientes elegibles), con origen de
+  reservas documentado para no restarlas otra vez si el disponible ya es neto. Mínimo es un piso
+  de cobertura, máximo es un límite de stock físico utilizable, no un objetivo para comprar.
+  Ésta es una política híbrida propia, distinta del algoritmo min→max de Oracle. Mínimo mayor
+  que máximo u objetivo mayor que máximo requiere revisión, nunca truncamiento silencioso.
+  Con demanda cero y stock suficiente no se genera compra por una constante o por MOQ.
+- Presentación: convertir por rendimiento congelado y redondear hacia arriba a múltiplo de lote
+  comercial; después satisfacer MOQ sólo cuando haya déficit positivo. Si el lote resultante
+  excede capacidad residual a ETA, caducidad o almacenamiento, devolver needs_review y no compra
+  automática. Capacidad residual = max(0, máximo-stock físico proyectado justo antes de la nueva
+  llegada), incluyendo otros pendientes recibidos y consumo previo, no sólo cantidad comprada.
+  La proyección desconocida requiere revisión cuando existe máximo; no usar máximo absoluto
+  como capacidad residual. Ejemplo: físico a ETA 9, máximo 10 y empaque 6 exige revisión.
+  El excedente por empaque se muestra. Precio/proveedor/rendimiento ausentes siguen unknown;
+  se usa precio confirmado o cotización explícita versionada del proveedor seleccionado.
+- Captura: propuesta incluye branch, as_of, intervalo UTC/local, cobertura/calendario, versiones
+  de política/receta/presentación, revisión de stock/pendientes y fingerprint. El consumidor
+  reautoriza y revalida la revisión antes de crear DRAFT. Nunca confirma por recomendación.
+
+### 63.2 Costos, impuestos y evidencia — D06_v1
+
+- Perfil fiscal por razón social, impuesto y uso: recoverable_fraction Decimal 0..1 con evidencia,
+  vigencia, autor y versión inmutable. Configuración exige admin.manage con autoridad organización;
+  rol branch o permiso de compra no cambia por sí solo la clasificación fiscal de la empresa.
+  unknown no se transforma en recuperable/no recuperable por defecto. Perfil v0 legacy conserva
+  impuestos informativos originales; cambio a v1 sólo en documentos nuevos o ajuste autorizado.
+- Costo = precio - descuentos aplicables + impuesto*(1-recoverable_fraction) + flete y manejo
+  atribuibles. No se capitalizan impuestos recuperables, intereses, venta/distribución o pérdidas
+  anormales. La elegibilidad potencial se separa del acreditamiento efectivo: IVA pendiente de
+  pago puede estar pendiente de acreditar, sin contarlo dos veces en costo o declarar crédito fiscal.
+  IEPS/retenciones requieren su propia clasificación; no se infiere una regla universal del IVA.
+- Proveedor: obligación y pago conservan total documental exigible, incluyendo impuestos
+  trasladados y restando retenciones aplicables al proveedor; la retención se representa aparte.
+  Crédito confirmado nace en la recepción D04. Conciliar XML no recibe ni crea deuda por segunda vez.
+- Descuento XML de conceptos/root se concilia, no se aplica dos veces. Flete neto y descuentos
+  comerciales realmente globales se reparten por valor neto positivo de líneas elegibles;
+  pesos explícitos alternativos necesitan motivo/evidencia. Pesos todos cero requieren revisión.
+  Cantidades no comparables de distintos artículos no se usan como pesos implícitos.
+- Reparto: micro-unidades 0.000001 para valuación; centavos/precisión de moneda para documento.
+  Orden canónico de line_id y acumulados HALF_UP conservan exactamente el total, incluido residuo.
+  No se redondea cada fragmento independientemente. No se modifica XML original para conciliar.
+- XML: hash de bytes, evidencia privada e identidad fiscal/razón social/moneda preceden mapping.
+  La coincidencia XML-documento es exacta a precisión de moneda: tolerancia de negocio inicial
+  cero centavos y cero discrepancias de identidad/cantidad. Las reglas numéricas del esquema,
+  moneda y versión fiscal se validan separadamente; no se usa porcentaje tolerado ni se confunde
+  tolerancia SAT con permiso para cambiar un documento. Reglas no verificadas requieren revisión.
+  Una diferencia legítima se registra y resuelve con ajuste explícito, no aceptación silenciosa.
+- Historia: recibo, impuestos, costo original, caja y pagos permanecen inmutables. Corrección
+  después de consumo exige D03 y un plan versionado con atribución autorizada de cantidad remanente
+  y consumida. El delta de valor se reparte entre inventario remanente y gasto/variación de consumo;
+  la suma conserva el delta y el signo. Cantidad faltante/no atribuible requiere revisión, nunca
+  min(stock actual, recibido) como supuesto. Costeo/caja/CxP se compensan por referencias distintas
+  dentro del comando atómico C02; promedio deriva del ledger y no se edita directamente.
+
+### 63.3 Evidencia, implementación y operación
+
+BDD685..688/TDD388..391 separan pruebas de referencia de integración. Un resultado de referencia
+no habilita un endpoint ni declara conciliación fiscal, calendario o ledger listos. Antes de liberar
+I03/I04 se requieren adaptadores y recorridos negativos/positivos con datos reales sintéticos por
+sucursal; X01/A01/C02 requieren persistencia, concurrencia, replay y auditoría propias.
+Preguntas operativas: ¿qué dato o configuración impidió la propuesta? Motivos estables y revisión
+sin XML/secretos en logs. ¿qué saldo/costo se derivó y de qué versión? Fingerprint y referencias
+inmutables. ¿se produjo un efecto duplicado o se descartó un resultado obsoleto? Command log y
+ledger vinculados. Las señales responden estas preguntas; no se crean métricas sin propósito.
