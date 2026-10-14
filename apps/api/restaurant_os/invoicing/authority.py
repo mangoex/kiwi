@@ -39,6 +39,42 @@ def require_configuration_permission(
     return actor_id
 
 
+def _has_historical_read_scope(session: Session, actor_id: str, branch_id: str) -> bool:
+    """Inactive history needs a corporate read or an explicitly assigned read role.
+
+    A workspace grant only makes its permissions portable over active branches.
+    It must not silently turn into an organization-wide historical capability.
+    """
+    if ops._actor_has_organization_scope(session, actor_id, "invoicing.read"):
+        return True
+    return (
+        session.scalar(
+            sa.select(models.role_permissions.c.role_id)
+            .select_from(
+                models.user_roles.join(
+                    models.roles, models.roles.c.id == models.user_roles.c.role_id
+                )
+                .join(
+                    models.role_permissions, models.role_permissions.c.role_id == models.roles.c.id
+                )
+                .join(
+                    models.permissions,
+                    models.permissions.c.id == models.role_permissions.c.permission_id,
+                )
+            )
+            .where(
+                models.user_roles.c.user_id == actor_id,
+                models.roles.c.organization_id == ops.ORGANIZATION_ID,
+                models.roles.c.scope == "branch",
+                models.user_roles.c.branch_id == branch_id,
+                models.permissions.c.code == "invoicing.read",
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
 def require_branch_permission(
     session: Session,
     actor: str | None,
@@ -48,14 +84,17 @@ def require_branch_permission(
     branch_context: str | None = None,
 ) -> str:
     actor_id = actor or ""
+    reading = permission == "invoicing.read"
     branch = (
-        session.scalar(
-            sa.select(models.branches.c.id).where(
+        session.execute(
+            sa.select(models.branches.c.id, models.branches.c.status).where(
                 models.branches.c.id == branch_id,
                 models.branches.c.organization_id == ops.ORGANIZATION_ID,
-                models.branches.c.status == "active",
+                sa.true() if reading else models.branches.c.status == "active",
             )
         )
+        .mappings()
+        .first()
         if organization_id == ops.ORGANIZATION_ID
         else None
     )
@@ -76,6 +115,27 @@ def require_branch_permission(
         )
         raise ops.AuthorizationError("permission_denied", "Fiscal branch is not authorized")
     ops.require_permission(session, actor_id, permission, branch_id)
+    if (
+        reading
+        and branch["status"] != "active"
+        and not _has_historical_read_scope(session, actor_id, branch_id)
+    ):
+        ops._record_authorization_denied(
+            session,
+            actor_user_id=actor_id,
+            permission_code=permission,
+            branch_id=branch_id,
+            reason="historical_branch_scope_required",
+        )
+        raise ops.AuthorizationError("permission_denied", "Historical fiscal scope is required")
+    if reading and (
+        branch["status"] != "active"
+        or ops._actor_has_organization_scope(session, actor_id, "invoicing.read")
+    ):
+        # Historical resources retain fiscal authority after an operational
+        # workspace can no longer be issued. Corporate read is already scoped
+        # to the whole tenant; it does not borrow an unrelated role's scope.
+        return actor_id
     if get_settings().branch_scope_v2_enabled:
         from restaurant_os.branch_workspaces import validate_branch_context
 
@@ -110,32 +170,43 @@ def authorized_read_branches(
             session, actor_id, organization_id, requested_branch, "invoicing.read", branch_context
         )
         return [requested_branch]
+    branches = list(
+        session.execute(
+            sa.select(models.branches.c.id, models.branches.c.status)
+            .where(models.branches.c.organization_id == organization_id)
+            .order_by(models.branches.c.id)
+        ).mappings()
+    )
+    allowed = [
+        branch
+        for branch in branches
+        if (
+            ops._actor_has_permission(session, actor_id, "invoicing.read", str(branch["id"]))
+            if branch["status"] == "active"
+            else _has_historical_read_scope(session, actor_id, str(branch["id"]))
+        )
+    ]
     if get_settings().branch_scope_v2_enabled and not ops._actor_has_organization_scope(
         session, actor_id, "invoicing.read"
     ):
-        profile = ops.build_session_profile(session, actor_id)
-        active = profile["active_branch"]
-        if not active:
+        historical = [str(branch["id"]) for branch in allowed if branch["status"] != "active"]
+        if not any(branch["status"] == "active" for branch in allowed):
+            return historical
+        from restaurant_os.branch_workspaces import current_workspace
+
+        workspace = current_workspace(session, actor_id)
+        if not workspace:
             raise ops.AuthorizationError("branch_context_required", "Select a branch first")
         require_branch_permission(
-            session, actor_id, organization_id, str(active["id"]), "invoicing.read", branch_context
+            session,
+            actor_id,
+            organization_id,
+            str(workspace["branch_id"]),
+            "invoicing.read",
+            branch_context,
         )
-        return [str(active["id"])]
-    branches: list[str] = list(
-        session.scalars(
-            sa.select(models.branches.c.id)
-            .where(
-                models.branches.c.organization_id == organization_id,
-                models.branches.c.status == "active",
-            )
-            .order_by(models.branches.c.id)
-        )
-    )
-    return [
-        str(branch)
-        for branch in branches
-        if ops._actor_has_permission(session, actor_id, "invoicing.read", str(branch))
-    ]
+        return sorted(set([str(workspace["branch_id"]), *historical]))
+    return [str(branch["id"]) for branch in allowed]
 
 
 def public_config(config: dict[str, object] | None) -> dict[str, object]:

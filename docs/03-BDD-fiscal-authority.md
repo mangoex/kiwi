@@ -13,6 +13,14 @@ Feature: Emitir y recuperar documentos con autorización y evidencia final
     Then recibe una denegación estable antes del proveedor y no obtiene datos sensibles
     And un usuario inactivo o con sólo orders.read tampoco obtiene autoridad fiscal
     And una lista sin branch sólo incluye sucursales autorizadas
+    Given un lector con alcance fiscal corporativo
+    When consulta detalle o descarga documentos de otra sucursal de su organización
+    Then su permiso actual sobre el recurso autoriza lectura sin contexto operativo
+    Given una sucursal desactivada con facturas históricas
+    When un lector autorizado consulta lista detalle o PDF XML
+    Then conserva esa historia sin reactivar sucursal ni adquirir permiso de emisión o recibo
+    But actor inactivo permiso retirado recurso ajeno o alcance insuficiente no obtienen historia
+    And la portabilidad móvil sobre ramas activas no concede historia de ramas cerradas no asignadas
 
   @BDD-SC-680
   Scenario: El conjunto completo cumple elegibilidad y configuración

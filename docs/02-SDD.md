@@ -5862,8 +5862,17 @@ organización, versión de autoridad y workspace. Config pública se proyecta po
 una clave inesperada legacy no hidrata form ni cache. Una nueva clave vive sólo en memoria, vacío
 omite reemplazo y éxito limpia el campo. Cada escritura comprueba la cuenta validada antes de enviar.
 El listado administrativo sin branch admite consolidado sólo con `invoicing.read` de alcance
-organización; una cuenta con alcance sucursal conserva su workspace vigente. Detalle, recibo,
-emisión, cancelación y consulta explícita de branch requieren ese contexto cuando V2 está activo.
+organización. Ese permiso corporativo autoriza también detalle/PDF/XML por recurso sin contexto
+operativo, incluso con otra sucursal seleccionada; no toma alcance de un rol corporativo sin esa
+capacidad. Una cuenta de sucursal mantiene el contexto vigente para lectura de sucursales activas.
+La lectura de historia de sucursales inactivas valida pertenencia y permiso fiscal actual; no
+depende de recuperar un contexto operativo que ya no puede emitirse. Ese alcance histórico
+exige permiso corporativo fiscal o un rol con `invoicing.read` asignado expresamente a
+la sucursal cerrada. La portabilidad `organization_branch_workspaces` sigue limitada a sucursales
+activas como establece §50; nunca se usa para inferir alcance sobre historia inactiva ajena.
+El listado del lector de sucursal combina su contexto activo autorizado con historia inactiva
+autorizada; si sólo tiene alcance inactivo, ofrece sólo esa historia. Recibo, emisión y cancelación conservan contexto activo
+y sucursal activa cuando V2 está habilitado. La excepción de lectura nunca concede operaciones.
 Denegaciones del contexto registran códigos e IDs verificados, sin su secreto. Guardar configuración
 registra estado/entorno e indicador de reemplazo de credencial en la misma transacción, sin payload
 ni RFC ni credencial. Un fallo de auditoría impide confirmar el cambio.

@@ -19,6 +19,16 @@ inválido, URL legacy maliciosa ignorada, cuenta/contexto revocado durante red, 
 redirección y archivo excesivo. Assert ninguna transacción abierta durante el adaptador, bytes
 privados ausentes en errores/logs y fuente legacy conservada. Cliente real usa bearer/contexto,
 descarta respuesta tardía y revoca blob; navegador verifica descarga y el estado visible.
+Lectura histórica/corporativa: `test_fiscal_historical_reads.py` exige lista/detalle/PDF/XML de
+sucursales inactivas autorizadas y lectura corporativa de otra sucursal activa sin contexto.
+El lector de sucursal activa conserva su fence; org-role sin `invoicing.read` no amplía el permiso
+de otro rol. Revalidación tras red impide bytes si se revoca actor/permiso/recurso. Emitir/recibir
+en una sucursal inactiva rechaza antes del proveedor. Sin modificación de documentos, claves
+históricas ni creación de contexto durante la lectura.
+Una refutación móvil comprueba que `organization_branch_workspaces` no presta autoridad histórica
+de B cerrada a un rol asignado sólo en A; exige alcance fiscal corporativo o asignación exacta
+con esa capacidad como define SDD §50. El listado mixto usa contexto persistido revalidado, sin
+inferir home branch desde roles históricos adicionales.
 
 ## TDD-TC-383 Elegibilidad y conservación de dinero
 
@@ -218,3 +228,18 @@ incluyen cobro real sintético 9500 con recibido 10000/cambio 500 y REFUND/CHARG
 `sol-fiscal-net/AUDIT.md` conserva también el intento mixto independiente de 33 verdes/seis
 fixtures antiguos ya cargados. Ruff, mypy focal, nueve enlaces y diff-check verdes. No cambia
 SQL/locks ni activa una nueva afirmación PostgreSQL; CI final, worker/PAC y producción pendientes.
+
+
+Evidencia local de lectura histórica/corporativa (TDD-TC-382): RED inicial cuatro 403; dos
+repeticiones mixtas (2 verdes/2 fallas y 72 verdes/2 fallas) retenidas por una lectura de
+comparación del seed que dejaba su Session abierta antes del transporte. Se cerró esa lectura
+sin modificar la guarda de I/O. Repetición final 76 verdes; auditoría independiente 29
+refutaciones y combinación de 105 verdes. La fuga móvil a B cerrada no asignada tuvo RED real
+y se corrigió con permiso corporativo o rol de lectura exactamente asignado; no se extiende §50.
+Tres casos PostgreSQL reales V2 verdes, en dos XML: lector corporativo con sucursal activa e
+inactiva, y lector de sucursal asignada inactiva. En los tres, revocador y writer del documento
+quedaron observados en pg_stat_activity con wait_event_type=Lock hasta commit de auditoría.
+Artefactos `fiscal-history-*.xml` y `sol-fiscal-history/AUDIT.md` bajo output/audit-remediation.
+El rechazo del perfil operativo con dos roles fue un hallazgo estático; no se fabricó RED:
+la refutación cargó ya la lectura por contexto persistido. Login/profile/reissue sin rama activa
+y su UI siguen pendientes W04/R01; esta lectura no acredita ese recorrido ni F03/F04/PAC/producción.

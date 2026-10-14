@@ -231,7 +231,18 @@
         "output/audit-remediation/fiscal-emitter-postgres-migration-retry.xml",
         "output/audit-remediation/fiscal-bound-positive-current.xml",
         "output/audit-remediation/fiscal-origin-authority-postgres-current.xml",
-        "output/audit-remediation/fiscal-emitter-ci-gates-current.xml"
+        "output/audit-remediation/fiscal-emitter-ci-gates-current.xml",
+        "output/audit-remediation/fiscal-history-red.xml",
+        "output/audit-remediation/fiscal-history-first-green.xml",
+        "output/audit-remediation/fiscal-history-current.xml",
+        "output/audit-remediation/fiscal-history-retry.xml",
+        "output/audit-remediation/fiscal-history-final.xml",
+        "output/audit-remediation/fiscal-history-mobile-scope-red.xml",
+        "output/audit-remediation/fiscal-history-scope-final.xml",
+        "output/audit-remediation/fiscal-history-postgres.xml",
+        "output/audit-remediation/fiscal-history-postgres-assigned.xml",
+        "output/audit-remediation/fiscal-history-traceability.xml",
+        "output/audit-remediation/sol-fiscal-history/AUDIT.md"
       ]
     },
     {
@@ -950,7 +961,8 @@
     "fiscal_transport": "independent_json_deadline_and_document_truncation_review_closed",
     "fiscal_command": "preparation audit closed: privacy/atomicity/authority/source-audit/migration refutations and independent PG XML validation; private foundation only",
     "fiscal_exact_json": "31 initial +11 chunked escape refutations passed; no blockers; memory residual corrected, total process/input/concurrency budget not claimed",
-    "fiscal_net_reconciliation": "Independent R3 audit closed without blockers;10 actual cash/valid adjustment refutations green; no new SQL/PG claim"
+    "fiscal_net_reconciliation": "Independent R3 audit closed without blockers;10 actual cash/valid adjustment refutations green; no new SQL/PG claim",
+    "fiscal_history": "Independent scope audit closed: mobile-portability scope leak refuted and corrected;29 refutations plus76 directed green; login/UI without active branch not certified"
   },
   "latest_local_evidence": {
     "authority": "9 boundary tests passed; PostgreSQL shared-role barrier passed",
@@ -959,7 +971,7 @@
     "workspace_backend": "25 directed workspace and branch-selection tests passed; PostgreSQL context uniqueness, replay and cash-open/selection barrier passed",
     "workspace_client": "memory/provider tests, owner without home, uncertain selection exact replay, reload rotation, definitive rejection preserving capture and catalog-only Admin passed; 1440 and 390 screenshots inspected",
     "workspace_remaining": "other operational routes, leases, uncertain-command registry, reassignment, recovery-only rollout/rollback and Admin owner without home pending; no whole-scope certification",
-    "ci": "Published PR68 head 2aec93c, run 38473618519 success; merged main 914679c. New private 0087 increment not covered; CI pending.",
+    "ci": "PR68 published main914679c success. PR69 ee84ce4 run38484909834 completed success:1838 passed/8 skipped/7 warnings, mandatory PostgreSQL evidence step success, mypy79/Ruff and all frontend/Docker/policy jobs success. New historical-read diff is not included; its final SHA CI pending.",
     "production": "not_authorized",
     "workspace_operational_routes": "11 scoped guard API tests; 9 legacy/device tests; PostgreSQL guard/selection wait-event barrier passed; independent Sol refutations passed",
     "postgres_evidence_gate": "10 mandatory modules including fiscal_command; 21 verifier contract tests passed. This is verifier evidence, not execution of all 10 modules. Current fiscal_command PG 5 passed; CI for new increment pending.",
@@ -971,6 +983,7 @@
     "fiscal_command": "Private prepare_invoice only: 22 preparation + 9 traceability passed; migration/head 14; PostgreSQL 5; eligibility/gateway regressions 20; mandatory verifier gate 21; focal Ruff/mypy green; independent audit closed foundation. Additive 0087 draft, no HTTP/PAC/worker. Exact fiscal concepts/taxes, external recovery and F04 pending. Initial REDs and PG fixture failures retained separately.",
     "plan_integrity_current_attempt": "verificar_plan.py rejects current HEAD 914679c because manifest retains original audit baseline e1422dc. Historical planning guard retained, no relaxation; this attempt is not a green current implementation gate. Current spec links verified independently by test_traceability.",
     "fiscal_exact_json": "Decimal JSON transport: initial34 directed +17 transport regressions green; chunked35 directed +5 legacy green; independent31 initial +11 chunking refutations green. Same1MiB-control probe: traced peak12584934 before/1154124 after; retains body/finalcopy/input/concurrency residual. RED1 TypeError retained. Ruff/mypy6-source package, traceability9 and diffcheck green. Synthetic fixture provenance/exact hash/path verified. Tax decision requested; concepts/taxes/worker/API/recovery pending; new increment not integrated in main, CI pending.",
-    "fiscal_net_reconciliation": "Net must equal current total.6 negative excess cases across issue/receipt/prepare +3 positive balanced-adjustment cases. Final eligibility/evidence/preparation suite67passed; independent10 green, Ruff/mypy1/traceability9/diff green. RED:6 expected +3 invalid duplicate-payment fixtures; first mixed64passed/6fixture failures retained; independent mixed33passed/6old-fixture failures retained. Confirmed payment uniqueness unchanged; no source writes. Current diff not covered by baseline7366de9 CI run38483537392, still in progress when checked; final SHA CI pending."
+    "fiscal_net_reconciliation": "Net must equal current total.6 negative excess cases across issue/receipt/prepare +3 positive balanced-adjustment cases. Final eligibility/evidence/preparation suite67passed; independent10 green, Ruff/mypy1/traceability9/diff green. RED:6 expected +3 invalid duplicate-payment fixtures; first mixed64passed/6fixture failures retained; independent mixed33passed/6old-fixture failures retained. Confirmed payment uniqueness unchanged; no source writes. Current diff not covered by baseline7366de9 CI run38483537392, still in progress when checked; final SHA CI pending.",
+    "fiscal_history": "Corporate fiscal read is resource-scoped without operational context. Closed history requires current corporate-read or exact assigned-read role; mobile workspace grant remains active-branch only. Final76 directed and29 independent green; earlier4RED + mixed2passed/2fixture failures and72passed/2fixture failures retained; root/mobile and independent mobile scope RED retained.3 real PostgreSQL cases (2corp active/inactive +1assigned inactive) passed; both actual revoker and document PID Lock observed through audit commit. Ruff/mypy1/traceability9/diff green. PRD/SDD/BDD/TDD/matrix updated. No UI/login-without-active-branch proof, no PAC/production; current increment CI pending, F02/F03/F04 remain partial."
   }
 }

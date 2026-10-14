@@ -157,7 +157,7 @@
     },
     {
       "path": "apps/api/tests/test_fiscal_authority_postgres.py",
-      "sha256": "ff2ce97d6459d888d0c625f5ffa5539280c9df73b64727e5eff57d1801ad27d6",
+      "sha256": "b4daf10553a148b885fbe0a355e6865e7459f024b23f0a08038368d5b1bc3c7b",
       "provenance": "restaurantos-audit-test-fiscal-authority-postgres-v1"
     },
     {
