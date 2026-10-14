@@ -378,7 +378,9 @@ funcional separada.
 
 - `PRD-FR-100`: Debe registrar recepciones sin requerir orden de compra.
 - `PRD-FR-101`: Debe registrar proveedor, presentación, cantidad, costo, lote y caducidad.
-- `PRD-FR-102`: Debe importar XML de CFDI.
+- `PRD-FR-102`: Debe importar XML de CFDI mediante una frontera segura y acotada; parsear no
+  acredita validez SAT, conciliación ni efectos de recepción/pago. Conserva evidencia original
+  privada y separa extracción documental de validación fiscal y contabilización.
 - `PRD-FR-103`: Debe impedir XML duplicados.
 - `PRD-FR-104`: Debe mapear conceptos de proveedor a productos internos.
 - `PRD-FR-275`: La asistencia de compras y merma debe exigir un actor activo, permisos vigentes

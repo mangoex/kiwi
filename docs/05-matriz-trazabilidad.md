@@ -129,7 +129,7 @@ y regresiones del paquete, sin certificar despliegue o datos productivos.
 | PRD-FR-245 | Producto compuesto seleccionable compatible en dominio/API, sin editor duplicado en Productos; precio Python y snapshot de receta; PostgreSQL real y CI pendientes | BDD-SC-527, BDD-SC-528, BDD-SC-529, BDD-SC-530, BDD-SC-591 | SDD §48.7, TDD-TS-117, TDD-TC-267, TDD-TC-268, TDD-TC-269, TDD-TC-270, TDD-TC-308 | Probado |
 | PRD-FR-100 | Direct receipts | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-101 | Supplier presentation and lot | BDD-SC-013 | TDD-TS-007 | Disenado |
-| PRD-FR-102 | XML import | BDD-SC-013 | TDD-TS-007 | Disenado |
+| PRD-FR-102 | SDD §64 parser e identidad declarada unverified inicial X01; sin certificado fiscal, rutas ni persistencia; entidad autorizada, evidencia privada, duplicados y conciliación pendientes | BDD-SC-013, BDD-SC-689, BDD-SC-690 | TDD-TS-007, TDD-TS-144, TDD-TC-392, TDD-TC-393 | Scaffold |
 | PRD-FR-103 | XML duplicate | BDD-SC-014 | TDD-TS-007 | Disenado |
 | PRD-FR-104 | Supplier mappings | BDD-SC-013 | TDD-TS-007 | Disenado |
 | PRD-FR-105 | Accounts payable | BDD-SC-013 | TDD-TS-007 | Disenado |

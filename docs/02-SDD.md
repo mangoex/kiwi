@@ -6409,3 +6409,63 @@ Preguntas operativas: ¿qué dato o configuración impidió la propuesta? Motivo
 sin XML/secretos en logs. ¿qué saldo/costo se derivó y de qué versión? Fingerprint y referencias
 inmutables. ¿se produjo un efecto duplicado o se descartó un resultado obsoleto? Command log y
 ledger vinculados. Las señales responden estas preguntas; no se crean métricas sin propósito.
+
+## 64. SUPPLIER-XML-001 — frontera sintáctica inicial X01
+
+El primer incremento X01 es un parser puro sin rutas, persistencia, importación transaccional ni
+efectos de inventario/deuda. Recibe bytes originales, no ruta/URL/archivo comprimido/objeto de
+lectura. Acepta como máximo 1 MiB, 10.000 elementos, profundidad 32, 128 atributos y 128
+declaraciones de namespace por elemento (URI máximo 32.768 caracteres),
+nombre expandido de 512 caracteres y valor de atributo de 32.768 caracteres; texto acumulado
+decodificado como máximo 1 MiB en UTF-8. Estos son límites operativos explícitos del adaptador,
+no reglas fiscales SAT. Ningún parámetro de entrada puede ampliarlos.
+
+Usa XMLParser/TreeBuilder de la biblioteca estándar con callbacks que rechazan toda declaración
+DOCTYPE antes de expandir entidades y toda instrucción de procesamiento (excepto declaración XML,
+que maneja el parser). No ejecuta XInclude ni carga DTD/esquemas/URLs y no admite gzip/zip. Antes de
+parsear verifica libexpat >=2.7.2; versión ausente/incompatible produce parser_unavailable, nunca
+fallback a parser vulnerable. La restricción responde a la [seguridad XML documentada por Python](https://docs.python.org/3/library/xml.html#xml-security);
+no introduce dependencia crítica nueva. La [documentación Python 3.12](https://docs.python.org/3.12/library/xml.html#xml-vulnerabilities)
+también advierte que las bibliotecas del sistema deben verificarse y recomienda defusedxml para
+entradas no confiables. Esta elección de callbacks y límites debe someterse a refutación dirigida;
+si requiere otra librería, se documenta ADR antes de introducirla.
+
+Errores tienen código estable sin payload, rutas, descripción de concepto ni texto del parser
+original. Entrada vacía/no bytes/excesiva, estructura inválida, DTD, PI, límites excedidos y motor
+incompatible fallan sin entregar árbol parcial. UTF-16 con DTD se rechaza mediante callback, no
+buscando una cadena UTF-8. Árbol devuelto es extracción en memoria, no evidencia durable; no se
+reserializa para reemplazar el original ni se declara comprobante válido por nombre/namespace.
+
+El consumidor futuro X01 debe verificar versión/identidad fiscal/RFC de receptor y emisor,
+moneda/UUID, conservar bytes/hash privados, reautorizar scope y deduplicar concurrentemente.
+Esos gates, validación del esquema/catálogos/sellos/estado SAT y X02 permanecen pendientes. El XSD
+4.0 oficial incluye referencias a catálogos/tipos; no se permite resolver schemaLocation aportado
+por un XML del usuario ni confundir parseo sintáctico con validación del esquema completo.
+El adaptador futuro traducirá el error puro al error de negocio HTTP vigente tras autorización.
+
+Preguntas operativas: ¿por qué no se pudo extraer? Código estable, tamaño y versión del parser,
+sin XML en logs. ¿qué original corresponde al resultado? Hash/ID protegido de evidencia, no texto
+serializado. Esta capa pura no escribe logs: la integración registrará las señales bajo autoridad.
+Pruebas BDD-SC-689/TDD-TS-144/TC-392 verifican ataques, límites y parseo benigno; no cierran X01.
+
+### 64.1 Captura de identidad declarada CFDI 4.0 / Timbre 1.1
+
+Una función pura consume los bytes mediante el parser anterior y el RFC de receptor ya cargado
+por un consumidor autorizado. Root QName debe ser Comprobante en namespace CFDI 4 con Version 4.0;
+un Emisor, un Receptor y un Complemento directos, con un TimbreFiscalDigital 1.1 directo en el
+Complemento y único en todo el árbol. Prefijos XML no otorgan identidad; se comprueba el QName expandido y
+cardinalidad. RFC informado usa representación mayúscula (incluye Ñ/& cuando corresponda),
+estructura 12/13 caracteres y coincidencia exacta con receptor explícito; no inventa RFC si falta
+configuración. UUID declarado debe ser hexadecimal 8-4-4-4-12 y se normaliza a mayúscula.
+
+Devuelve DTO congelado UnverifiedCfdiIdentity: UUID/RFC declarados, perfil de captura versionado
+y SHA256 de bytes originales, con fiscal_validation=unverified fijo. No extrae ni calcula conceptos,
+costos o impuestos; no certifica sellos, existencia/estado SAT, XSD completo ni titularidad del RFC.
+Otro namespace, cardinalidad ambigua, receptor incompatible o versión no soportada falla con
+código redactado. XML3.3/otros perfiles no se convierten implícitamente a 4.0. El consumidor futuro
+reautoriza y carga entidad del servidor; pasar un RFC a la función pura no concede autoridad.
+
+Referencia de forma/namespace: [XSD CFDI 4.0 SAT](https://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd)
+y [XSD Timbre 1.1 SAT](https://www.sat.gob.mx/sitio_internet/cfd/TimbreFiscalDigital/TimbreFiscalDigitalv11.xsd),
+consultados el 14-10-2026. No se descarga ni resuelve un esquema desde el XML de usuario.
+BDD-SC-690/TDD-TC-393 prueban identidad declarada, conflictos y hash inmutable, sin SQL ni red.
