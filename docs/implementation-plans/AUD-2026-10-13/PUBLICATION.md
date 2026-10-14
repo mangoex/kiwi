@@ -7,6 +7,48 @@ de sucursales, cuentas por pagar y compensaciones. No se modifica producción de
 
 ## Versión de código publicada para el redeploy
 
+PR [73](https://github.com/mangoex/kiwi/pull/73) integrada en `main` como
+`8903520447b705ef2025f52ce04260daef82c7b5`. El árbol completo coincide exactamente con
+`9aefe9090ec0f3cb800c8d7c88a41a1140346b81`, aprobado por
+[CI 38559919244](https://github.com/mangoex/kiwi/actions/runs/38559919244): **2047 pruebas aprobadas**,
+ocho skips existentes y siete warnings en 1962.01 s. El gate obligatorio confirmó 90 casos
+ejecutados entre doce módulos PostgreSQL, incluidos 17 de operational_intents. Mypy API85/gateway4,
+Ruff, frontend completo, Docker, políticas y dependencias aprobados; los cinco jobs quedaron verdes.
+Auditoría Sol independiente sin bloqueadores. Las fases fallidas anteriores y sus correcciones
+permanecen en TC354 y execution.json; no se agregaron skips, filtros ni silenciamientos.
+
+El registro central ahora incorpora apertura, ambos cierres y compensación de caja, además de
+pedido/pago/movimiento. Conserva el cuerpo/clave originales, namespaces de dominio, evidencia
+canónica y un solo owner de commit. Este incremento de W04 no declara completados W04 ni el plan31.
+Otros comandos, pendientes offline, adopción, movilidad y las demás tareas permanecen pendientes.
+
+### Procedimiento para el redeploy del operador
+
+El esquema requerido es `0091_cash_lifecycle_intents`. El contenedor inicia la API sin ejecutar
+Alembic. Desde la imagen aprobada, respaldar PostgreSQL y detener el tráfico de escritura antes de
+aplicar la migración separada. Ejecutar desde `apps/api` (en el contenedor, `/app/apps/api`), con la
+conexión del entorno correspondiente:
+
+```bash
+python -m alembic -c alembic.ini current
+python -m alembic -c alembic.ini upgrade 0091_cash_lifecycle_intents
+python -m alembic -c alembic.ini current
+```
+
+La revisión final debe ser `0091_cash_lifecycle_intents (head)`. Un error de migración detiene la
+promoción. Desplegar API/POS del mismo commit, comprobar `/health/ready` y `/health/version` y
+conservar el SHA reportado; readiness verifica conectividad, por lo que no sustituye Alembic current.
+0091 deriva namespaces sin cambiar las columnas originales de filas0090. No forzar downgrade0091
+con historia de cualquiera de sus cuatro tipos nuevos, incluso terminal; conservar el esquema y
+usar forward-fix. La guarda0090 también conserva cualquier intención de sus tipos originales.
+
+Conservar `RESTAURANTOS_SIGNED_OFFLINE_AUTHORITY_ENABLED` apagado salvo activación operativa
+separada y autorizada. Este cierre acredita Git/CI; no ejecutó despliegue, migración, configuración,
+CLI de operador, canary ni cambios de datos productivos. El cierre posterior es R0 y sólo actualiza
+esta guía y execution.json, sin cambiar el runtime aprobado ni las decisiones del usuario.
+
+## Publicación anterior (PR 72; esquema0090 histórico)
+
 PR [72](https://github.com/mangoex/kiwi/pull/72) integrada en `main` como
 `758a1b1eb3f4621b594cd04d0be488a365573e3c`. El árbol completo coincide exactamente con
 `f58a0015b2bb2394b51e9de34bfbe3c51a287c11`, aprobado por
