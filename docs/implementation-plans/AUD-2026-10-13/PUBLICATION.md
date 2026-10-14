@@ -265,3 +265,32 @@ CI/publicación de este SHA quedan pendientes; `main` publicado arriba sigue sie
 La ejecución productiva del operador, migración 0089 y flags necesitan autorización separada.
 Este incremento no activa movilidad ni emisión firmada; registro de comandos inciertos y restante
 adopción/rollback siguen pendientes. `execution.json` mantiene las 31 tareas y sus decisiones.
+
+## Cierre Git de la preparación controlada: PR 71
+
+PR 71 integrada en `main` como `51a0ea288709301c7fa55e9c07130e1888b7a2ab`.
+El árbol completo del merge coincide con el SHA probado
+`e09c18e69790086c58f10275ed3723e1de1f0296`; el checkout principal quedó sincronizado.
+CI [38525175265](https://github.com/mangoex/kiwi/actions/runs/38525175265)
+terminó en success: 1985 pruebas aprobadas, ocho skips existentes y siete warnings en 1529.45 s.
+El verificador confirmó 73 casos aprobados entre los once módulos PostgreSQL obligatorios;
+mypy83 API/mypy4 gateway, Ruff, frontend, Docker, políticas y dependencias aprobaron.
+La auditoría independiente del incremento quedó sin hallazgos bloqueantes abiertos.
+
+El head de esquema publicado es `0089_offline_cutovers`. Desde 0088 falta esa revisión
+aditiva; desde una base anterior Alembic recorre la cadena pendiente. Los contenedores no
+ejecutan Alembic al arrancar. Para el redeploy, respaldar PostgreSQL, aplicar
+`python -m alembic -c alembic.ini upgrade head` desde `apps/api` con la conexión del entorno
+correspondiente y comprobar `alembic current`. La migración crea el recibo vacío y no prepara
+organizaciones. El downgrade 0089 se bloquea cuando existe evidencia de cutover; no forzarlo.
+
+Conservar `RESTAURANTOS_SIGNED_OFFLINE_AUTHORITY_ENABLED` apagado salvo activación operativa
+autorizada. La ejecución del operador de adopción conserva su autorización separada y exige
+evidencia real del retiro de emisores sin registro. La publicación no acredita esa retirada ni
+habilita por sí sola movilidad de organizaciones existentes. Comprobar salud, recuperación de
+sesión y lecturas permitidas; conservar el SHA desplegado y los códigos de rechazo.
+
+Este cierre es R0: actualiza únicamente PUBLICATION y la evidencia de `execution.json`, sin
+cambiar runtime, las 31 tareas ni sus estados parciales. El registro de comandos inciertos y
+la adopción/rollback restante continúan pendientes. No se ejecutó redeploy, migración,
+configuración, CLI de adopción ni canary productivo; esas acciones quedan a cargo del usuario.
