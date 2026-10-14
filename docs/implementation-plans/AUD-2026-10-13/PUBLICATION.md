@@ -112,6 +112,13 @@ con conservación ampliada de seis tablas (97.13 s). Arquitectura/trazabilidad/v
 32 verdes; scanner, Ruff y diff-check verdes. Revisión independiente focal sin hallazgos;
 se conserva el resultado rojo original de CI. No cambia runtime de la versión revisada.
 
+CI `559ede8` (run `38499379049`) aprobó 1895 pruebas, con ocho skips/siete warnings,
+el gate de los once módulos PostgreSQL y mypy81. El run falló por E501 de una línea de
+101 caracteres en `models.py` y por timeout de foco del modal de catálogo en frontend.
+La línea se dividió con AST idéntico y Ruff completo/mypy81 locales verdes. La prueba
+de navegador existente pasó localmente en escritorio/móvil sin cambiar UI ni su aserción.
+Se conserva el fallo original; el SHA siguiente requiere CI final antes del merge.
+
 ### Esquema del segundo paquete
 
 El head del segundo paquete es `0088_offline_authorization`. Si ya se aplicó el primer paquete

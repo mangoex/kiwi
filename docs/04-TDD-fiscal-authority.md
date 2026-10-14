@@ -261,3 +261,14 @@ de los dos casos head; su repetición final pasó dos casos en 97.13 s (cuatro d
 Arquitectura/trazabilidad/verificador: 32 verdes; scanner, Ruff y diff-check verdes. La revisión
 independiente de este ajuste se conserva en `sol-publication-pg-fixture/AUDIT.md`.
 No cambia runtime ni el alcance parcial F03/F04/W04; CI debe confirmar el SHA posterior.
+
+CI `38499379049` sobre `559ede8`: 1895 verdes, ocho skips y siete warnings en 965.71 s;
+el gate de los once módulos PostgreSQL pasó y mypy aprobó los 81 archivos. Ruff detectó
+E501 (101 caracteres) en la asignación de tablas offline de `models.py`, no incluida en
+el gate focal anterior. Se dividió esa línea sin cambiar el AST (comparación con lectura
+UTF-8 explícita; el primer intento decodificó la salida Git como ANSI y se conservó como
+intento fallido). Ruff completo `apps/api tests`, mypy81 y diff-check locales verdes.
+Frontend de ese intento agotó la espera de foco del modal en `test_catalog_classification.mjs:119`;
+la prueba existente pasó localmente en escritorio1440/móvil390, sin edición de UI ni tests.
+La UI y el test no tienen diff frente a main914679c, y el CI anterior pasó ese recorrido.
+No se borra el timeout ni se amplía su presupuesto; requiere confirmación posterior en CI.

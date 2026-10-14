@@ -3939,4 +3939,6 @@ catalog_classification_rollout_commands = sa.Table(
     ),
 )
 
-offline_authorization_rollouts, offline_authorization_leases = offline_authorization_tables(metadata)
+offline_authorization_rollouts, offline_authorization_leases = offline_authorization_tables(
+    metadata
+)
