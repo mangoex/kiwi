@@ -189,7 +189,13 @@ Ocho handlers reales extraídos por AST quedan en `test_operational_intent_handl
 por el test SDK que CI ya ejecuta. Mypy85/Ruff/typecheck/buildPOS verdes; warning de bundle existente.
 Los cuatro tipos nuevos y pedido se recuperan en navegador de bundle producción1440/390 con
 workspace denegado, sin enviar dinero ni adquirir contexto; capturas en output/playwright.
-CI del SHA final sigue pendiente. W04 y el plan31 continúan parciales, sin ejecución productiva.
+CI inicial7e95e9e/run38556274577 detectó fixture de memoria que enviaba apertura sin body/key.
+La reproducción completa de branch-scope-headers con Node22 conserva operational_command_required
+en cash-lifecycle-branch-headers-node22.log; el provider aislado sí pasaba sin cambios. Se actualiza
+sólo el positivo financiero para preparar/body/key/ACK y buscar los headers de la solicitud real;
+todas las negaciones de cuenta, memoria, auth/gateway siguen intactas, y se agrega orden/ID de
+intención/secreto ausente en ACK. No se atribuye el fallo a sleeps ni se modifica runtime.
+CI del SHA corregido sigue pendiente. W04 y el plan31 continúan parciales, sin ejecución productiva.
 
 | Afirmación R3 caja0091 | Evidencia e intento de refutación | Resultado y riesgo residual |
 | --- | --- | --- |
