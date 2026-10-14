@@ -35,6 +35,7 @@ try {
   await page.route('**/api/v1/**',async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname.replace('/api/v1','');
+    if (path === '/operational-intents') return route.fulfill({json:[]});
     if (path === '/auth/session') return route.fulfill({json:session(branch,context,version)});
     if (path === '/auth/branch-selections') {
       selections.push({key:request.headers()['idempotency-key'],body:request.postData()});

@@ -158,6 +158,54 @@ usan el mismo lock canónico: sólo una confirma y la otra reevalúa el nuevo es
 
 ## TDD-TC-354 Offline y autorización obsoleta
 
+Registro central de pendientes: `test_operational_intents.py` debe cubrir preparación durable,
+selección bloqueada en otra sesión, recuperación sin nueva capacidad, no_effect con envío tardío,
+evidencia incoherente, replay/cuerpo cambiado, autoridad/contexto cambiados y fallos SQL/commit/
+limpieza sin exposición. Las tres rutas iniciales deben probar ejecución real y un único efecto
+con applied en la misma transacción. `test_operational_intents_postgres.py` debe observar Lock
+real entre preparación/ejecución/recuperación y selección. `test_operational_intents.mjs` debe
+probar orden prepare→send→resolve, respuesta perdida, cuenta/contexto cambiado y retry original.
+0090 debe conservar intención e historial ante downgrade; ninguna tabla vacía acredita adopción.
+Evidencia incremental local (sin acreditar W04 completa ni los otros comandos): RED inicial3F
+22.64s (rutas ausentes/bypass); primer verde3P19.71s. Se conservan intentos de fixtures incompletas:
+4P7E50.92s (dueño sin selección explícita),9P2F69.48s (turno ausente) y pago/caja1P1F18.60s
+(permiso de lectura de concepto ausente/denial inmediato incompatible con ownership del broker).
+Fixtures completas y deferral explícito: orden/replay11P48.92s; pago/caja2P24.76s;
+broker+offline17P63.80s; faults3P16.64s (incluye SQL DESPUÉS de commit real); regresiones60P295.98s.
+Límite de ingreso y recorridos mínimos:3P20.31s. XMLs operational-intents-* en output/audit-remediation.
+
+PostgreSQL real:4P144.09s (prepare/select ambos ganadores y downgrades prepared/no_effect),
+4P237.39s adicionales (execute/recover con orden real y recover/select ambos ganadores), siempre
+con Lock observado, no sólo tiempos. Regresión de downgrade fiscal/cutover en head0090:4P150.93s,
+con ocho/cuatro tablas conservadas respectivamente, incluida la tabla nueva vacía. Se mantienen
+los rechazos originales0088/0089; no se relajan las guardas ni se agregan skips.
+Arquitectura inicial45P1F93.48s conserva fallo del fixture positivo del verificador (omitía módulo
+nuevo); fixture completo y sus negativos25P10.97s. Las otras21 pruebas de arquitectura/trazabilidad
+de ese batch aprobaron. CI exige ahora doce módulos PG, incluido operational_intents.
+
+Auditoría independiente del mismo ciclo:1P1 y3P2 corregidos (contexto nuevo misma sucursal,
+denial de workspace sin auditoría, handler de cuenta anterior y recibo no terminal inferido como
+ausencia). Propios18P176.95s y harnesses Node de transporte/panel verdes; PG recibido distinguido.
+Mypy85 API/Ruff completos verdes; typecheck de consumidores y build POS verdes. Navegador
+sintético1440/390 recupera desde error de workspace, sin solicitud financiera ni renovación de
+contexto, y sin overflow; imágenes inspeccionadas. CLI se comprobó con snapshot/click; su primer
+open sin fixture redirigió a login no servido y el argumento multiline falló, corregido usando file.
+Scanner final, ratchet staged y diff-check verdes; CI/publicación siguen pendientes, sin declarar release ni producción.
+
+| Afirmación R3 | Evidencia e intento de refutación | Resultado y riesgo residual |
+| --- | --- | --- |
+| Intención/efecto son atómicos | Commit interno, rollback interno, SQL antes y después de commit real; órdenes/pagos/movimientos reales y replay | Preserva prepared antes del efecto o applied después del commit; no duplica. Otros callbacks/rutas aún no integrados |
+| NoEffect no borra efectos | Log/recurso ausente/incoherente; contender execute/recover con lock real y envío tardío | Ausencia sólo bajo fence, evidencia incoherente bloquea. SQL administrativo fuera del protocolo requiere revisión |
+| Recuperación no renueva permiso | Permiso/versión perdidos, actor inactivo y otro actor; recibo mínimo sin snapshot | Propio activo recupera mínimo; nuevo efecto se rechaza. Revocación/recovery_only completa sigue W05 |
+| Pendiente bloquea nuevo contexto | Otra sesión, misma sucursal con versión cambiada, races prepare/select y recover/select | Guarda compartida, rotación del mismo id permitida. Otros comandos y outbox offline pendientes |
+| Cliente no infiere ausencia ni cambia actor | Respuesta perdida/JSON truncado/cuenta durante ACK, handler viejo y DTO no terminal | Mantiene intención y evita fallback; terminal explícito validado. Journals de cada módulo y cobertura de comandos restantes necesitan cierre completo |
+
+Preguntas operativas: ¿qué actor sigue bloqueado? Índice org/actor/state y lista propia mínima.
+¿Existe efecto confirmado o ausencia probada? Estado/resource_id y vínculo a command log/recurso;
+eventos operational_command.prepared/applied/acknowledged/no_effect sin cuerpo/secreto/key.
+¿Es fallo transitorio o evidencia incoherente? Códigos persistence_unavailable/evidence_conflict
+conservan intención; no se declaran compensaciones o ausencia tras un error SQL.
+
 El contrato de versión firmado cubre caja v3/pedidos v4 y su compatibilidad legacy estricta.
 La evidencia incremental distingue código local, CI, Git y configuración productiva; no acredita
 el cierre del recorrido W04 completo por estas pruebas focales.

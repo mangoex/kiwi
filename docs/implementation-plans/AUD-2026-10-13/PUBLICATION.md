@@ -294,3 +294,24 @@ Este cierre es R0: actualiza únicamente PUBLICATION y la evidencia de `executio
 cambiar runtime, las 31 tareas ni sus estados parciales. El registro de comandos inciertos y
 la adopción/rollback restante continúan pendientes. No se ejecutó redeploy, migración,
 configuración, CLI de adopción ni canary productivo; esas acciones quedan a cargo del usuario.
+
+## Incremento W04 en revisión: registro central de comandos
+
+`codex/uncertain-command-registry` agrega 0090 y el protocolo previo al envío para pedido,
+pago y movimiento de caja centrales. Con V2 estas tres rutas exigen intención registrada;
+applied se confirma junto con el dominio y prepared/applied bloquean un contexto nuevo.
+La recuperación autenticada propia entrega sólo identidad/estado/recurso mínimo, sin renovar
+capacidad financiera. NoEffect se prueba bajo el fence, sin borrar historia ni admitir envío tardío.
+El panel POS está disponible también ante error de contexto o pérdida de permiso POS.
+El cliente conserva pendientes y evita fallback al gateway después de registrar intención.
+
+Local: 60 regresiones, ocho casos PostgreSQL con seis carreras observadas y dos downgrades;
+cuatro regresiones fiscales/cutover de historia en head0090. Auditoría independiente cerrada
+con un P1 y tres P2 corregidos. TDD-TC-354 conserva intentos originales, fases y límites;
+scanner/ratchet/diff locales verdes; CI/publicación del SHA final aún pendientes. `main` publicado sigue en 47a7f79/0089.
+
+La nueva revisión crea tabla/índice vacíos; no declara adopción ni fabrica ausencia histórica.
+0090 no permite downgrade con ninguna intención, incluso terminal. Aplicación productiva de
+migración/configuración/despliegue conserva autorización separada. Apertura/cierre de caja,
+compensaciones, otros comandos, journals restantes y reconciliación/outbox offline siguen
+pendientes. El manifiesto conserva el plan completo de 31 tareas y W04 parcial.

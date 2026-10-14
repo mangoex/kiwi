@@ -10,6 +10,8 @@ from restaurant_os.fiscal_emitter_schema import tables as fiscal_emitter_tables
 from restaurant_os.offline_authorization_schema import USER_SCOPE_INDEX
 from restaurant_os.offline_authorization_schema import tables as offline_authorization_tables
 from restaurant_os.offline_cutover_schema import table as offline_cutover_table
+from restaurant_os.operational_intent_schema import WORKSPACE_SCOPE_INDEX
+from restaurant_os.operational_intent_schema import table as operational_intent_table
 
 metadata = sa.MetaData()
 expense_concepts, expense_documents, expense_commands = expense_tables(metadata)
@@ -3944,3 +3946,7 @@ offline_authorization_rollouts, offline_authorization_leases = offline_authoriza
     metadata
 )
 offline_authorization_cutovers = offline_cutover_table(metadata)
+sa.Index(WORKSPACE_SCOPE_INDEX, branch_workspace_sessions.c.organization_id,
+         branch_workspace_sessions.c.actor_user_id, branch_workspace_sessions.c.branch_id,
+         branch_workspace_sessions.c.id, unique=True)
+operational_command_intents = operational_intent_table(metadata)

@@ -146,6 +146,9 @@ def _new_workspace(
     version: int,
     command_id: str | None,
 ) -> tuple[str, str, int]:
+    from restaurant_os.operational_intents import assert_transition_allowed
+
+    assert_transition_allowed(session, actor)
     old = current_workspace(session, actor)
     if old:
         session.execute(
@@ -314,6 +317,11 @@ def _reissue_branch_context(
     if row and not (old or requested) and row["branch_id"] != branch:
         # A changed authority version must not turn first emission into a branch-switch bypass.
         _assert_no_open_shift(session, actor)
+        from restaurant_os.operational_intents import (
+            assert_transition_allowed as assert_no_uncertain,
+        )
+
+        assert_no_uncertain(session, actor)
         from restaurant_os.offline_authorization import assert_transition_allowed
 
         assert_transition_allowed(session, actor, branch)
@@ -427,6 +435,9 @@ def _select_branch_workspace(
             "branch_context_mismatch", "Source branch is not the canonical workspace"
         )
     _assert_no_open_shift(session, actor)
+    from restaurant_os.operational_intents import assert_transition_allowed as assert_no_uncertain
+
+    assert_no_uncertain(session, actor)
     from restaurant_os.offline_authorization import assert_transition_allowed
 
     assert_transition_allowed(session, actor, target)

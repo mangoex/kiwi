@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { fetchApi, hasAdminCapability } from '@restaurantos/api-client';
 import PosLayout from './components/PosLayout';
+import OperationalIntentRecovery from './components/OperationalIntentRecovery';
 import PointOfSale from './features/pos/PointOfSale';
 import PhysicalCountCapturePage from './features/inventory/PhysicalCountCapturePage';
 import Customers from './features/customers/Customers';
@@ -99,6 +100,7 @@ const SessionGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', gap: '1rem' }}>
         <p style={{ color: '#dc2626', fontSize: 18 }}>{state.message}</p>
+        <OperationalIntentRecovery sessionIdentity={null} />
         <button
           onClick={() => window.location.reload()}
           style={{
@@ -121,12 +123,14 @@ const SessionGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', gap: '1rem' }}>
           <p style={{ color: '#dc2626', fontSize: 18 }}>Tu cuenta no tiene acceso al POS.</p>
+          <OperationalIntentRecovery sessionIdentity={state.session} />
         </div>
       );
     }
     if (!state.session.active_branch) {
       return <main style={{maxWidth:520,margin:'64px auto',padding:24}}>
         <h1>Selecciona tu sucursal de trabajo</h1>
+        <OperationalIntentRecovery sessionIdentity={state.session} />
         <p>Confirma dónde operarás antes de abrir caja o capturar pedidos.</p>
         <label style={{display:'grid',gap:8,marginTop:24}}>Sucursal de trabajo<select style={{width:'100%',minHeight:44,fontSize:16,padding:'8px 12px'}} aria-label="Sucursal de trabajo" value={targetBranch}
           onChange={event => {setTargetBranch(event.target.value);setSelectionError('');}}>
@@ -143,6 +147,7 @@ const SessionGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     }
     return <React.Fragment key={`${state.session.user.id}:${state.session.active_branch.id}:${state.session.scope.authorization_version}:${state.session.branch_workspace_context_id || 'legacy'}`}>
       {state.notice && <p role="alert">{state.notice}</p>}
+      <OperationalIntentRecovery sessionIdentity={state.session} />
       <div style={{display:'contents'}} inert={Boolean(state.validating)} aria-busy={Boolean(state.validating)}>{children}</div>
     </React.Fragment>;
   }

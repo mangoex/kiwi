@@ -98,7 +98,7 @@
         "W02"
       ],
       "decisions": [],
-      "status": "signed_authority_and_controlled_cutover_locally_reviewed_uncertain_registry_and_remaining_adoption_pending",
+      "status": "signed_authority_cutover_and_three_central_intent_routes_locally_reviewed_remaining_commands_offline_adoption_and_ci_pending",
       "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone",
       "evidence": [
         "output/audit-remediation/offline-authority-registry-red.xml",
@@ -130,7 +130,16 @@
         "output/audit-remediation/offline-adoption-key-and-source.xml",
         "output/audit-remediation/offline-adoption-postgres-history-final.xml",
         "output/audit-remediation/offline-adoption-fiscal-head-current.xml",
-        "output/audit-remediation/sol-offline-adoption/audit.md"
+        "output/audit-remediation/sol-offline-adoption/audit.md",
+        "apps/api/tests/test_operational_intents.py",
+        "apps/api/tests/test_operational_intents_postgres.py",
+        "tests/frontend/test_operational_intents.mjs",
+        "tests/browser/test_operational_intent_recovery.mjs",
+        "output/audit-remediation/operational-intents-regressions.xml",
+        "output/audit-remediation/operational-intents-postgres.xml",
+        "output/audit-remediation/operational-intents-postgres-recovery.xml",
+        "output/audit-remediation/operational-intents-history-regressions.xml",
+        "output/audit-remediation/sol-operational-intents/audit.md"
       ]
     },
     {
@@ -1034,6 +1043,7 @@
     "publication_git_signed_offline_authority": "PR70 merged mainfbb9822aeb384ba61aa4d4b2577e94b70df08a76; full Git tree matches tested ee4a9f4386bd40803d7e4f0bf26d3d67632b087e exactly. Primary main synchronized. Closure R0 only PUBLICATION/execution evidence;31tasks/states/decisions preserved, W04 partial. Schema0088, signed issuance defaultfalse, controlled adoption and uncertain registry pending. User redeploy/migrations/configuration separate; no production action.",
     "offline_adoption": "Controlled owner-grant operator receipt0089; server-clock2h, exactreplay, NULL retained identity/origin unchanged, SQL/cleanup redaction and ambient-order-context isolation. RED8expected43.88s; mixed7P1missing-owner-fixture35.16s retained. Final41P142.57s + focal5key/source25.60s; PG2observedLock/advisory80.64s and finalPG2downgrade009/3table preservation74.16s; fiscalhead2/7tables89.40s. Architecture21P73.71s +trace9; Ruff/mypy83 green. Independent Sol17core82.92s/1context24.81s/8CLI34.93s green, PG received not own; cleanup/clock/CLIengine REDs preserved. Actual CLI exactreplay only on isolated local PG. FinalCI/publication recorded under ci_offline_adoption/publication_git_offline_adoption; retirement is externally verified operator evidence, not automatic certification; uncertain registry/restadoption still pending, no production action.",
     "ci_offline_adoption": "PR71 final e09c18e69790086c58f10275ed3723e1de1f0296 run38525175265 completed success:1985passed/8existing-skips/7warnings1529.45s, mandatory73cases in11PGmodules, mypy83API/mypy4gateway, RuffAPItests/gateway, frontend/Docker/policy/dependency jobs all success. Independent Sol audit closed without blockers; no new skip or suppressed assertion.",
-    "publication_git_offline_adoption": "PR71 merged main51a0ea288709301c7fa55e9c07130e1888b7a2ab; full Git tree matches tested e09c18e69790086c58f10275ed3723e1de1f0296 exactly. Primary main synchronized. Closure R0 only PUBLICATION/execution evidence;31tasks/states/decisions preserved, W04 partial. Schema0089 required, signed issuance defaultfalse, uncertain registry/restadoption pending. User redeploy/migrations/configuration/operator separate; no production action."
+    "publication_git_offline_adoption": "PR71 merged main51a0ea288709301c7fa55e9c07130e1888b7a2ab; full Git tree matches tested e09c18e69790086c58f10275ed3723e1de1f0296 exactly. Primary main synchronized. Closure R0 only PUBLICATION/execution evidence;31tasks/states/decisions preserved, W04 partial. Schema0089 required, signed issuance defaultfalse, uncertain registry/restadoption pending. User redeploy/migrations/configuration/operator separate; no production action.",
+    "operational_intents": "W04 incremental0090, prepare/send/resolve three central routes only; no rawbody/credential persisted. RED3F22.64s and fixture/denial-owner failures preserved. Directed11P48.92s, paymentcash2P24.76s, brokeroffline17P63.80s, faults3P16.64s including real committhenlostreply, regressions60P295.98s, boundary3P20.31s. PG4P144.09s + recovery4P237.39s observedLock bothwinners; history4P150.93s eight/fourtables includingempty0090 retained. Verifier25P10.97s after45P1missing-fixture-module failure; no newskip. Sol1P1/3P2closed, own18P176.95s+Nodepanel/transport; PG/browser received. Browser1440/390 recovery duringcontexterror withoutfinancialsend/contextacquisition. Mypy85/Ruff, typecheck/buildgreen; finalscanner/staged-quality-ratchet/diffgreen; CI/publicationpending. Remainingcommand integration/offlineoutbox/recoveryonly/adoption and full31 scope pending; no production action."
   }
 }
