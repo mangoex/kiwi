@@ -161,3 +161,22 @@ Este cierre actualiza sólo la guía y la referencia de evidencia en `execution.
 sin cambiar runtime ni el estado de las 31 tareas. No sustituye los límites del segundo
 paquete: esquema 0088 requerido, organizaciones existentes unprepared, adopción offline
 y cierre fiscal aún pendientes. CI acredita el código integrado; producción no fue modificada.
+
+## Publicación de especificación pendiente W04
+
+La rama `codex/offline-authority-version` publica el contrato previsto de versión firmada y
+recuperación de acuse mínimo: PRD-FR-185/267, SDD §58.3, BDD-SC-639 y TDD-TC-354. El diseño
+distingue nueva ejecución de la lectura de un acuse confirmado, exige evidencia de autoridad sin
+inferir versiones históricas y conserva el orden gobernanza → actor → dominio.
+
+Este diff es documental: no contiene código, pruebas de runtime ni migraciones nuevas. Los
+formatos publicados siguen siendo caja v2 y pedidos v3; caja v3/pedidos v4 y sus gates canónicos
+siguen pendientes. La matriz conserva Scaffold y `execution.json` mantiene W04 parcial y las
+31 tareas. La evidencia CI anterior corresponde al código de PR 69, no acredita el contrato nuevo.
+El redeploy conserva el esquema 0088 y los límites del segundo paquete descritos arriba.
+
+Verificación documental local: 16 pruebas de trazabilidad/scaffold verdes y nueve de
+trazabilidad repetidas tras enlazar PRD-FR-185 con BDD-SC-639/TDD-TC-354. Scanner de política
+y `git diff --check` verdes. La revisión independiente detectó ese enlace faltante y se corrigió
+sin cambiar estado de implementación. No se ejecutó una suite de runtime ni CI nuevo para este
+diff documental; el código coincide con el publicado y probado en PR 69.
