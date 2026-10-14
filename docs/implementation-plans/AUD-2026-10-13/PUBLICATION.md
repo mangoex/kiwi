@@ -7,6 +7,17 @@ de sucursales, cuentas por pagar y compensaciones. No se modifica producción de
 
 ## Versión de código publicada para el redeploy
 
+PR [76](https://github.com/mangoex/kiwi/pull/76) integrada como
+`050c0dea2439b832b8021c3a4e3120107bfd7d2c`, árbol idéntico al head probado
+`bb70f4d23942a3db73cb66211c62a74205d4a321`.
+[CI38595550512](https://github.com/mangoex/kiwi/actions/runs/38595550512): cinco jobs verdes,
+2158 aprobadas, ocho skips existentes y siete warnings en1632.74s; 96casos/12módulos PostgreSQL,
+mypy API88/gateway4, Ruff y frontend/build/browser verdes. El smoke XML se ejecutó en ambas imágenes
+API: parseo benigno y rechazo DTD UTF-8/UTF-16, sin networking. Se publica sólo parser/captura de
+identidad declarada con `unverified` fijo; no hay consumidor HTTP, almacenamiento ni efecto contable.
+La captura privada transaccional está en otra rama y no forma parte de este incremento. Esquema
+requerido sigue0091; no se ejecutó acción productiva ni se declara completado X01/plan31.
+
 PR [75](https://github.com/mangoex/kiwi/pull/75) integrada como
 `642c978708ddf7360e81af855e7c8818d058940e`, árbol idéntico al head probado
 `7e5706773c7693ba941ef6758667a39c542966ae`.
