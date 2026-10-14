@@ -381,7 +381,10 @@ funcional separada.
 - `PRD-FR-102`: Debe importar XML de CFDI mediante una frontera segura y acotada; parsear no
   acredita validez SAT, conciliación ni efectos de recepción/pago. Conserva evidencia original
   privada y separa extracción documental de validación fiscal y contabilización.
-- `PRD-FR-103`: Debe impedir XML duplicados.
+- `PRD-FR-103`: Debe impedir XML duplicados por UUID declarado dentro de la organización,
+  con comandos idempotentes y referencia al original sólo bajo alcance autorizado. Mismo UUID
+  con bytes distintos conserva evidencia privada de conflicto y requiere revisión; nunca
+  reemplaza el original ni contabiliza otra recepción.
 - `PRD-FR-104`: Debe mapear conceptos de proveedor a productos internos.
 - `PRD-FR-275`: La asistencia de compras y merma debe exigir un actor activo, permisos vigentes
   de compras o inventario según los datos consultados y una sucursal activa autorizada. La extracción
@@ -398,7 +401,9 @@ funcional separada.
   La recepción física y el pago son procesos separados. La conciliación de un XML con una
   recepción ya contabilizada no vuelve a crear la obligación ni recibe inventario nuevamente.
 - `PRD-FR-106`: Debe registrar vencimientos, pagos, saldos y devoluciones.
-- `PRD-FR-107`: Debe conservar XML y evidencia de importación.
+- `PRD-FR-107`: Debe conservar bytes originales de XML y evidencia de importación cifrados,
+  con hash y descarga reautorizada/auditada. Captura unverified no acredita validez fiscal ni
+  crea inventario, costo, deuda o pago; no existe fallback a almacenamiento público o texto plano.
 - `PRD-FR-108`: Una compra directa debe manejar borrador, confirmación y cancelación controlada;
   la confirmación genera entradas de inventario y, si se pagó desde caja, un retiro inmutable
   vinculado sin duplicar el egreso.

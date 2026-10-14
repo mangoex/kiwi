@@ -6469,3 +6469,54 @@ Referencia de forma/namespace: [XSD CFDI 4.0 SAT](https://www.sat.gob.mx/sitio_i
 y [XSD Timbre 1.1 SAT](https://www.sat.gob.mx/sitio_internet/cfd/TimbreFiscalDigital/TimbreFiscalDigitalv11.xsd),
 consultados el 14-10-2026. No se descarga ni resuelve un esquema desde el XML de usuario.
 BDD-SC-690/TDD-TC-393 prueban identidad declarada, conflictos y hash inmutable, sin SQL ni red.
+
+### 64.2 Captura privada, comandos y descarga — X01
+
+Estado objetivo de este incremento: captura documental `unverified`, no validación fiscal ni
+contabilización. Flag `supplier_xml_imports_enabled` apagado por defecto; activación/configuración
+productiva conserva autorización separada. Se reutiliza keyring fiscal existente mediante
+infraestructura común de resolución de clave; la envoltura JSON fiscal previa y su límite64KiB
+no se amplían. XML usa AES-GCM con nonce aleatorio, key_id/version explícitos y envelope binario
+representado como JSON/base64 acotado a1.5MiB. AAD liga propósito, org, branch, entidad, evidencia,
+UUID y hash original; clave ausente, ciphertext alterado o hash/tamaño discordante falla cerrado.
+No se generan claves ni se escribe texto plano como alternativa.
+
+Tablas aditivas `supplier_document_imports`, `supplier_document_import_conflicts` y
+`supplier_document_import_commands`: original/captura inmutables, conflictos append-only privados
+y comandos por org/actor/key con request_hash de operación+branch+hash. FKs compuestas conservan
+org/branch/entidad/actor y origen; UUID canónico único por organización. Conflicto no altera el
+original, estado fiscal, stock, costo, caja ni deuda. Replay reautoriza y reproduce el resultado
+persistido; mismo key con otro cuerpo/branch falla. Mismo UUID/hash con nuevo key es duplicado;
+UUID/hash distinto en la misma branch guarda evidencia conflictiva y exige revisión. Otra branch
+no recibe referencia original por un intento de captura; otra organización no revela existencia.
+
+Gobernanza→actor→branch/entidad→key/UUID: locks se conservan hasta auditoría y commit. Actor activo,
+`purchases.manage`, branch activa y contexto vigente V2 preceden parseo/cifrado/persistencia.
+El receptor se carga de la razón social real de branch en el servidor bajo lock, nunca de body.
+Ruta POST `/api/v1/purchases/xml-imports/branches/{branch_id}` recibe XML crudo application/xml
+sin compresión, con Idempotency-Key y bearer/contexto. Preflight autoriza sin retener locks durante
+la lectura: cuerpo máximo1MiB y deadline total5s, luego dominio reautoriza antes de efectos.
+Una selección/revocación durante la carga impide persistencia con contexto anterior.
+POST `/api/v1/purchases/xml-imports/resolve` recibe Idempotency-Key en cabecera y cuerpo vacío,
+y recupera el resultado terminal
+del actor/organización bajo permiso actual del recurso; funciona con captura apagada, sin
+contexto operativo ni ejecutar una importación nueva. No acepta ni conserva credenciales de contexto.
+Ambas rutas POST omiten sólo su buffering JSON previo en el middleware: los lectores propios
+autorizan primero y limitan cuerpo/plazo. Resolve rechaza cualquier byte de cuerpo sin parsearlo.
+Keys son ASCII visible sin espacios/control y de1..128 caracteres. Errores SQL se convierten en
+código503 estable con rollback local sin traceback/parámetros; validación XML422 nunca refleja entrada.
+
+GET `/api/v1/purchases/xml-imports/{id}` entrega metadata acotada; GET `/{id}/original` descarga
+attachment privado con no-store/nosniff. Derivan branch del recurso y exigen actor activo y
+`purchases.read` vigente, incluso para historia de branch inactiva bajo asignación/corporativo
+autorizado; no dependen de una branch implícita. Auditoría precede liberar bytes y se confirma
+atómicamente. DTO/log/auditoría omiten RFC, XML, claves, ciphertext, contexto e idempotency key;
+campos permitidos son IDs internos, perfil, estado y tamaño. Original no se reserializa ni modifica.
+
+Migración desde head0091 verificada al iniciar; upgrade SQLite/PostgreSQL, restricciones/índices
+y downgrade vacío. Con cualquier importación/conflicto/comando el downgrade destructivo se bloquea.
+No se adopta ni fabrica historia legacy; rollback de aplicación conserva evidencia y esquema.
+Preguntas: ¿qué comando/original quedó y se repitió? IDs/resultados/replay. ¿qué impidió captura o
+descarga? Códigos estables de autoridad/parser/crypto/conflicto. ¿hubo efectos contables por cargar?
+Pruebas comparan ledgers intactos; métricas futuras nunca incluyen RFC/XML o dimensiones libres.
+FullXSD/SAT, conceptos/impuestos, mapping, CxP y compensaciones siguen pendientes según X01/X02.

@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import re
+
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 MAX_WORKSPACE_BODY_BYTES = 262_144
 MAX_AGENT_BODY_BYTES = 65_536
+_XML_CAPTURE_PATH = re.compile(
+    r"/api/v1/purchases/xml-imports/branches/"
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
 
 
 class WorkspaceBodyLimitMiddleware:
@@ -15,6 +21,12 @@ class WorkspaceBodyLimitMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         path = str(scope.get("path", ""))
+        # These two endpoints authenticate before their own bounded/deadlined raw readers.
+        if scope.get("method") == "POST" and (
+            _XML_CAPTURE_PATH.fullmatch(path) or path == "/api/v1/purchases/xml-imports/resolve"
+        ):
+            await self.app(scope, receive, send)
+            return
         agent_covered = path.startswith(
             ("/api/v1/agent-auth/", "/api/v1/agent-tools/", "/api/v1/integrations/grokbot/")
         )

@@ -12,9 +12,15 @@ from restaurant_os.offline_authorization_schema import tables as offline_authori
 from restaurant_os.offline_cutover_schema import table as offline_cutover_table
 from restaurant_os.operational_intent_schema import WORKSPACE_SCOPE_INDEX
 from restaurant_os.operational_intent_schema import table as operational_intent_table
+from restaurant_os.supplier_xml_schema import tables as supplier_xml_tables
 
 metadata = sa.MetaData()
 expense_concepts, expense_documents, expense_commands = expense_tables(metadata)
+(
+    supplier_document_imports,
+    supplier_document_import_conflicts,
+    supplier_document_import_commands,
+) = supplier_xml_tables(metadata)
 
 
 organizations = sa.Table(

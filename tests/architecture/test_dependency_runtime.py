@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
         "fiscal_command",
         "offline_authorization",
         "operational_intents",
+        "supplier_xml",
     ],
 )
 @pytest.mark.parametrize("fault", ["not_collected", "skipped"])
@@ -45,6 +46,7 @@ def test_branch_authority_locks_require_executed_postgres_evidence(
         "fiscal_command",
         "offline_authorization",
         "operational_intents",
+        "supplier_xml",
     ]
     collected = [name for name in modules if name != module or fault != "not_collected"]
     collection = tmp_path / "branch-collection.txt"
@@ -75,6 +77,21 @@ def test_pco003_is_mandatory_in_ci(monkeypatch):
         _postgres_url()
 
 
+def test_supplier_xml_requires_guarded_postgres_gate(monkeypatch):
+    from test_supplier_xml_postgres import ENV, _url
+    monkeypatch.delenv(ENV, raising=False)
+    with pytest.raises(pytest.fail.Exception, match=ENV):
+        _url()
+    monkeypatch.setenv(ENV, "postgresql+psycopg://fixture@127.0.0.1/production")
+    with pytest.raises(RuntimeError, match="isolated"):
+        _url()
+    ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    steps = ci["jobs"]["python"]["steps"]
+    tests = next(step for step in steps if step.get("name") == "Run tests")
+    assert tests["env"][ENV].endswith("/supplier_xml_test_ci")
+    assert "CREATE DATABASE supplier_xml_test_ci" in "\n".join(s.get("run", "") for s in steps)
+
+
 def test_ci_provisions_and_supplies_both_financial_database_gates():
     ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     steps = ci["jobs"]["python"]["steps"]
@@ -103,6 +120,7 @@ def test_required_postgres_evidence_rejects_omitted_or_unexecuted_case(tmp_path,
         "fiscal_command",
         "offline_authorization",
         "operational_intents",
+        "supplier_xml",
     ]
     collection.write_text(
         "\n".join(f"apps/api/tests/test_{module}_postgres.py::test_case" for module in modules)

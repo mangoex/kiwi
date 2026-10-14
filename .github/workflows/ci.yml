@@ -91,6 +91,7 @@ jobs:
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE audcore_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE grokbot_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE corp_pur_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE supplier_xml_test_ci"
       - name: Preprovision mandatory PCO-003 PostgreSQL schema
         working-directory: apps/api
         env:
@@ -128,6 +129,7 @@ jobs:
           PCO004_TEST_POSTGRES_ROUNDTRIP_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco004_offline_ci
           GROKBOT_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/grokbot_ci
           CORP_PUR_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/corp_pur_ci
+          SUPPLIER_XML_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/supplier_xml_test_ci
         run: |
           python -m pytest --collect-only -q > python-collection.txt
           python -m pytest --junitxml=python-tests.xml

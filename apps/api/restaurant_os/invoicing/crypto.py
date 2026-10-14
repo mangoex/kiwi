@@ -5,25 +5,16 @@ from __future__ import annotations
 import base64
 import json
 import os
-import re
 from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from restaurant_os.config import get_settings
+from restaurant_os.private_payload_keys import payload_key
 
 
 def _key(identifier: str) -> bytes:
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", identifier):
-        raise RuntimeError("fiscal_crypto_unavailable")
-    try:
-        encoded = get_settings().fiscal_encryption_keys[identifier]
-        decoded = base64.b64decode(encoded, validate=True)
-        if len(decoded) != 32:
-            raise ValueError("key size")
-        return decoded
-    except (KeyError, ValueError, TypeError):
-        raise RuntimeError("fiscal_crypto_unavailable") from None
+    return payload_key(identifier)
 
 
 def seal(payload: dict[str, Any], context: str) -> str:
