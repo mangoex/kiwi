@@ -165,6 +165,21 @@ jobs:
         run: |
           docker build -f Dockerfile -t restaurantos-audcore-root:ci .
           docker build -f infra/docker/api.Dockerfile -t restaurantos-audcore-api:ci .
+      - name: Verify XML boundary in both API runtimes
+        run: |
+          for image in restaurantos-audcore-root:ci restaurantos-audcore-api:ci; do
+            docker run --rm -i --network none --entrypoint python "$image" - <<'PY'
+          from restaurant_os.supplier_xml_parser import SupplierXmlParseError, parse_supplier_xml
+          assert parse_supplier_xml(b"<r/>").tag == "r"
+          for encoding in ("utf-8", "utf-16"):
+              try:
+                  parse_supplier_xml('<!DOCTYPE r [<!ENTITY x "unsafe">]><r>&x;</r>'.encode(encoding))
+              except SupplierXmlParseError as error:
+                  assert str(error) == "xml_doctype_forbidden"
+              else:
+                  raise AssertionError("XML runtime accepted DOCTYPE")
+          PY
+          done
 
   frontend:
     runs-on: ubuntu-latest
