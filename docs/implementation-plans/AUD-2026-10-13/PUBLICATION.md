@@ -5,6 +5,26 @@ Esta publicación entrega los incrementos implementados; no declara terminado el
 `execution.json` conserva el estado por tarea, decisiones D02/D03/D04 y pendientes fiscales,
 de sucursales, cuentas por pagar y compensaciones. No se modifica producción desde esta tarea.
 
+## Versión de código publicada para el redeploy
+
+PR [70](https://github.com/mangoex/kiwi/pull/70) integrada en `main` como `fbb9822`.
+Su árbol coincide exactamente con `ee4a9f4`, aprobado por
+[CI 38516802834](https://github.com/mangoex/kiwi/actions/runs/38516802834): 1956 pruebas verdes,
+ocho skips existentes y siete warnings en 1491.66 s. El gate obligatorio confirmó 71 casos
+ejecutados entre once módulos PostgreSQL. Mypy del backend (81 archivos) y gateway focal
+(cuatro archivos), Ruff de API/tests/gateway, frontend, Docker, políticas y dependencias verdes.
+
+El esquema requerido sigue siendo `0088_offline_authorization`; el contenedor inicia la API
+sin ejecutar Alembic. Aplicar/verificar las migraciones conforme a las instrucciones de esta guía
+antes de servir el nuevo código. El formato firmado nuevo permanece apagado por defecto;
+su activación exige actualizar primero los gateways compatibles. La adopción de organizaciones
+existentes y el registro de comandos inciertos siguen pendientes. W04 y el plan de 31 tareas
+continúan parciales; este cierre acredita Git/CI, sin cambios productivos.
+
+El cierre posterior es R0: actualiza sólo esta guía y la referencia de evidencia en
+`execution.json`, conservando runtime, estados de tareas y decisiones. Los resultados fallidos
+anteriores permanecen documentados en las secciones históricas y TDD.
+
 ## Alcance del primer paquete (PR 68)
 
 Compras corporativas: reparto exacto de cantidad/costo, snapshots por destino, validación de
