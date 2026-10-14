@@ -243,3 +243,21 @@ Artefactos `fiscal-history-*.xml` y `sol-fiscal-history/AUDIT.md` bajo output/au
 El rechazo del perfil operativo con dos roles fue un hallazgo estático; no se fabricó RED:
 la refutación cargó ya la lectura por contexto persistido. Login/profile/reissue sin rama activa
 y su UI siguen pendientes W04/R01; esta lectura no acredita ese recorrido ni F03/F04/PAC/producción.
+
+Publicación PR69: CI `38496167613` sobre `6acab5b` terminó con 1892 verdes, ocho skips,
+siete warnings y dos fallos en TDD-TC-384. Las carreras conservaron la intención única,
+pero su expectativa de downgrade 0087 era anterior a head 0088: el rollout sintético
+`clean_install` activa primero la guarda de evidencia offline. Se conservan las carreras
+en head, el Lock observado y todos sus rechazos; ahora exigen el error exacto 0088,
+versión intacta y conservación de las seis tablas fiscales/offline. El nuevo caso
+`test_0087_fiscal_history_blocks_downgrade` aísla la revisión 0087 real, confirma ausencia
+de esquema 0088, exige su error exacto y conserva comando, vínculos, reservas y outbox.
+No se editan migraciones, guardas, workflow, skips ni verificador; el caso nuevo se exige
+automáticamente por colección dentro de los once módulos PG obligatorios.
+La primera corrida focal pasó seis casos en 239.09 s, con un warning de Starlette:
+`publication-fiscal-pg-current.xml`. El módulo se cargó antes de ampliar el snapshot
+de los dos casos head; su repetición final pasó dos casos en 97.13 s (cuatro deseleccionados),
+`publication-fiscal-pg-head-retention.xml`, con conservación de las seis tablas.
+Arquitectura/trazabilidad/verificador: 32 verdes; scanner, Ruff y diff-check verdes. La revisión
+independiente de este ajuste se conserva en `sol-publication-pg-fixture/AUDIT.md`.
+No cambia runtime ni el alcance parcial F03/F04/W04; CI debe confirmar el SHA posterior.

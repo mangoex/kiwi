@@ -13,9 +13,10 @@ from restaurant_os.invoicing import commands, emitters
 from sqlalchemy.orm import Session
 from test_corporate_purchases_postgres import pg_engine as pg_engine
 from test_fiscal_authority_postgres import _postgres_alembic
+from test_fiscal_authority_postgres import migrated_fiscal_engine as migrated_fiscal_engine
 from test_fiscal_command_preparation import RECEIVER
 from test_fiscal_emitter_postgres import encryption as encryption
-from test_platform_api import ADMIN_ROLE_ID, ADMIN_USER_ID, BRANCH_ID
+from test_platform_api import ADMIN_ROLE_ID, ADMIN_USER_ID, BRANCH_ID, _seed
 
 
 def _seed_preparation(engine):
@@ -178,20 +179,83 @@ def test_prepare_serializes_on_observed_pg_lock_and_preserves_one_intention(
             models.fiscal_command_outbox,
         ):
             assert connection.scalar(sa.select(sa.func.count()).select_from(table)) == 1
-        before = dict(connection.execute(sa.select(models.fiscal_commands)).mappings().one())
+        retained_tables = (
+            models.fiscal_commands,
+            models.fiscal_command_orders,
+            models.fiscal_order_reservations,
+            models.fiscal_command_outbox,
+            models.offline_authorization_rollouts,
+            models.offline_authorization_leases,
+        )
+        before = {
+            table.name: [dict(row) for row in connection.execute(sa.select(table)).mappings()]
+            for table in retained_tables
+        }
+        assert before[models.offline_authorization_rollouts.name]
     # All sessions are closed before Alembic needs a DDL lock.
     url = pg_engine.url.render_as_string(hide_password=False)
     pg_engine.dispose()
     blocked = _postgres_alembic(url, "downgrade", "0086_fiscal_emitters")
-    assert blocked.returncode != 0 and "0087 downgrade blocked" in blocked.stderr
+    # Head includes the seeded clean-install rollout: 0088 must preserve that evidence first.
+    assert blocked.returncode != 0 and "0088 downgrade blocked" in blocked.stderr
     with pg_engine.connect() as connection:
         assert (
             connection.scalar(sa.text("SELECT version_num FROM alembic_version"))
-            == "0087_fiscal_commands"
+            == "0088_offline_authorization"
         )
-        assert (
-            dict(connection.execute(sa.select(models.fiscal_commands)).mappings().one()) == before
+        for table in retained_tables:
+            assert [dict(row) for row in connection.execute(sa.select(table)).mappings()] == (
+                before[table.name]
+            )
+
+
+def test_0087_fiscal_history_blocks_downgrade(migrated_fiscal_engine, encryption):
+    engine, url = migrated_fiscal_engine
+    result = _postgres_alembic(url, "upgrade", "0087_fiscal_commands")
+    assert result.returncode == 0, result.stdout + result.stderr
+    with engine.begin() as connection:
+        names = [
+            name for name in sa.inspect(connection).get_table_names() if name != "alembic_version"
+        ]
+        quoted = ", ".join(connection.dialect.identifier_preparer.quote(name) for name in names)
+        connection.execute(sa.text("TRUNCATE TABLE " + quoted + " RESTART IDENTITY CASCADE"))
+    with Session(engine) as session:
+        _seed(session)
+    order = _seed_preparation(engine)
+    with Session(engine) as session:
+        commands.prepare_issue(
+            session,
+            operations.ORGANIZATION_ID,
+            BRANCH_ID,
+            [order],
+            RECEIVER,
+            actor=ADMIN_USER_ID,
+            idempotency_key="historical-0087-downgrade",
         )
+    with engine.connect() as connection:
+        tables = (
+            models.fiscal_commands,
+            models.fiscal_command_orders,
+            models.fiscal_order_reservations,
+            models.fiscal_command_outbox,
+        )
+        before = {
+            table.name: [dict(row) for row in connection.execute(sa.select(table)).mappings()]
+            for table in tables
+        }
+        assert all(len(rows) == 1 for rows in before.values())
+        assert not sa.inspect(connection).has_table("offline_authorization_rollouts")
+    engine.dispose()
+    blocked = _postgres_alembic(url, "downgrade", "0086_fiscal_emitters")
+    assert blocked.returncode != 0 and "0087 downgrade blocked" in blocked.stderr
+    with engine.connect() as connection:
+        assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == (
+            "0087_fiscal_commands"
+        )
+        for table in tables:
+            assert [dict(row) for row in connection.execute(sa.select(table)).mappings()] == (
+                before[table.name]
+            )
 
 
 def test_pending_replay_serializes_actual_branch_deactivation(pg_engine, encryption, monkeypatch):

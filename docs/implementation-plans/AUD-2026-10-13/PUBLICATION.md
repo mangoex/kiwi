@@ -5,7 +5,7 @@ Esta publicación entrega los incrementos implementados; no declara terminado el
 `execution.json` conserva el estado por tarea, decisiones D02/D03/D04 y pendientes fiscales,
 de sucursales, cuentas por pagar y compensaciones. No se modifica producción desde esta tarea.
 
-## Alcance
+## Alcance del primer paquete (PR 68)
 
 Compras corporativas: reparto exacto de cantidad/costo, snapshots por destino, validación de
 catálogo y recuperación de la intención por cuenta. Sucursales: autoridad vigente, contexto
@@ -72,7 +72,7 @@ Preguntas operativas del ajuste offline: ¿se instaló el bundle esperado? Compr
 identidad del bundle en el estado local. ¿Por qué se rechazó la instalación? Conservar el código
 `offline_bundle_catalog_invalid` y la revisión del esquema, sin registrar payloads ni credenciales.
 
-## Preparación del redeploy por el usuario
+## Preparación del redeploy del primer paquete
 
 El esquema pasa de `0082` a `0086_fiscal_emitters` mediante cuatro revisiones aditivas. Los
 Dockerfiles ejecutan uvicorn, no Alembic. Respaldar PostgreSQL y aplicar la cadena de migraciones
@@ -90,3 +90,53 @@ Comprobar salud y recuperación de sesión/contexto de una sucursal; compras con
 replay; lector fiscal y configuración por razón social. Registrar el SHA desplegado. Canary,
 migración, configuración y comportamiento productivos requieren su autorización operativa;
 el push de Git por sí solo no prueba el redeploy.
+
+## Segundo paquete: PR 69
+
+La PR 69 integra el código revisado hasta `6acab5b`: preparación fiscal privada durable,
+JSON decimal exacto, reconciliación del neto pagado, lectura fiscal histórica autorizada,
+auditoría y rollback del replay de workspace, y registro compartido de concesiones offline.
+Es un incremento del plan; `execution.json` conserva las tareas parciales y pendientes.
+
+Las auditorías independientes de estos alcances están cerradas sin bloqueantes abiertos.
+CI sobre `6acab5b` (run `38496167613`) terminó con 1892 pruebas verdes, ocho skips y dos fallos;
+el gate Python falló:
+la prueba de downgrade fiscal esperaba alcanzar 0087 desde head, pero 0088 protegió primero
+su evidencia offline. Se conservan las carreras en head y se añade un caso aislado 0087 que
+exige su rechazo exacto y conservación de las cuatro tablas fiscales. No se cambian migraciones,
+guardas ni skips; el verificador obliga a ejecutar el caso nuevo. El SHA posterior necesita
+confirmación de CI antes del merge. Esta guía distingue la evidencia anterior de ese resultado.
+
+Corrección local: seis pruebas PG verdes (239.09 s) y repetición final de los dos casos head
+con conservación ampliada de seis tablas (97.13 s). Arquitectura/trazabilidad/verificador:
+32 verdes; scanner, Ruff y diff-check verdes. Revisión independiente focal sin hallazgos;
+se conserva el resultado rojo original de CI. No cambia runtime de la versión revisada.
+
+### Esquema del segundo paquete
+
+El head del segundo paquete es `0088_offline_authorization`. Si ya se aplicó el primer paquete
+hasta 0086, faltan las revisiones aditivas `0087_fiscal_commands` y
+`0088_offline_authorization`; si la base sigue en 0082, Alembic recorre toda la cadena.
+Los contenedores no ejecutan estas migraciones al iniciar. Respaldar PostgreSQL y aplicar
+`python -m alembic -c alembic.ini upgrade head` desde `apps/api`, con el código y la conexión
+del entorno correspondiente. Verificar `alembic current` antes de servir rutas del nuevo esquema.
+No forzar downgrades: 0087 bloquea eliminación de intención fiscal existente y 0088 bloquea
+eliminación de evidencia de autoridad offline.
+
+### Límites operativos para el redeploy
+
+0088 deja las organizaciones existentes en `unprepared`, sin inventar fechas de cutover,
+versiones de concesiones históricas ni readiness. Con V2, una transición de sucursal sin
+preflight válido devuelve `branch_offline_preflight_required`; una concesión incompatible
+vigente devuelve `branch_switch_offline_grant`. La revocación sólo en central no elimina
+el bloqueo del TTL del token desconectado. No cambiar manualmente el estado a
+`clean_install`: ese estado en las pruebas corresponde a una organización sintética recién
+creada. El mecanismo de adopción controlada, la versión firmada y el registro de comandos
+inciertos siguen pendientes; esta publicación no habilita movilidad de organizaciones existentes.
+
+La preparación fiscal conserva `dispatch_ready=false`, sin ruta pública, worker ni envío al
+PAC. No acredita el cierre de F03/F04, impuestos/conceptos ni recuperación de emisión externa.
+La configuración cifrada continúa requiriendo el keyring explícito del primer paquete.
+Comprobar salud, recuperación de sesión y lectura fiscal permitida; no emitir CFDI para
+validar este incremento privado. Conservar el SHA desplegado y los códigos de rechazo.
+El redeploy, las migraciones y la configuración productivos quedan a cargo del usuario.
