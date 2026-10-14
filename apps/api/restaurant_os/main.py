@@ -103,6 +103,24 @@ def create_app() -> FastAPI:
             )
     app.include_router(platform_router)
     app.include_router(reconciliation_v2_router)
+
+    @app.exception_handler(RequestValidationError)
+    async def governed_validation_error(request: Request, exc: RequestValidationError) -> Response:
+        if request.url.path.startswith("/api/v1/purchases/xml-imports/"):
+            return JSONResponse(status_code=422, content={"detail": {
+                "code": "supplier_xml_schema_invalid",
+                "message": "Request does not match the XML contract",
+            }})
+        if request.url.path.startswith(
+            ("/api/v1/agent-auth", "/api/v1/agent-tools", "/api/v1/integrations/grokbot")
+        ):
+            return JSONResponse(status_code=400, content={"detail": {
+                "code": "agent_schema_invalid",
+                "message": "Request does not match the Agent Tools contract",
+                "correlation_id": None,
+            }})
+        return await request_validation_exception_handler(request, exc)
+
     app.state.grokbot_agent_tools_enabled = settings.grokbot_agent_tools_enabled
     if settings.grokbot_agent_tools_enabled:
         if settings.redis_url and settings.grokbot_agent_rate_limit_hmac_secret:
@@ -204,25 +222,6 @@ def create_app() -> FastAPI:
                 },
             )
             return response
-
-        @app.exception_handler(RequestValidationError)
-        async def governed_agent_validation_error(
-            request: Request, exc: RequestValidationError
-        ) -> Response:
-            if request.url.path.startswith(
-                ("/api/v1/agent-auth", "/api/v1/agent-tools", "/api/v1/integrations/grokbot")
-            ):
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "detail": {
-                            "code": "agent_schema_invalid",
-                            "message": "Request does not match the Agent Tools contract",
-                            "correlation_id": None,
-                        }
-                    },
-                )
-            return await request_validation_exception_handler(request, exc)
 
         app.include_router(agent_tools_router)
 

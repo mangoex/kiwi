@@ -4244,6 +4244,101 @@ def _business_response(operation: Callable[[], ResponseT]) -> ResponseT:
         ) from exc
 
 
+def _supplier_xml_response(operation: Callable[[], ResponseT]) -> ResponseT:
+    from restaurant_os.supplier_xml_imports import SupplierXmlResultError
+    def execute() -> ResponseT:
+        try:
+            return operation()
+        except SupplierXmlResultError as error:
+            detail = {"code": error.code, "message": error.message}
+            if error.import_id is not None:
+                detail["import_id"] = error.import_id
+            raise HTTPException(status_code=409, detail=detail) from None
+        except SQLAlchemyError:
+            raise HTTPException(status_code=503, detail={
+                "code": "supplier_xml_persistence_unavailable",
+                "message": "Private evidence is unavailable",
+            }) from None
+        except BusinessError as error:
+            if error.code.startswith("supplier_xml_") or error.code == "idempotency_key_required":
+                status = 503 if error.code.endswith(("unavailable", "migration_required")) else 409
+                if error.code.endswith("not_found"):
+                    status = 404
+                if error.code == "idempotency_key_required":
+                    status = 422
+                raise HTTPException(status_code=status,
+                                    detail={"code": error.code, "message": error.message}) from None
+            raise
+    return _business_response(execute)
+
+
+@router.post("/purchases/xml-imports/branches/{branch_id}")
+async def post_supplier_xml_original(
+    branch_id: UUID, request: Request, session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
+) -> dict[str, Any]:
+    from restaurant_os import supplier_xml_imports as xml
+    from restaurant_os.supplier_xml_upload import read_original
+    from starlette.concurrency import run_in_threadpool
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    def preflight() -> None:
+        xml.authorize_capture(session, actor, str(branch_id), branch_context)
+        session.rollback()  # No database locks are held while accepting request bytes.
+    await run_in_threadpool(lambda: _supplier_xml_response(preflight))
+    try:
+        original = await read_original(request)
+    except BusinessError as error:
+        raise HTTPException(status_code=413 if error.code == "xml_size_exceeded" else 422,
+                            detail={"code": error.code, "message": error.message}) from None
+    return await run_in_threadpool(lambda: _supplier_xml_response(lambda: xml.capture_original(
+        session, actor, str(branch_id), original, idempotency_key or "", branch_context,
+    )))
+
+
+@router.post("/purchases/xml-imports/resolve")
+async def resolve_supplier_xml_command(
+    request: Request, session: SessionDep, idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.supplier_xml_imports import resolve_command
+    from restaurant_os.supplier_xml_upload import require_empty_body
+    from starlette.concurrency import run_in_threadpool
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    try:
+        await require_empty_body(request)
+    except BusinessError as error:
+        raise HTTPException(status_code=422, detail={"code": error.code, "message": error.message}) from None
+    return await run_in_threadpool(
+        lambda: _supplier_xml_response(lambda: resolve_command(session, actor, idempotency_key or ""))
+    )
+
+
+@router.get("/purchases/xml-imports/{import_id}")
+def get_supplier_xml_metadata(
+    import_id: UUID, session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.supplier_xml_imports import metadata
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _supplier_xml_response(lambda: metadata(session, actor, str(import_id)))
+
+
+@router.get("/purchases/xml-imports/{import_id}/original")
+def get_supplier_xml_original(
+    import_id: UUID, session: SessionDep,
+    actor_user_id: ActorUserDep = None, authorization: AuthorizationDep = None,
+) -> Response:
+    from restaurant_os.supplier_xml_imports import download_original
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    original = _supplier_xml_response(lambda: download_original(session, actor, str(import_id)))
+    return Response(content=original, media_type="application/xml", headers={
+        "Content-Disposition": f'attachment; filename="supplier-{import_id}.xml"',
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+    })
+
+
 from restaurant_os.operations import (
     create_warehouse,
     delete_role,
