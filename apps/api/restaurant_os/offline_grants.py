@@ -6,7 +6,7 @@ import base64
 import json
 import time
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, TypeGuard
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
@@ -29,18 +29,39 @@ def create_offline_grant_v2(
     kid: str,
     now: int | None = None,
 ) -> str:
+    return _create_offline_grant(payload, private_key, kid=kid, now=now, version=2)
+
+
+def create_offline_grant_v3(
+    payload: Mapping[str, Any],
+    private_key: Ed25519PrivateKey | bytes | str,
+    *,
+    kid: str,
+    now: int | None = None,
+) -> str:
+    return _create_offline_grant(payload, private_key, kid=kid, now=now, version=3)
+
+
+def _create_offline_grant(
+    payload: Mapping[str, Any],
+    private_key: Ed25519PrivateKey | bytes | str,
+    *,
+    kid: str,
+    now: int | None,
+    version: int,
+) -> str:
     if not isinstance(kid, str) or not kid:
         raise ValueError("offline grant kid is required")
     key = _private_key(private_key)
     issued_at = int(time.time()) if now is None else now
     if isinstance(issued_at, bool) or not isinstance(issued_at, int):
         raise ValueError("offline grant issue time is invalid")
-    body = _grant_payload(payload, issued_at)
+    body = _grant_payload(payload, issued_at, version)
     header = {
         "alg": OFFLINE_GRANT_ALGORITHM,
         "kid": kid,
-        "typ": OFFLINE_GRANT_KIND,
-        "version": OFFLINE_GRANT_VERSION,
+        "typ": f"offline_grant.v{version}",
+        "version": version,
     }
     encoded_header = _b64encode(_canonical_json(header))
     encoded_body = _b64encode(_canonical_json(body))
@@ -55,6 +76,29 @@ def verify_offline_grant_v2(
     *,
     check_expiry: bool = True,
 ) -> dict[str, Any] | None:
+    return _verify_offline_grant(token, public_keys, now, check_expiry=check_expiry, versions=(2,))
+
+
+def verify_offline_grant(
+    token: str,
+    public_keys: Mapping[str, Ed25519PublicKey | bytes | str],
+    now: int | None = None,
+    *,
+    check_expiry: bool = True,
+) -> dict[str, Any] | None:
+    return _verify_offline_grant(
+        token, public_keys, now, check_expiry=check_expiry, versions=(2, 3),
+    )
+
+
+def _verify_offline_grant(
+    token: str,
+    public_keys: Mapping[str, Ed25519PublicKey | bytes | str],
+    now: int | None,
+    *,
+    check_expiry: bool,
+    versions: tuple[int, ...],
+) -> dict[str, Any] | None:
     if not isinstance(token, str) or not isinstance(public_keys, Mapping):
         return None
     parts = token.split(".")
@@ -67,7 +111,7 @@ def verify_offline_grant_v2(
         signature = _b64decode(encoded_signature)
     except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
         return None
-    if not _valid_header(header):
+    if not _valid_header(header, versions):
         return None
     public_key = public_keys.get(header["kid"])
     if public_key is None:
@@ -78,7 +122,7 @@ def verify_offline_grant_v2(
         )
     except (InvalidSignature, TypeError, ValueError):
         return None
-    if not _valid_payload(payload):
+    if not _valid_payload(payload, header["version"]):
         return None
     current_time = int(time.time()) if now is None else now
     if isinstance(current_time, bool) or not isinstance(current_time, int):
@@ -95,7 +139,11 @@ def public_key_pem(private_key: Ed25519PrivateKey) -> bytes:
     )
 
 
-def _grant_payload(payload: Mapping[str, Any], issued_at: int) -> dict[str, Any]:
+def valid_authorization_version(value: Any) -> TypeGuard[int]:
+    return type(value) is int and 1 <= value <= 2147483647
+
+
+def _grant_payload(payload: Mapping[str, Any], issued_at: int, version: int) -> dict[str, Any]:
     required = {
         "actor_user_id",
         "organization_id",
@@ -103,42 +151,48 @@ def _grant_payload(payload: Mapping[str, Any], issued_at: int) -> dict[str, Any]
         "source_device_id",
         "capabilities",
     }
+    if version == 3:
+        required.add("authorization_version")
     if set(payload) != required:
         raise ValueError("offline grant payload fields are invalid")
     values = dict(payload)
     if any(
         not isinstance(values[field], str) or not values[field]
-        for field in required - {"capabilities"}
+        for field in required - {"capabilities", "authorization_version"}
     ):
         raise ValueError("offline grant bindings are invalid")
     capabilities = values["capabilities"]
     if capabilities != [OFFLINE_GRANT_CAPABILITY]:
         raise ValueError("offline grant capability is invalid")
+    if version == 3 and not valid_authorization_version(values["authorization_version"]):
+        raise ValueError("offline grant authorization version is invalid")
     return {
         "actor_user_id": values["actor_user_id"],
         "branch_id": values["branch_id"],
         "capabilities": capabilities,
         "exp": issued_at + OFFLINE_GRANT_TTL_SECONDS,
         "iat": issued_at,
-        "kind": OFFLINE_GRANT_KIND,
+        "kind": f"offline_grant.v{version}",
         "organization_id": values["organization_id"],
         "source_device_id": values["source_device_id"],
-        "version": OFFLINE_GRANT_VERSION,
+        "version": version,
+        **({"authorization_version": values["authorization_version"]} if version == 3 else {}),
     }
 
 
-def _valid_header(header: dict[str, Any]) -> bool:
+def _valid_header(header: dict[str, Any], versions: tuple[int, ...]) -> bool:
     return (
         set(header) == {"alg", "kid", "typ", "version"}
         and header.get("alg") == OFFLINE_GRANT_ALGORITHM
         and isinstance(header.get("kid"), str)
         and bool(header["kid"])
-        and header.get("typ") == OFFLINE_GRANT_KIND
-        and header.get("version") == OFFLINE_GRANT_VERSION
+        and type(header.get("version")) is int
+        and header["version"] in versions
+        and header.get("typ") == f"offline_grant.v{header['version']}"
     )
 
 
-def _valid_payload(payload: dict[str, Any]) -> bool:
+def _valid_payload(payload: dict[str, Any], version: int) -> bool:
     required = {
         "actor_user_id",
         "branch_id",
@@ -150,9 +204,13 @@ def _valid_payload(payload: dict[str, Any]) -> bool:
         "source_device_id",
         "version",
     }
-    if set(payload) != required or payload.get("kind") != OFFLINE_GRANT_KIND:
+    if version == 3:
+        required.add("authorization_version")
+        if not valid_authorization_version(payload.get("authorization_version")):
+            return False
+    if set(payload) != required or payload.get("kind") != f"offline_grant.v{version}":
         return False
-    if payload.get("version") != OFFLINE_GRANT_VERSION:
+    if type(payload.get("version")) is not int or payload["version"] != version:
         return False
     if payload.get("capabilities") != [OFFLINE_GRANT_CAPABILITY]:
         return False

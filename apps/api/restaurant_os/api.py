@@ -4063,6 +4063,7 @@ def _business_response(operation: Callable[[], ResponseT]) -> ResponseT:
             "public_order_unavailable": 503,
             "public_order_rate_limited": 429,
             "public_order_schema_invalid": 422,
+            "offline_reconciliation_persistence_unavailable": 503,
         }.get(exc.code, 409)
         raise HTTPException(
             status_code=status_code,
@@ -8112,7 +8113,7 @@ def reconcile_offline_order(
     session: SessionDep,
     device_token: DeviceTokenDep = None,
 ) -> dict[str, Any]:
-    """A current gateway credential and the signed envelope are both required."""
+    """Authenticate current transport; new commands also require signed historical authority."""
     device = operational_route_guard.require_device_for_capability(
         session, device_token, "gateway.sync"
     )
@@ -8131,13 +8132,18 @@ def reconcile_offline_order(
         )
 
     def reconcile() -> dict[str, Any]:
-        key, kid = offline_order_signing_material()
+        def keyring() -> dict[str, Any]:
+            from restaurant_os.operations import _offline_grant_keyring
+
+            return _offline_grant_keyring(signing_material=offline_order_signing_material)
+
         return dispatch_order_command(
             session,
             payload,
-            keyring={kid: key.public_key()},
+            keyring=keyring,
             now=datetime.now(timezone.utc),
             commit=True,
+            authenticated_device_id=device.user_id,
         )
 
     return _business_response(reconcile)

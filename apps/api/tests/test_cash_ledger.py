@@ -135,8 +135,8 @@ def _insert_movement(
     )
 
 
-def _new_session() -> tuple[sa.Engine, Session]:
-    engine = create_engine("sqlite+pysqlite://")
+def _new_session(database_url: str | sa.URL = "sqlite+pysqlite://") -> tuple[sa.Engine, Session]:
+    engine = create_engine(database_url)
     models.metadata.create_all(engine)
     session = Session(engine)
     _seed_cash_concept_scope(session)

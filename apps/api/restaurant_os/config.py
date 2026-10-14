@@ -60,6 +60,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias="RESTAURANTOS_OFFLINE_GRANT_PUBLIC_KEYRING",
     )
+    signed_offline_authority_enabled: bool = Field(
+        default=False,
+        validation_alias="RESTAURANTOS_SIGNED_OFFLINE_AUTHORITY_ENABLED",
+    )
 
     @field_validator("environment", mode="before")
     @classmethod

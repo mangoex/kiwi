@@ -7,14 +7,29 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
 from restaurant_os import operations as ops
 from restaurant_os.config import get_settings
+from restaurant_os.offline_grants import valid_authorization_version
 
 UTC = timezone.utc
 LEGACY_TTL = timedelta(hours=2)
+
+
+def rollback_reconciliation(session: Session) -> None:
+    """A secondary cleanup failure must not expose the original signed SQL parameters."""
+    try:
+        session.rollback()
+    except SQLAlchemyError:
+        try:
+            session.invalidate()
+        except SQLAlchemyError:
+            # This narrow, failed-error cleanup still ends in the caller's retryable 503.
+            # No success or claim of rollback is inferred from an unavailable connection.
+            pass
 
 
 def _utc(value: datetime) -> datetime:
@@ -30,6 +45,67 @@ def registry_available(session: Session) -> bool:
             "offline_authorization_rollouts",
         )
     )
+
+
+def lock_reconciliation_actor(session: Session, actor: str, organization: str) -> int | None:
+    """Fence authority before branch/aggregate locks; ACKs need no active human permission."""
+    if organization != ops.ORGANIZATION_ID:
+        raise ops.AuthorizationError("permission_denied", "Organization scope is invalid")
+    ops._authority_governance_lock(session, organization)
+    columns = {column["name"] for column in sa.inspect(session.connection()).get_columns("users")}
+    selected = [models.users.c.id]
+    if "authorization_version" in columns:
+        selected.append(models.users.c.authorization_version)
+    row = session.execute(
+        sa.select(*selected).where(
+            models.users.c.id == actor, models.users.c.organization_id == organization,
+        ).with_for_update(key_share=True)
+    ).mappings().first()
+    if not row:
+        return None
+    version = row.get("authorization_version")
+    return int(version) if valid_authorization_version(version) else None
+
+
+def reconciliation_authority_error(
+    session: Session, *, actor: str, branch: str, kind: str, token: str,
+    device_id: str, current_version: int | None, signed_version: int | None,
+    bundle_id: str | None = None, epoch: int | None = None,
+) -> str | None:
+    """Compare exact retained identity, never adopt unknown historical authority."""
+    if not registry_available(session):
+        if signed_version is not None or get_settings().branch_scope_v2_enabled:
+            return "offline_authorization_registry_required"
+        return None
+    row = session.execute(
+        sa.select(models.offline_authorization_leases).where(
+            models.offline_authorization_leases.c.organization_id == ops.ORGANIZATION_ID,
+            models.offline_authorization_leases.c.grant_kind == kind,
+            models.offline_authorization_leases.c.grant_hash
+            == hashlib.sha256(token.encode("utf-8")).hexdigest(),
+        ).with_for_update(key_share=True)
+    ).mappings().first()
+    if row is None:
+        return "offline_authorization_unregistered"
+    bindings = {
+        "actor_user_id": actor, "branch_id": branch, "source_device_id": device_id,
+        "bundle_id": bundle_id, "lease_epoch": epoch,
+    }
+    if any(row[field] != value for field, value in bindings.items()):
+        return "offline_authorization_invalid"
+    if row["state"] == "revoked" or row["revoked_at"] is not None:
+        return "offline_authorization_revoked"
+    # Expired leases may prove an acceptance within the separately verified signed window.
+    if row["state"] not in ("active", "expired"):
+        return "offline_authorization_invalid"
+    recorded_version = row["authorization_version"]
+    if row["provenance"] != "registered" or not valid_authorization_version(recorded_version):
+        return "offline_authorization_version_missing"
+    if signed_version is not None and signed_version != recorded_version:
+        return "offline_authorization_invalid"
+    if not valid_authorization_version(current_version) or current_version != recorded_version:
+        return "offline_authorization_version_stale"
+    return None
 
 
 def lock_grant_actor(
@@ -75,6 +151,10 @@ def _lock_grant_actor(
     if organization != ops.ORGANIZATION_ID:
         raise ops.AuthorizationError("permission_denied", "Organization scope is invalid")
     available = registry_available(session)
+    if get_settings().signed_offline_authority_enabled and not available:
+        raise ops.BusinessError(
+            "offline_authorization_registry_required", "Offline authority migration is required",
+        )
     if get_settings().branch_scope_v2_enabled and not available:
         raise ops.BusinessError(
             "branch_offline_preflight_required", "Offline authority migration is required"

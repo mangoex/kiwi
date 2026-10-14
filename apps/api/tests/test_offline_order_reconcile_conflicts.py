@@ -22,11 +22,12 @@ from restaurant_os.offline_order_contracts import canonical_envelope, command_ha
 from restaurant_os.offline_orders import (
     _require_predecessor,
     acquire_gateway_lease,
+    issue_order_grant,
     reconcile_order_command,
     retain_bundle,
     sign_bundle,
 )
-from restaurant_os.operations import AuthorizationError, BusinessError
+from restaurant_os.operations import BusinessError
 from restaurant_os.order_execution import (
     ExecutionContext,
     next_id,
@@ -37,7 +38,6 @@ from test_cash_concepts import SECOND_OWNER_ID
 from test_cash_ledger import BRANCH_A, _new_session
 from test_combo_compositions import ACTOR, COMBO, ORG_ID
 from test_domain_offline_orders import ACCEPTED_AT, _seed_combo_order_scope
-from test_gateway_order_service import _token
 
 
 def _claims(bundle: dict[str, object], device_id: str, actor_id: str) -> dict[str, object]:
@@ -61,6 +61,7 @@ def _claims(bundle: dict[str, object], device_id: str, actor_id: str) -> dict[st
 
 def _central_and_pending_envelopes(
     tmp_path: Path,
+    database_url: str | sa.URL = "sqlite+pysqlite://",
 ) -> tuple[
     sa.Engine,
     dict[str, object],
@@ -68,7 +69,7 @@ def _central_and_pending_envelopes(
     dict[str, object],
     Ed25519PrivateKey,
 ]:
-    engine, session = _new_session()
+    engine, session = _new_session(database_url)
     issuer, device = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
     device_id = str(uuid4())
     issued = int(ACCEPTED_AT.timestamp())
@@ -109,7 +110,20 @@ def _central_and_pending_envelopes(
             now=ACCEPTED_AT,
         )
         retain_bundle(session, bundle, {"central": issuer.public_key()}, now=ACCEPTED_AT)
+        session.execute(models.device_credentials.insert().values(
+            id=device_id, organization_id=ORG_ID, branch_id=BRANCH_A, capability="gateway.sync",
+            token_hash="0" * 64, key_version="synthetic", created_at=ACCEPTED_AT,
+            expires_at=ACCEPTED_AT + timedelta(hours=3), revoked_at=None,
+        ))
         session.commit()
+        grants = {
+            actor: issue_order_grant(
+                session, organization_id=ORG_ID, branch_id=BRANCH_A, source_device_id=device_id,
+                actor_id=actor, bundle_id=bundle["manifest"]["bundle_id"], lease_epoch=1,
+                capabilities=["orders.create"], private_key=issuer, kid="central", now=ACCEPTED_AT,
+            )["grant"]
+            for actor in (ACTOR, SECOND_OWNER_ID)
+        }
 
         orders, catalog = OrderOutbox(tmp_path / "orders.db"), OrderOutbox(tmp_path / "catalog.db")
         hydrate_bundle(orders.engine, bundle, include_operational_seed=True)
@@ -119,14 +133,14 @@ def _central_and_pending_envelopes(
         )
         payload = {"lines": [{"product_id": COMBO, "quantity": 1}], "register_id": "CAJA-01"}
         service.execute(
-            _token(issuer, _claims(bundle, device_id, ACTOR)),
+            grants[ACTOR],
             "create",
             payload,
             "offline-conflict-primary-001",
             now=ACCEPTED_AT,
         )
         service.execute(
-            _token(issuer, _claims(bundle, device_id, SECOND_OWNER_ID)),
+            grants[SECOND_OWNER_ID],
             "create",
             payload,
             "offline-conflict-independent-001",
@@ -342,14 +356,10 @@ def test_reconciliation_denial_conflicts_atomically_and_leaves_other_stream_avai
             assert duplicate_row["result"] == duplicate_result
 
         with Session(engine) as session:
-            with pytest.raises(AuthorizationError, match="not authorized"):
-                reconcile_order_command(
-                    session,
-                    denied_envelope,
-                    keyring=keyring,
-                    now=ACCEPTED_AT,
-                    commit=True,
-                )
+            replay = reconcile_order_command(
+                session, denied_envelope, keyring=keyring, now=ACCEPTED_AT, commit=True,
+            )
+            assert replay == result
             stored = (
                 session.execute(
                     sa.select(models.offline_order_inbox).where(

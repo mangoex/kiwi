@@ -21,7 +21,7 @@ from edge_gateway.config import (
     load_public_keyring,
     load_runtime_config,
 )
-from edge_gateway.grants import verify_offline_grant_v2
+from edge_gateway.grants import verify_offline_grant
 from edge_gateway.local_api import create_local_cash_app
 from edge_gateway.outbox import GatewayOutbox
 from edge_gateway.runtime_logging import (
@@ -184,7 +184,7 @@ def create_gateway_runtime(
                 "branch_id": config.branch_id,
                 "source_device_id": config.source_device_id,
             },
-            lambda token: verify_offline_grant_v2(token, keyring),
+            lambda token: verify_offline_grant(token, keyring),
         )
         app.add_middleware(
             CORSMiddleware,

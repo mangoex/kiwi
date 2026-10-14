@@ -158,9 +158,12 @@ usan el mismo lock canónico: sólo una confirma y la otra reevalúa el nuevo es
 
 ## TDD-TC-354 Offline y autorización obsoleta
 
-Cobertura prevista, pendiente de implementación y ejecución canónica: el contrato de versión
-firmado cubre caja v3/pedidos v4 y su compatibilidad legacy estricta. No se presenta como evidencia
-verde del runtime publicado.
+El contrato de versión firmado cubre caja v3/pedidos v4 y su compatibilidad legacy estricta.
+La evidencia incremental distingue código local, CI, Git y configuración productiva; no acredita
+el cierre del recorrido W04 completo por estas pruebas focales.
+La activación por configuración es explícita y apagada por defecto: prueba formato legacy con
+registro conocido, activación real caja v3/pedidos v4 y rechazo de activación sin 0088 incluso con
+V2 apagado. El fence central no depende de ese control de emisión.
 Vectores API/gateway rechazan bool, float, string, 0, negativo, int32+1, claim ausente y mezcla de
 header/payload. Emisores reales registran la misma versión firmada bajo lock; bundle/semilla
 operacional con versión distinta impide emisión/aceptación nueva, sin inferir un valor histórico.
@@ -172,6 +175,10 @@ retiradas. API pedidos exige dispositivo autenticado propio, hash/intención exa
 resultado privado para recuperar tras cambio de época o clave; el caller interno sin ese
 transporte sigue verificando la firma. Firma alterada en un comando nuevo y dispositivo ajeno
 nunca aprovechan el camino de lectura de acuse. Los RED, gates y límites se registran al ejecutarse.
+Una excepción SQL previa al commit revierte efectos y cercas, y expone sólo un error redactado
+HTTP 503; una limpieza SQL fallida descarta la sesión sin exponer el token por la segunda excepción.
+Un commit real seguido de pérdida de acuse conserva historia y recupera la misma intención.
+El reintento no termina el outbox como conflicto por ese fallo ni presume que no hubo efectos.
 
 Gateway SQLite verifica que el bundle A rechaza branch B, que no existe selector offline y que una
 lease registrada vigente bloquea selección/reasignación. PostgreSQL fuerza carreras de emisión contra
@@ -221,12 +228,72 @@ refutaron con 22 casos propios, 6 de migración y 2 adicionales de organización
 reporte conserva sus errores de fixture y el batch que cargó código durante una edición; no se
 presenta como una corrida completa verde. PG recibido se distingue de sus ejecuciones propias.
 
-Afirmación: grant y selección no confirman autoridad incompatible, y un fallo previo al commit no
+Afirmación del incremento de registro anterior (PR 69): grant y selección no confirman autoridad incompatible, y un fallo previo al commit no
 publica token ni persistencia parcial. Refutación: ambos ganadores bajo barrera/espera PG observada,
 insert de audit seguido de error y commit con marcador sintético sensible; resultado verde. Riesgo
-residual: no hay revocación inmediata del dispositivo desconectado, ni prueba de commit realmente
-confirmado con respuesta perdida. Claim firmado de versión, reconciliación, adopción controlada y
-registro de comandos inciertos/reconciliación local aún pendientes; W04 permanece parcial.
+residual en esa evidencia: no había prueba de commit realmente confirmado con respuesta perdida
+ni claim firmado/fence de reconciliación. El incremento siguiente registra esas refutaciones;
+no hay revocación inmediata del dispositivo desconectado. Adopción controlada y registro de
+comandos inciertos/reconciliación local siguen pendientes; W04 permanece parcial.
+
+Incremento de versión firmada y reconciliación: `test_signed_offline_authority.py` y
+`test_signed_offline_reconciliation.py` cubren emisores reales, verificadores central/edge,
+comparación de semilla, guardas de registro/versión y acuse mínimo. RED de formatos/emisores:
+8 fallas esperadas/26 verdes; RED de reconciliación: 6 fallas esperadas/1 verde. El intento inicial
+de fixture de pedidos registró dos fallas por ausencia de source_grant_id; se sustituyó por emisión
+real con credencial, bundle y lineage, sin debilitar constraints. Gates de esa corrección: 24 verdes;
+formatos/emisores: 41 verdes. Gateway/API ampliado: 48 verdes; dirigido posterior: 69 verdes.
+Estos batches pertenecen a sus snapshots; no sustituyen el gate final del SHA publicado.
+
+PG `signed-authority-reconcile-postgres.xml`: cuatro verdes (200.15 s), y repetición final
+`signed-authority-reconcile-postgres-final.xml`: cuatro verdes (244.23 s), con caja/pedidos y ambos
+ganadores. Observan Lock/advisory, sostienen fence hasta commit y comprueban versión 2, un único
+efecto o conflicto sin activos y replay de su checkpoint. La repetición incluye activación explícita
+y wrappers SQL iniciales; la corrección posterior de limpieza sólo afecta el camino de error.
+Son cuatro pruebas efectivamente ejecutadas, no ejecución local de los once módulos completos.
+
+SQL previo al commit: RED dos fallas exponen grant sintético en error; GREEN dos. Rollback SQL
+fallido: RED dos, GREEN final cuatro entre limpieza normal/fallida, contra SQLite en archivo que
+reabre la misma historia (`signed-authority-persistence-final.xml`, 35.14 s). HTTP real: un verde
+(`signed-authority-http-final.xml`, 19.64 s), 503 redactado, reintento exacto con un pedido y
+recuperación tras retirar actor/época/claves; revocar credencial técnica sigue denegando el acuse.
+Otro RED de una falla reprodujo que dos verificaciones podían degradar v3 a legacy tras cambiar
+keyring y faltar registro; GREEN una al conservar un único resultado criptográfico verificado.
+No se infiere una versión histórica a partir de un segundo parse ausente.
+Gate final local del paquete: `signed-authority-release-directed.xml`, 110 verdes en 153.97 s,
+incluidos codecs/emisores, registro/fence/ACK, caja, pedidos, gateway real y workers. Ruff completo
+API/tests y gateway, mypy81 y 36 de arquitectura verdes; trazabilidad repetida nueve verdes.
+La lectura criptográfica retenida y el manejo de limpieza SQL quedan incluidos en este gate.
+CI del SHA final y políticas/scanner/ratchet se registran al cerrar la publicación; no se usan
+los batches previos ni compilación como sustituto de esos gates.
+Gateway focal mypy: cuatro módulos cambiados verdes con plataforma Linux. La comprobación nativa
+Windows reportó cuatro atributos POSIX (`geteuid`/`fchmod`) en `outbox`/`runtime_logging`; el mismo
+comando sobre `main` bc55e2b reprodujo exactamente esos cuatro diagnósticos en código sin cambios.
+No se añadieron ignores ni se declararon verdes esos diagnósticos de Windows. El runtime Windows
+está ejercitado en el gate dirigido; CI añade el typecheck focal y lint del gateway en Linux.
+
+Sol independiente: dos P2 de acuse de caja inconsistente y fallo SQL de rollback reproducidos,
+corregidos y refutados; 35 casos propios de primera etapa, 16 nuevos de flag/commit/SQL mediante
+corridas focales y 11 de keyring/verificación única. Se conservan los errores de expectativa de
+Sol separados de los fallos de runtime. Sus casos con commit real seguido de pérdida de acuse
+preservan un efecto y recuperan la misma intención; su limpieza también falla en invalidate sin
+exponer SQL/token. PG recibido se identifica como tal en
+`output/audit-remediation/sol-signed-authority-runtime/AUDIT.md`; no PG propio del auditor.
+
+Afirmaciones R3: versión firmada/registrada/actual coinciden antes de ejecutar; el fence se sostiene
+hasta commit; acuse mínimo no renueva autoridad humana; errores SQL/limpieza no exponen token.
+Refutaciones: tipos/rangos/formatos, registro ausente/NULL/revocado, actor con igual permiso y versión
+distinta, carreras PG, historia con bindings/checkpoint alterados, clave/época retiradas y pérdida
+de acuse tras commit real. Resultado focal verde con los intentos originales conservados. Riesgo
+residual: activación productiva explícita requiere gateways compatibles/0088; no hay adopción
+controlada ni inventario completo de comandos inciertos. No se certifica revocación instantánea
+offline, canary, rendimiento bajo carga, despliegue o el cierre de las 31 tareas.
+
+Preguntas operativas de este incremento: ¿falta registro o cambió la versión? Distinguir los códigos
+`offline_authorization_unregistered`/`offline_authorization_version_stale` en rechazo/auditoría.
+¿Existe un acuse durable o la conexión dejó resultado incierto? Status/checkpoint y replay exacto;
+503 conserva intención. ¿Cuánto espera la reconciliación por autoridad? Observar espera Lock y
+latencia por sucursal en canary autorizado; estas pruebas no establecen un umbral productivo.
 
 Preguntas operativas: ¿qué concesión impide seleccionar y hasta cuándo? Estado/timestamps del
 preflight y leases incompatibles por actor responden sin mostrar token. ¿Cada emisión tiene

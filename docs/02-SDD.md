@@ -3462,8 +3462,9 @@ y no sobrescribe evidencia operacional al actualizar catálogo.
 
 La reconciliación usa el bundle almacenado por el servidor, no un bundle aportado por el cliente.
 La caducidad de dos horas limita nuevas aceptaciones, no elimina el derecho a reintentar un comando
-aceptado dentro de su vigencia. El servidor comprueba esa vigencia histórica y vuelve a validar
-permisos, dispositivo y turno actuales para reconciliarlo.
+aceptado dentro de su vigencia. Para una primera ejecución, el servidor comprueba esa vigencia
+histórica y vuelve a validar permisos, dispositivo y turno actuales. La recuperación de un acuse
+ya persistido sigue la frontera de transporte e intención exacta de §58.3.
 La fecha de aceptación no puede superar el reloj UTC central al reconciliar: un reloj local
 adelantado deja el comando pendiente para reintento, sin ejecutar efectos futuros ni alterar su
 fecha firmada. No se introduce una tolerancia temporal implícita.
@@ -3481,7 +3482,9 @@ copia; la secuencia se asigna dentro de la transacción local. Un replay reutili
 ### 47.3 Frontera, secuencia y conflictos
 
 El protocolo de pedidos y sus grants son distintos del protocolo cash v1/grant v2 de PCO-008.
-El grant v3 firmado vincula actor, organización, sucursal, dispositivo, bundle, hash y época de
+Los formatos por defecto siguen siendo caja v2/pedidos v3; la activación explícita de §58.3 añade
+caja v3/pedidos v4 con versión de autorización firmada, conservando verificadores legacy estrictos.
+El grant de pedidos firmado vincula actor, organización, sucursal, dispositivo, bundle, hash y época de
 autoridad. Cada comando incluye además una firma Ed25519 del gateway sobre su sobre canónico;
 la clave pública se registra al adquirir autoridad y no cambia dentro de una época. El encadenado
 de hashes comprueba causalidad, pero no sustituye esa autenticación del dispositivo.
@@ -3493,8 +3496,10 @@ estrictos y rechazan actor/alcance/resultados derivados aportados en el cuerpo.
 Cada comando incluye schema/command type, identidad, intención idempotente, actor autenticado,
 org/branch/device, accepted_at, grant firmado, bundle ID/hash, aggregate ID, secuencia y predecesor.
 El grant limitado a dos horas contiene sólo capabilities autorizadas; el dispositivo transporta
-comandos pero no concede permisos humanos. Firma, ventana, binding y capability se verifican local
-y centralmente. Central vuelve a validar actor/permiso vigente y estado de turno/caja.
+comandos pero no concede permisos humanos. Para nuevas ejecuciones, firma, ventana, binding y
+capability se verifican local y centralmente; central valida actor/permiso vigente y estado de
+turno/caja. Un acuse mínimo confirmado no concede una ejecución nueva ni permiso humano: §58.3
+define el transporte autenticado y la conservación de intención requeridos para recuperarlo.
 
 Reconciliación serializada por agregado y clave idempotente: dominio + inbox + evento + auditoría +
 checkpoint forman una sola transacción PostgreSQL. Una confirmación perdida devuelve el resultado
@@ -5233,12 +5238,20 @@ SQL, parámetros ni token en respuesta/log de aplicación. Una pérdida de confi
 Pedidos usa un reloj fresco después de adquirir locks de actor, gateway y dispositivo y revalida
 expiraciones antes de firmar; una espera no convierte el timestamp inicial del request en autoridad.
 
-Diseño pendiente de implementación y verificación de W04: el runtime publicado en PR 69 conserva
-caja `offline_grant.v2` y pedidos `order_grant.v3`, con la versión ligada al registro central por
-hash del token. El contrato siguiente no acredita soporte de los formatos nuevos ni habilita su
-emisión; §47.2/47.3 describe el recorrido vigente hasta que se implemente este incremento.
+Incremento de versión firmada y reconciliación de W04: TDD-TC-354 registra la implementación y
+evidencia focal; no acredita adopción controlada, comandos inciertos ni el cierre de W04. El emisor
+por defecto conserva caja `offline_grant.v2` y pedidos `order_grant.v3`, con versión ligada al
+registro central por hash del token. Sólo la activación explícita siguiente cambia la emisión.
 
-Las nuevas emisiones previstas con registro 0088 usarán caja `offline_grant.v3` (header/payload versión 3) y
+La emisión versionada requiere activación explícita de
+`RESTAURANTOS_SIGNED_OFFLINE_AUTHORITY_ENABLED=true`, apagada por defecto. Primero se actualizan
+los gateways verificadores compatibles y después se activa el emisor; la activación requiere 0088
+incluso con movilidad V2 apagada. Sin activación se conservan los formatos legacy y su registro de
+versión conocida. Este control de despliegue no desactiva el fence central ni permite adoptar una
+versión histórica NULL o ausente. La configuración productiva conserva autorización separada.
+
+Las nuevas emisiones con registro 0088 y activación usan caja `offline_grant.v3`
+(header/payload versión 3) y
 pedidos `order_grant.v4` / `ord-off-grant/v4` (versión 4). Incluyen `authorization_version` firmado,
 entero de 1 a 2147483647: bool, float, string, ausencia y mezcla de formatos se rechazan. Los
 verificadores mantienen los formatos legacy estrictos; no agregan un claim a un token anterior.
@@ -5260,6 +5273,16 @@ Pedidos local compara la versión del grant nuevo con el actor de la semilla ope
 una semilla obsoleta no se sustituye por la versión del token. Un emisor no entrega grant nuevo
 para un bundle cuyo actor/version no coincide con la autoridad actual. Se obtiene un bundle nuevo.
 Esto no revoca instantáneamente una copia desconectada: siguen aplicando TTL y preflight.
+
+Un fallo SQL de reconciliación intenta revertir la unidad no confirmada; si la limpieza también
+falla por SQL, descarta la sesión sin exponer esa excepción secundaria. No declara ausencia de
+efectos cuando el servidor pudo confirmar antes de perder el acuse. Expone un error estable y
+redactado `offline_reconciliation_persistence_unavailable` (HTTP 503). El gateway conserva la misma
+intención para reintento; no convierte falta de persistencia en conflicto durable ni expone token,
+SQL o parámetros en la excepción de aplicación. El commit del acuse de lectura libera los locks
+del recorrido cuyo caller pidió commit, sin crear efectos de dominio nuevos.
+La pérdida del acuse después de un commit real conserva historia y se resuelve recuperando la
+misma intención persistida; nunca fabrica una compensación ni ejecuta una intención diferente.
 
 Un replay exacto confirmado recupera sólo el acuse mínimo persistido, sin renovar permiso humano.
 Caja conserva su hash de intención sin token y exige identidad de transporte/dispositivo y

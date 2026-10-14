@@ -9,6 +9,8 @@ import sqlalchemy as sa
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from restaurant_os import api as api_module
 from restaurant_os import models, operations
+from restaurant_os.config import get_settings
+from restaurant_os.offline_order_catalog import build_operational_seed
 from test_branch_workspace_authority import _reissue, _select
 from test_branch_workspace_authority import workspace as workspace
 from test_platform_api import BRANCH_ID
@@ -37,6 +39,8 @@ def _device(session, branch):
 
 
 def _cash_grant(workspace, monkeypatch):
+    monkeypatch.setenv("RESTAURANTOS_SIGNED_OFFLINE_AUTHORITY_ENABLED", "true")
+    get_settings.cache_clear()
     client, fixture, factory, headers = workspace
     issued = _reissue(client, headers).json()
     private_key = Ed25519PrivateKey.generate()
@@ -78,6 +82,8 @@ def test_cash_issuance_retains_authority_hash_and_audit(workspace, monkeypatch):
 
 
 def _order_fixture(workspace, monkeypatch):
+    monkeypatch.setenv("RESTAURANTOS_SIGNED_OFFLINE_AUTHORITY_ENABLED", "true")
+    get_settings.cache_clear()
     client, fixture, factory, headers = workspace
     issued = _reissue(client, headers).json()
     issuer = Ed25519PrivateKey.generate()
@@ -109,7 +115,10 @@ def _order_fixture(workspace, monkeypatch):
                 bundle_hash="0" * 64,
                 manifest={},
                 catalog={},
-                operational_seed={},
+                operational_seed=build_operational_seed(
+                    session, organization_id=operations.ORGANIZATION_ID,
+                    branch_id=fixture["branch_id"], actor_ids=[fixture["supervisor_id"]],
+                ),
                 kid="qa",
                 signature="synthetic retained catalog",
                 issued_at=now,
