@@ -2389,6 +2389,8 @@ def open_cash_shift_idempotently(
     opening_cash_cents: int,
     idempotency_key: str,
     actor_user_id: str | None = None,
+    *,
+    commit: bool = True,
 ) -> dict[str, Any]:
     """Create exactly one OPEN shift for an idempotent POS command."""
     key = ""
@@ -2445,7 +2447,8 @@ def open_cash_shift_idempotently(
                 .mappings()
                 .one()
             )
-            _record_pco004_metric("cash_shift_open_total", result="replay", branch_id=branch_id)
+            if commit:
+                _record_pco004_metric("cash_shift_open_total", result="replay", branch_id=branch_id)
             return replay
         if get_open_cash_shift(session, register_code, branch_id):
             raise BusinessError("cash_shift_already_open", "Register already has an open shift")
@@ -2486,11 +2489,14 @@ def open_cash_shift_idempotently(
                 created_at=now,
             )
         )
-        session.commit()
-        _record_pco004_metric("cash_shift_open_total", result="success", branch_id=branch_id)
+        if commit:
+            session.commit()
+        if commit:
+            _record_pco004_metric("cash_shift_open_total", result="success", branch_id=branch_id)
         return shift
     except BusinessError as exc:
-        session.rollback()
+        if commit:
+            session.rollback()
         _record_pco004_metric(
             "cash_shift_open_total", result="error", branch_id=branch_id, error_code=exc.code
         )
@@ -2503,7 +2509,10 @@ def open_cash_shift_idempotently(
             )
         raise
     except IntegrityError as exc:
-        session.rollback()
+        if not commit:
+            raise BusinessError("cash_shift_busy", "Cash shift changed concurrently") from None
+        if commit:
+            session.rollback()
         # A concurrent writer may have won either the command-key or active-shift
         # uniqueness race.  Re-read on a clean transaction and expose a stable
         # domain outcome instead of a dialect-specific IntegrityError.
@@ -2531,7 +2540,8 @@ def open_cash_shift_idempotently(
                 .mappings()
                 .one()
             )
-            _record_pco004_metric("cash_shift_open_total", result="replay", branch_id=branch_id)
+            if commit:
+                _record_pco004_metric("cash_shift_open_total", result="replay", branch_id=branch_id)
             return replay
         if get_open_cash_shift(session, register_code, branch_id):
             _record_pco004_metric(
@@ -2547,7 +2557,8 @@ def open_cash_shift_idempotently(
             "cash_shift_busy", "Cash shift is being updated; retry the command"
         ) from exc
     except Exception:
-        session.rollback()
+        if commit:
+            session.rollback()
         raise
 
 
@@ -2557,6 +2568,8 @@ def close_cash_shift_operationally_for_register(
     register_code: str,
     idempotency_key: str,
     actor_user_id: str | None = None,
+    *,
+    commit: bool = True,
 ) -> OperationalCloseResponse:
     """Resolve the legacy close alias without losing a completed idempotent command.
 
@@ -2604,12 +2617,15 @@ def close_cash_shift_operationally_for_register(
                 raise BusinessError(
                     "idempotency_conflict", "Idempotency key has a different request"
                 )
-            return close_cash_shift_operationally(session, str(command_shift["id"]), key, actor_id)
+            return close_cash_shift_operationally(
+                session, str(command_shift["id"]), key, actor_id, commit=commit
+            )
         open_shift = get_open_cash_shift(session, register_code=register_code, branch_id=branch_id)
         if not open_shift:
             raise BusinessError("cash_shift_not_open", "Register does not have an open shift")
     except BusinessError as exc:
-        session.rollback()
+        if commit:
+            session.rollback()
         _record_pco004_metric(
             "cash_shift_operational_close_total",
             result="error",
@@ -2624,7 +2640,9 @@ def close_cash_shift_operationally_for_register(
                 error_code=exc.code,
             )
         raise
-    return close_cash_shift_operationally(session, str(open_shift["id"]), key, actor_id)
+    return close_cash_shift_operationally(
+        session, str(open_shift["id"]), key, actor_id, commit=commit
+    )
 
 
 def close_cash_shift_operationally(
@@ -2633,6 +2651,8 @@ def close_cash_shift_operationally(
     idempotency_key: str,
     actor_user_id: str | None = None,
     _failure_hook: Callable[[str], None] | None = None,
+    *,
+    commit: bool = True,
 ) -> OperationalCloseResponse:
     """Freeze a shift summary atomically without creating a final cash cut."""
     authorized_branch_id: str | None = None
@@ -2705,11 +2725,12 @@ def close_cash_shift_operationally(
                 .mappings()
                 .one()
             )
-            _record_pco004_metric(
-                "cash_shift_operational_close_total",
-                result="replay",
-                branch_id=str(replay_shift["branch_id"]),
-            )
+            if commit:
+                _record_pco004_metric(
+                    "cash_shift_operational_close_total",
+                    result="replay",
+                    branch_id=str(replay_shift["branch_id"]),
+                )
             return _normalize_operational_close_output(
                 OperationalCloseResponse(
                     cash_shift=dict(replay_shift),
@@ -2799,14 +2820,17 @@ def close_cash_shift_operationally(
                 created_at=now,
             )
         )
-        session.commit()
-        _record_pco004_metric(
-            "cash_shift_operational_close_total",
-            result="success",
-            branch_id=str(shift["branch_id"]),
-        )
+        if commit:
+            session.commit()
+        if commit:
+            _record_pco004_metric(
+                "cash_shift_operational_close_total",
+                result="success",
+                branch_id=str(shift["branch_id"]),
+            )
     except BusinessError as exc:
-        session.rollback()
+        if commit:
+            session.rollback()
         _record_pco004_metric(
             "cash_shift_operational_close_total",
             result="error",
@@ -2822,7 +2846,8 @@ def close_cash_shift_operationally(
             )
         raise
     except Exception:
-        session.rollback()
+        if commit:
+            session.rollback()
         raise
     shift["status"] = "OPERATIVELY_CLOSED"
     shift["closed_at"] = now
@@ -21996,12 +22021,16 @@ def compensate_cash_movement(
     payload: dict[str, Any],
     idempotency_key: str,
     actor_user_id: str | None = None,
+    *,
+    commit: bool = True,
 ) -> dict[str, Any]:
     _begin_cash_shift_serialization(session)
     actor_id = _actor_user_id(actor_user_id)
     from restaurant_os.expenses import guard_manual_compensation
 
     guard_manual_compensation(session, actor_id, movement_id)
+    if set(payload) != {"reason", "evidence_refs"}:
+        raise BusinessError("cash_compensation_invalid", "Compensation fields are invalid")
     key = _cash_movement_command_key(idempotency_key)
     request_hash = _cash_movement_request_hash(
         "compensate", actor_id, {"movement_id": movement_id, **payload}
@@ -22009,8 +22038,6 @@ def compensate_cash_movement(
     replay = _cash_movement_replay(session, key, request_hash)
     if replay is not None:
         return replay
-    if set(payload) != {"reason", "evidence_refs"}:
-        raise BusinessError("cash_compensation_invalid", "Compensation fields are invalid")
     original = (
         session.execute(
             sa.select(models.cash_movements).where(
@@ -22116,10 +22143,16 @@ def compensate_cash_movement(
             original["branch_id"],
             actor_user_id=actor_id,
         )
-        session.commit()
+        if commit:
+            session.commit()
         return {**result, "current_summary": summary_at_commit}
     except IntegrityError as exc:
-        session.rollback()
+        if not commit:
+            raise BusinessError(
+                "cash_movement_already_compensated", "Cash movement changed concurrently"
+            ) from None
+        if commit:
+            session.rollback()
         replay = _cash_movement_replay(session, key, request_hash)
         if replay is not None:
             return replay
@@ -22127,7 +22160,8 @@ def compensate_cash_movement(
             "cash_movement_already_compensated", "Cash movement was already compensated"
         ) from exc
     except Exception:
-        session.rollback()
+        if commit:
+            session.rollback()
         raise
 
 

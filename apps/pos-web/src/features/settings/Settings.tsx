@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ApiError,
   fetchApi,
+  hasPendingOperationalIntent,
   loadOperationalOrderConfig,
   readGatewayOperationalStatus,
   storeOfflineOrderGrant,
@@ -268,8 +269,9 @@ const Settings = () => {
       setViewState('open');
       announce('Turno abierto correctamente.');
     } catch (reason) {
+      const pending = hasPendingOperationalIntent(reason);
       const uncertain = !(reason instanceof ApiError) || reason.status >= 500;
-      openIntentRef.current = uncertain && !isIdempotencyConflict(reason) ? intent : null;
+      openIntentRef.current = pending || (uncertain && !isIdempotencyConflict(reason)) ? intent : null;
       setHasRetryIntent(Boolean(openIntentRef.current || closeIntentRef.current));
       setViewState('error');
       announce(formatApiError(reason, 'No se confirmó la apertura. Puedes reintentar la misma solicitud.'), 'alert');
@@ -290,8 +292,9 @@ const Settings = () => {
       setViewState('closed');
       announce('Turno cerrado operativamente. El corte final queda pendiente.');
     } catch (reason) {
+      const pending = hasPendingOperationalIntent(reason);
       const uncertain = !(reason instanceof ApiError) || reason.status >= 500;
-      closeIntentRef.current = uncertain && !isIdempotencyConflict(reason) ? intent : null;
+      closeIntentRef.current = pending || (uncertain && !isIdempotencyConflict(reason)) ? intent : null;
       setHasRetryIntent(Boolean(openIntentRef.current || closeIntentRef.current));
       setViewState('error');
       announce(formatApiError(reason, 'No se confirmó el cierre. Puedes reintentar la misma solicitud.'), 'alert');

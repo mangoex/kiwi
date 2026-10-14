@@ -98,7 +98,7 @@
         "W02"
       ],
       "decisions": [],
-      "status": "signed_authority_cutover_and_three_central_intent_routes_locally_reviewed_remaining_commands_offline_adoption_and_ci_pending",
+      "status": "signed_authority_cutover_and_seven_central_intent_kinds_locally_reviewed_remaining_commands_offline_adoption_and_ci_pending",
       "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone",
       "evidence": [
         "output/audit-remediation/offline-authority-registry-red.xml",
@@ -139,7 +139,15 @@
         "output/audit-remediation/operational-intents-postgres.xml",
         "output/audit-remediation/operational-intents-postgres-recovery.xml",
         "output/audit-remediation/operational-intents-history-regressions.xml",
-        "output/audit-remediation/sol-operational-intents/audit.md"
+        "output/audit-remediation/sol-operational-intents/audit.md",
+        "apps/api/tests/test_operational_cash_lifecycle.py",
+        "tests/frontend/test_operational_intent_handlers.mjs",
+        "output/audit-remediation/cash-lifecycle-postgres.xml",
+        "output/audit-remediation/cash-lifecycle-ledger.xml",
+        "output/audit-remediation/cash-lifecycle-regressions.xml",
+        "output/audit-remediation/cash-lifecycle-0091-postgres.xml",
+        "output/audit-remediation/sol-cash-lifecycle/audit.md",
+        "output/audit-remediation/cash-lifecycle-namespace-postgres-current.xml"
       ]
     },
     {
@@ -1010,7 +1018,8 @@
     "fiscal_command": "preparation audit closed: privacy/atomicity/authority/source-audit/migration refutations and independent PG XML validation; private foundation only",
     "fiscal_exact_json": "31 initial +11 chunked escape refutations passed; no blockers; memory residual corrected, total process/input/concurrency budget not claimed",
     "fiscal_net_reconciliation": "Independent R3 audit closed without blockers;10 actual cash/valid adjustment refutations green; no new SQL/PG claim",
-    "fiscal_history": "Independent scope audit closed: mobile-portability scope leak refuted and corrected;29 refutations plus76 directed green; login/UI without active branch not certified"
+    "fiscal_history": "Independent scope audit closed: mobile-portability scope leak refuted and corrected;29 refutations plus76 directed green; login/UI without active branch not certified",
+    "cash_lifecycle": "Independent R3 audit closed local P1 governance/actor inversion and three P2 pending-retention/commit-metric/malformed-proof findings. Legacy route override independently reproduced and corrected; valid replay retained. Own SQLite/received PG and CI pending distinguished; full W04/31 task scope remains partial."
   },
   "latest_local_evidence": {
     "signed_offline_authority": "Cashv3/ordersv4 opt-in defaultfalse; strictlegacy, realissuer samehash/version, seedversion, governance/actor fences and minimalACK. Release-directed110green153.97s; PG4 observed Lock/advisory244.23s; SQLdurable4green35.14s incl rollbackfailure; HTTP1green19.64s; architecture36+trace9green. Root crypto8expectedRED26P, reconcile6RED1P, SQL2RED, rollback2RED, verification-result1RED preserved. Independent Sol2P2 corrected:35early+16new+11singleverification focal green, PG received separately; no blockers. Finalmypy81/Ruffgreen; scanner/ratchet green; finalCI recorded under ci_signed_offline_authority. W04 controlled adoption and uncertain-command registry still pending; no production action.",
@@ -1047,6 +1056,7 @@
     "operational_intents": "W04 incremental0090, prepare/send/resolve three central routes only; no rawbody/credential persisted. RED3F22.64s and fixture/denial-owner failures preserved. Directed11P48.92s, paymentcash2P24.76s, brokeroffline17P63.80s, faults3P16.64s including real committhenlostreply, regressions60P295.98s, boundary3P20.31s. PG4P144.09s + recovery4P237.39s observedLock bothwinners; history4P150.93s eight/fourtables includingempty0090 retained. Verifier25P10.97s after45P1missing-fixture-module failure; no newskip. Sol1P1/3P2closed, own18P176.95s+Nodepanel/transport; PG/browser received. Browser1440/390 recovery duringcontexterror withoutfinancialsend/contextacquisition. Mypy85/Ruff, typecheck/buildgreen; finalscanner/staged-quality-ratchet/diffgreen; Final CI/publication recorded under ci_operational_intents/publication_git_operational_intents. Remainingcommand integration/offlineoutbox/recoveryonly/adoption and full31 scope pending; no production action.",
     "operational_intents_cash_compatibility": "Cash domain parity: normalized keys 1..180, orders/payments 12..160; cash branch/type normalization preserves original body/hash. RED2F1P23.54s and Node RED retained; directed26P139.48s, Node positive/negative/NBSP green, PostgreSQL migrated constraints1P62.36s/8 deselected. Initial PG1F62.79s expected IntegrityError but actual valid varchar rejection DataError retained; corrected fixture asserts either specific rejection. Ruff/mypy85/trace9/typecheck green. Independent focal review: parity9P4.05s, SQLite constraint1P11.67s, ASCII/NBSP Node green; received PostgreSQL and root26 passed evidence, no open blocker. Corrected SHA final CI/publication recorded under ci_operational_intents/publication_git_operational_intents; no production action.",
     "ci_operational_intents": "PR72 final f58a0015b2bb2394b51e9de34bfbe3c51a287c11 run38544220053 completed success attempt2:2022passed/8existing-skips/7warnings1608.37s; mandatory82cases in12PGmodules including9operational_intents; mypy85API/mypy4gateway/Ruff green; all5jobs success. Initial4b40483 run38541189683:2012passed/8existing-skips/7warnings1574.34s/all5jobs success. Final frontend attempt1 catalog Crear grupo timeout retained; original test passed locally development and production bundles1440/390 without source/test changes; only failed frontend job rerun on same SHA passed full gates. No new skip or weakened assertion.",
-    "publication_git_operational_intents": "PR72 merged main758a1b1eb3f4621b594cd04d0be488a365573e3c; full Git tree exactly matches tested f58a0015b2bb2394b51e9de34bfbe3c51a287c11. Primary main synchronized. R0 closure only PUBLICATION/execution evidence;31tasks/states/approved decisions preserved. Required schema0090, signed offline issuance defaultfalse; three central routes only, W04/other commands/offline/adoption/full31 pending. No deployment/migration/configuration/operator/canary production action."
+    "publication_git_operational_intents": "PR72 merged main758a1b1eb3f4621b594cd04d0be488a365573e3c; full Git tree exactly matches tested f58a0015b2bb2394b51e9de34bfbe3c51a287c11. Primary main synchronized. R0 closure only PUBLICATION/execution evidence;31tasks/states/approved decisions preserved. Required schema0090, signed offline issuance defaultfalse; three central routes only, W04/other commands/offline/adoption/full31 pending. No deployment/migration/configuration/operator/canary production action.",
+    "cash_lifecycle_0091": "Four additional central kinds: cash.shift.open/close/close.register and cash.movement.compensate; shared namespaces, same owner commit, exact canonical proof, default legacy contracts. RED3F18.67s; initial6P32.51s; broker34P113.69s; architecture/migration34P159.82s; authority27P6F then6P37.09s preserving guards. Route replay RED1F15.71s corrected, ledger29P248.47s; canonical faults3P125.09s. Actual PG locks3P108.07s, legacy/fiscal guards3P251.01s; 0091 actual PG CLI populated backfill/roundtrip4P and new history guard prepared/no_effect, cutover2P:6P1F277.24s preserved incomplete second-actor fixture; fixed namespace crossactor unique/check1P46.48s. Final CI/publication pending. SDK plus8 real-source handlers/typecheck/buildPOS/mypy85/Ruff green; browser production fivekinds1440/390 without financial send, screenshots inspected. No production action; full31 pending."
   }
 }

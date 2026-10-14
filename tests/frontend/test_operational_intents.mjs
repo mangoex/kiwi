@@ -72,6 +72,27 @@ for (const [endpoint, key] of [['/cash/movements', 'x'.repeat(181)], ['/cash/mov
   assert.equal(requests.length, 0);
 }
 
+for (const [endpoint, kind, target] of [
+  ['/cash/shifts/open','cash.shift.open',null], ['/cash-shifts/open','cash.shift.open',null],
+  ['/cash-shifts/close','cash.shift.close.register',null],
+  [`/cash/shifts/${uuid(6)}/close-operationally`,'cash.shift.close',uuid(6)],
+  [`/cash/movements/${uuid(6)}/compensations`,'cash.movement.compensate',uuid(6)],
+]) {
+  install(); const cashReceipt={...receipt,kind};
+  transport((_,number)=>new Response(JSON.stringify(number===1?cashReceipt:number===2?{id:uuid(7)}:
+    {...cashReceipt,state:'acknowledged',resource_id:uuid(7)})));
+  await api.fetchApi(endpoint,{...options,headers:{'Idempotency-Key':'x'}});
+  assert.equal(JSON.parse(requests[0].init.body).kind,kind);
+  assert.equal(JSON.parse(requests[0].init.body).target_id,target);
+  assert.equal(requests[1].url,`/api/v1${endpoint}`);
+  assert.equal(requests[1].init.body,options.body);
+  install(); transport((_,number)=>number===1?new Response(JSON.stringify(cashReceipt)):
+    new Response(JSON.stringify({detail:{code:'idempotency_conflict',message:'Synthetic conflict'}}),{status:409}));
+  await assert.rejects(api.fetchApi(endpoint,{...options,headers:{'Idempotency-Key':'x'}}),
+    error=>error.code==='idempotency_conflict' && api.hasPendingOperationalIntent(error));
+  assert.equal(requests.length,2);
+}
+
 for (const lostPhase of [1, 2]) {
   install(); transport((_, number) => {
     if (number === lostPhase) throw new TypeError('Synthetic lost response');
@@ -108,3 +129,5 @@ install(); transport((_, number) => {
 await assert.rejects(api.fetchApi('/orders', options), error => error.code === 'operational_command_context_changed');
 assert.equal(requests.length, 1, 'Do not send a prepared command under another account');
 console.log('Durable intent transport order, lost replies and account fence verified.');
+
+await import('./test_operational_intent_handlers.mjs');

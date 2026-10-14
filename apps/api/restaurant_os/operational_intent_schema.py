@@ -3,9 +3,52 @@
 import sqlalchemy as sa
 
 WORKSPACE_SCOPE_INDEX = "uq_operational_workspace_scope"
+LEGACY_KINDS = ("order.create", "payment.confirm", "cash.movement.create")
+CASH_LIFECYCLE_KINDS = (
+    "cash.shift.open",
+    "cash.shift.close",
+    "cash.shift.close.register",
+    "cash.movement.compensate",
+)
 
 
-def table(metadata: sa.MetaData) -> sa.Table:
+def command_namespace(kind: str) -> str:
+    if kind.startswith("cash.shift."):
+        return "cash.shift"
+    if kind.startswith("cash.movement."):
+        return "cash.movement"
+    return kind
+
+
+def lifecycle_checks() -> dict[str, str]:
+    kinds = ", ".join(repr(kind) for kind in (*LEGACY_KINDS, *CASH_LIFECYCLE_KINDS))
+    targeted = "('payment.confirm', 'cash.shift.close', 'cash.movement.compensate')"
+    return {
+        "kind": f"kind IN ({kinds})",
+        "target": f"(kind IN {targeted} AND target_id IS NOT NULL) OR "
+        f"(kind NOT IN {targeted} AND target_id IS NULL)",
+        "key": "(kind LIKE 'cash.%' AND length(idempotency_key) BETWEEN 1 AND 180) OR "
+        "(kind NOT LIKE 'cash.%' AND length(idempotency_key) BETWEEN 12 AND 160)",
+        "namespace": "command_namespace = CASE WHEN kind LIKE 'cash.shift.%' THEN 'cash.shift' "
+        "WHEN kind LIKE 'cash.movement.%' THEN 'cash.movement' ELSE kind END",
+    }
+
+
+def table(metadata: sa.MetaData, *, cash_lifecycle: bool = False) -> sa.Table:
+    # Default remains the frozen 0090 shape used by that already-published migration.
+    extras: list[sa.schema.SchemaItem] = []
+    checks = lifecycle_checks()
+    if cash_lifecycle:
+        extras = [
+            sa.Column("command_namespace", sa.String(32), nullable=False),
+            sa.UniqueConstraint(
+                "organization_id",
+                "command_namespace",
+                "idempotency_key",
+                name="uq_operational_intent_namespace_key",
+            ),
+            sa.CheckConstraint(checks["namespace"], name="ck_operational_intent_namespace"),
+        ]
     return sa.Table(
         "operational_command_intents",
         metadata,
@@ -25,6 +68,7 @@ def table(metadata: sa.MetaData) -> sa.Table:
         sa.Column("resource_id", sa.String(36)),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        *extras,
         sa.ForeignKeyConstraint(
             ["organization_id", "actor_user_id", "branch_id", "context_id"],
             [
@@ -43,16 +87,22 @@ def table(metadata: sa.MetaData) -> sa.Table:
             name="ck_operational_intent_identity",
         ),
         sa.CheckConstraint(
-            "(kind = 'cash.movement.create' AND length(idempotency_key) BETWEEN 1 AND 180) OR "
+            checks["key"]
+            if cash_lifecycle
+            else "(kind = 'cash.movement.create' AND length(idempotency_key) BETWEEN 1 AND 180) OR "
             "(kind <> 'cash.movement.create' AND length(idempotency_key) BETWEEN 12 AND 160)",
             name="ck_operational_intent_key",
         ),
         sa.CheckConstraint(
-            "kind IN ('order.create', 'payment.confirm', 'cash.movement.create')",
+            checks["kind"]
+            if cash_lifecycle
+            else "kind IN ('order.create', 'payment.confirm', 'cash.movement.create')",
             name="ck_operational_intent_kind",
         ),
         sa.CheckConstraint(
-            "(kind = 'payment.confirm' AND target_id IS NOT NULL) OR "
+            checks["target"]
+            if cash_lifecycle
+            else "(kind = 'payment.confirm' AND target_id IS NOT NULL) OR "
             "(kind <> 'payment.confirm' AND target_id IS NULL)",
             name="ck_operational_intent_target",
         ),

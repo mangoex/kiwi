@@ -1871,6 +1871,7 @@ def get_current_cash_shift_legacy(
 def open_current_cash_shift(
     payload: dict[str, Any],
     session: SessionDep,
+    request: Request,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
@@ -1944,22 +1945,48 @@ def open_current_cash_shift(
 
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        _require_operational_workspace(session, actor_id, branch_id, branch_context)
-        authorized_branch_id = authorize_branch_scope(
-            session, actor_id, "cash.shift.open", branch_id
-        )
-        if not authorized_branch_id:
-            raise BusinessError("cash_shift_open_payload_invalid", "An explicit branch is required")
-        return _serialize_pco_response(
-            open_cash_shift_idempotently(
-                session,
-                authorized_branch_id,
-                register_id,
-                opening_cash_cents,
-                idempotency_key,
-                actor_id,
+        enabled = get_settings().branch_scope_v2_enabled
+
+        def execute() -> dict[str, Any]:
+            authorized_branch_id = authorize_branch_scope(
+                session, actor_id, "cash.shift.open", branch_id
             )
-        )
+            if not authorized_branch_id:
+                raise BusinessError(
+                    "cash_shift_open_payload_invalid", "An explicit branch is required"
+                )
+            return _serialize_pco_response(
+                open_cash_shift_idempotently(
+                    session,
+                    authorized_branch_id,
+                    register_id,
+                    opening_cash_cents,
+                    idempotency_key,
+                    actor_id,
+                    commit=not enabled,
+                )
+            )
+
+        if enabled:
+            from restaurant_os.operations import _authority_governance_lock
+
+            _authority_governance_lock(session)
+        _require_operational_workspace(session, actor_id, branch_id, branch_context)
+        if enabled:
+            from restaurant_os.operational_intents import execute_intent
+
+            return execute_intent(
+                session,
+                actor_id,
+                request.headers.get("X-Operational-Intent"),
+                "cash.shift.open",
+                None,
+                payload,
+                idempotency_key,
+                branch_context,
+                execute,
+            )
+        return execute()
 
     return _business_response(operation)
 
@@ -1989,6 +2016,7 @@ def get_current_cash_shift_summary(
 @router.post("/cash-shifts/close")
 def close_current_cash_shift(
     session: SessionDep,
+    request: Request,
     payload: dict[str, Any] | None = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
@@ -2056,18 +2084,38 @@ def close_current_cash_shift(
 
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
-        authorized_branch_id = authorize_branch_scope(
-            session, actor_id, "cash.shift.close", branch_id
-        )
-        return _serialize_operational_close_response(
-            close_cash_shift_operationally_for_register(
-                session,
-                str(authorized_branch_id),
-                str(register_id),
-                idempotency_key or "",
-                actor_id,
+        enabled = get_settings().branch_scope_v2_enabled
+
+        def execute() -> dict[str, Any]:
+            authorized_branch_id = authorize_branch_scope(
+                session, actor_id, "cash.shift.close", branch_id
             )
-        )
+            return _serialize_operational_close_response(
+                close_cash_shift_operationally_for_register(
+                    session,
+                    str(authorized_branch_id),
+                    str(register_id),
+                    idempotency_key or "",
+                    actor_id,
+                    commit=not enabled,
+                )
+            )
+
+        if enabled:
+            from restaurant_os.operational_intents import execute_intent
+
+            return execute_intent(
+                session,
+                actor_id,
+                request.headers.get("X-Operational-Intent"),
+                "cash.shift.close.register",
+                None,
+                raw_payload,
+                idempotency_key,
+                request.headers.get("X-Branch-Context"),
+                execute,
+            )
+        return execute()
 
     return _business_response(operation)
 
@@ -2077,6 +2125,7 @@ def close_cash_shift_operational_endpoint(
     cash_shift_id: str,
     payload: dict[str, Any],
     session: SessionDep,
+    request: Request,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
@@ -2095,11 +2144,38 @@ def close_cash_shift_operational_endpoint(
             )
         )
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: _serialize_operational_close_response(
-            close_cash_shift_operationally(session, cash_shift_id, idempotency_key or "", actor_id)
-        )
-    )
+
+    def operation() -> dict[str, Any]:
+        enabled = get_settings().branch_scope_v2_enabled
+
+        def execute() -> dict[str, Any]:
+            return _serialize_operational_close_response(
+                close_cash_shift_operationally(
+                    session,
+                    cash_shift_id,
+                    idempotency_key or "",
+                    actor_id,
+                    commit=not enabled,
+                )
+            )
+
+        if enabled:
+            from restaurant_os.operational_intents import execute_intent
+
+            return execute_intent(
+                session,
+                actor_id,
+                request.headers.get("X-Operational-Intent"),
+                "cash.shift.close",
+                cash_shift_id,
+                payload,
+                idempotency_key,
+                request.headers.get("X-Branch-Context"),
+                execute,
+            )
+        return execute()
+
+    return _business_response(operation)
 
 
 @router.get("/cash/shifts")
@@ -6342,16 +6418,38 @@ def post_cash_movement_compensation(
     movement_id: str,
     payload: dict[str, Any],
     session: SessionDep,
+    request: Request,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: compensate_cash_movement(
-            session, movement_id, payload, idempotency_key or "", actor_id
-        )
-    )
+
+    def operation() -> dict[str, Any]:
+        enabled = get_settings().branch_scope_v2_enabled
+
+        def execute() -> dict[str, Any]:
+            return compensate_cash_movement(
+                session, movement_id, payload, idempotency_key or "", actor_id, commit=not enabled
+            )
+
+        if enabled:
+            from restaurant_os.operational_intents import execute_intent
+
+            return execute_intent(
+                session,
+                actor_id,
+                request.headers.get("X-Operational-Intent"),
+                "cash.movement.compensate",
+                movement_id,
+                payload,
+                idempotency_key,
+                request.headers.get("X-Branch-Context"),
+                execute,
+            )
+        return execute()
+
+    return _business_response(operation)
 
 
 @router.get("/cash/movements")

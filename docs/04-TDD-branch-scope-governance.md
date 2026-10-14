@@ -158,6 +158,46 @@ usan el mismo lock canónico: sólo una confirma y la otra reevalúa el nuevo es
 
 ## TDD-TC-354 Offline y autorización obsoleta
 
+Ciclo central de caja: `test_operational_cash_lifecycle.py` prueba apertura y ambos cierres reales,
+compensación append-only, aliases sin bypass, replay/ACK, clave compartida incompatible,
+fields extra antes del replay, métrica sin falso éxito tras rollback e IDs corruptos sin SQL inválido.
+La auditoría independiente prueba además pérdida de respuesta, revocación y errores internos.
+PostgreSQL debe probar
+unicidad del namespace entre actores y races execute/recover con cierre/compensación reales.
+0091 debe migrar filas 0090 preservando todas sus columnas originales, imponer namespace derivado
+y bloquear downgrade con nuevos tipos terminales; comprobar también SQLite y downgrade de tipos
+anteriores. Reutilizar preguntas/señales operativas de TC354: pendientes por actor, efecto vinculado
+al command log/recurso y códigos de ausencia probada/evidencia incoherente, sin exponer cuerpo/key.
+
+Evidencia del ciclo de caja0091: RED de bypass3F18.67s, verde inicial6P32.51s;
+broker/caja34P113.69s; arquitectura/migración/trazabilidad34P159.82s. La autoridad conservó
+el ensayo27P6F168.40s; fixtures positivas preparan/ACK sin relajar denegaciones, focal6P37.09s.
+Compensación legacy: RED1F15.71s de override del ID de ruta, validación anterior al hash/replay;
+ledger/caja29P248.47s. Regresiones promovidas a CI3P125.09s (rollback/métrica y dos IDs corruptos).
+PG real3P108.07s observa Lock del wrapper de apertura frente a versión y ambos ganadores
+execute/recover de cierre real; guardas anteriores0090/fiscal0087 en head0091,3P251.01s.
+Historia poblada0090→0091 y downgrade de nuevos tipos preparados/terminales: cuatro verdes;
+cutover/emisor: dos verdes. Batch6P1F277.24s conserva fixture namespace sin segundo actor;
+fixture completa (usuario sintético adicional) pasó1P46.48s, exige constraint unique y CHECK
+exactos con otra clase/actor, conserva la fila anterior. No se añaden skips/silenciamientos.
+
+Sol independiente: P1 de inversión actor/gobernanza y tresP2 de retención/métrica/prueba corrupta
+corregidos, 31 casos propios por batches más SDK/handlers/panel Node. Focal posterior2P55.22s
+canónicos y HTTP legacy1P77.08s confirma replay válido/override rechazado e historia idéntica.
+La auditoría propia de historia SQLite no sustituye PostgreSQL; el PG referido es recibido.
+Ocho handlers reales extraídos por AST quedan en `test_operational_intent_handlers.mjs`, importado
+por el test SDK que CI ya ejecuta. Mypy85/Ruff/typecheck/buildPOS verdes; warning de bundle existente.
+Los cuatro tipos nuevos y pedido se recuperan en navegador de bundle producción1440/390 con
+workspace denegado, sin enviar dinero ni adquirir contexto; capturas en output/playwright.
+CI del SHA final sigue pendiente. W04 y el plan31 continúan parciales, sin ejecución productiva.
+
+| Afirmación R3 caja0091 | Evidencia e intento de refutación | Resultado y riesgo residual |
+| --- | --- | --- |
+| Efecto y applied pertenecen al mismo owner | Inyección tras efecto/commit perdido, métricas rollback y replay de cuatro comandos | Recuperación conserva resultado; métrica sólo tras commit. Otros comandos sin integrar |
+| Prueba de caja exige recurso coherente | Actor/status/tipo opuesto/ID corruptos y capacidad sin grant dueño | Rechazo evidence_conflict sin ACK; corrupción administrativa requiere investigación |
+| Fence de apertura respeta orden común | Spy RED actor→gobernanza y carrera PG real frente a mutación de versión | Gobernanza→actor, commit y ACK mínimo conservados; movilidad/recovery_only siguen pendientes |
+| Hash legacy no pierde identidad de ruta | Mismo key con movement_id extra recuperaba un resultado ajeno | Campos exactos antes de hash/replay, valid replay preservado; no cambia hash histórico |
+
 Registro central de pendientes: `test_operational_intents.py` debe cubrir preparación durable,
 selección bloqueada en otra sesión, recuperación sin nueva capacidad, no_effect con envío tardío,
 evidencia incoherente, replay/cuerpo cambiado, autoridad/contexto cambiados y fallos SQL/commit/

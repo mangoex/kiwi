@@ -7,6 +7,8 @@ import {
 const credential = () => localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
 const labels: Record<OperationalIntentReceipt['kind'], string> = {
   'order.create': 'Pedido', 'payment.confirm': 'Pago', 'cash.movement.create': 'Movimiento de caja',
+  'cash.shift.open': 'Apertura de caja', 'cash.shift.close': 'Cierre de caja',
+  'cash.shift.close.register': 'Cierre de caja', 'cash.movement.compensate': 'Compensación de caja',
 };
 
 /** Own minimum receipts remain recoverable when an operational context cannot be issued. */
