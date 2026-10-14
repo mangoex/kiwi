@@ -422,7 +422,7 @@ alcance o permisos.
 Cambiar de sucursal es un comando idempotente revalidado por backend y bloqueado por turno abierto,
 resultado incierto, grant offline o reconciliación pendiente. Reasignar personal es otro comando,
 con `staff.branch.reassign`, versión optimista, locks y auditoría; no se confunde selección temporal
-con cambio de adscripción. Cada operación scoped exige un workspace opaco único y vigente ligado a
+con cambio de adscripción. Cada operación operativa scoped exige un workspace opaco único y vigente ligado a
 actor, sucursal y versión; `GET /auth/session` sólo hidrata y `POST /auth/branch-selections` es la única
 transición. Las concesiones offline se registran en una autoridad común y su emisión comparte lock
 con selección/reasignación. Presentaciones conservan identidad/base corporativa, mientras costos,
@@ -458,3 +458,9 @@ Documentos nuevos retienen la revisión del emisor; una rotación no cambia su o
 Las migraciones no copian claves ni inventan asignaciones para documentos antiguos. Se descarta
 sobrescribir el registro legacy o guardar claves por emisor en texto plano porque rompe identidad,
 historia y separación de secretos. La provisión/rotación productiva conserva autorización separada.
+
+La lectura fiscal corporativa se autoriza sobre el recurso de la organización sin exigir un
+workspace operativo. La historia de una sucursal inactiva requiere `invoicing.read` corporativo o
+una asignación directa a esa sucursal con el permiso; la movilidad del workspace sólo se extiende
+a sucursales activas. Estas excepciones de lectura no conceden emisión, preparación ni cancelación.
+SDD §62.1 conserva la autoridad del contrato; el ingreso y la UI sin sucursal activa siguen pendientes.
