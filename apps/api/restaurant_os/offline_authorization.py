@@ -19,6 +19,11 @@ UTC = timezone.utc
 LEGACY_TTL = timedelta(hours=2)
 
 
+def authority_now() -> datetime:
+    """Administrative authority uses the server clock, never order acceptance context."""
+    return datetime.now(UTC)
+
+
 def rollback_reconciliation(session: Session) -> None:
     """A secondary cleanup failure must not expose the original signed SQL parameters."""
     try:
@@ -301,7 +306,7 @@ def assert_transition_allowed(session: Session, actor: str, target_branch: str) 
             "branch_offline_preflight_required", "Offline authority migration is required"
         )
     # Signed grants validate inclusive integer seconds. Keep the final valid second blocked.
-    now = datetime.fromtimestamp(int(ops._now().timestamp()), UTC)
+    now = datetime.fromtimestamp(int(authority_now().timestamp()), UTC)
     rollout = (
         session.execute(
             sa.select(models.offline_authorization_rollouts)
@@ -323,6 +328,20 @@ def assert_transition_allowed(session: Session, actor: str, target_branch: str) 
             "branch_offline_preflight_required", "Offline issuer cutover evidence is incomplete"
         )
     started, drained = _utc(started), _utc(drained)
+    if rollout["state"] == "draining":
+        if not sa.inspect(session.connection()).has_table("offline_authorization_cutovers"):
+            raise ops.BusinessError(
+                "branch_offline_preflight_required", "Controlled cutover evidence is required",
+            )
+        from restaurant_os.offline_adoption import cutover_matches
+
+        proof = session.execute(sa.select(models.offline_authorization_cutovers).where(
+            models.offline_authorization_cutovers.c.organization_id == ops.ORGANIZATION_ID,
+        )).mappings().first()
+        if not proof or not cutover_matches(dict(proof), started, drained):
+            raise ops.BusinessError(
+                "branch_offline_preflight_required", "Controlled cutover evidence is inconsistent",
+            )
     if (
         (rollout["state"] == "draining" and drained < started + LEGACY_TTL)
         or (rollout["state"] == "clean_install" and drained != started)

@@ -5222,6 +5222,33 @@ con `branch_offline_preflight_required`. Una instalación limpia sólo se acredi
 emisión, con origen controlado; no existe una ruta ordinaria para declarar este estado desde UI.
 El registro y adopción productivos conservan autorización separada.
 
+La preparación controlada se ejecuta con el comando privado `prepare_offline_adoption`, no por
+una transición de selección ni GET. Requiere actor activo con el grant protegido
+`organization_all_permissions`, organización activa, esquema de recibo de cutover y confirmación
+estricta del retiro de todos los emisores sin registro, con digest SHA-256 de evidencia operacional.
+El digest identifica evidencia verificada por el operador; el servicio no certifica automáticamente
+el retiro de procesos externos. Toma gobernanza → actor → rollout, usa reloj fresco del servidor
+y pasa exclusivamente `unprepared` → `draining`, con fin exactamente dos horas después. No recibe
+una fecha backdated, no permite `clean_install`, no rota claves/épocas y no habilita flags.
+
+`offline_authorization_cutovers` conserva un único recibo por organización, actor, hash de key,
+hash de payload, digest de evidencia y timestamps. Replay exige la misma autoridad actual, actor,
+key/payload y correspondencia del rollout con el recibo; no reinicia el drenado. Otro comando
+rechaza el cutover existente. El comando importa la identidad de grants de pedidos retenidos sin
+registro después de validar bindings de organización/actor/sucursal/dispositivo/bundle e intervalo:
+guarda hash, `retained_legacy` y versión NULL. No copia el token ni convierte esa evidencia en
+autoridad para ejecutar. Un origen inválido o un fallo de auditoría/persistencia revierte todo;
+errores SQL se redactan. La migración del recibo no crea readiness ni cambia datos históricos y
+su downgrade se bloquea cuando hay un cutover. El registro de comandos inciertos es otro pendiente.
+El operador autorizado ejecuta `python -m restaurant_os.offline_adoption` desde `apps/api`, con
+`RESTAURANTOS_DATABASE_URL` PostgreSQL explícito y `--actor-id`, `--retirement-evidence-sha256`,
+`--idempotency-key` y `--confirm-retired-unregistered-issuers`. Su acceso DB y ejecución productiva
+requieren autorización operativa separada; no es una API pública ni un login por ID. CLI emite sólo
+acuse mínimo después de cerrar recursos, o un código redactado si falla creación/conexión/limpieza.
+Con resultado incierto conserva la misma key/payload: una respuesta perdida no borra un cutover
+confirmado. El servicio suspende el contexto de pedido mientras opera y lo restaura después;
+timestamps/IDs de auditoría no heredan una aceptación offline histórica.
+
 Una revocación central no prueba que el gateway desconectado la recibió: la lease sigue bloqueando
 un destino incompatible hasta expirar. Una lease vigente de la misma sucursal no impide recuperar
 ese contexto. Una reemisión que cambie de sucursal aplica la misma guarda que selección; reemisión

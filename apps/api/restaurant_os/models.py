@@ -9,6 +9,7 @@ from restaurant_os.fiscal_emitter_schema import LEGAL_ENTITY_INDEX
 from restaurant_os.fiscal_emitter_schema import tables as fiscal_emitter_tables
 from restaurant_os.offline_authorization_schema import USER_SCOPE_INDEX
 from restaurant_os.offline_authorization_schema import tables as offline_authorization_tables
+from restaurant_os.offline_cutover_schema import table as offline_cutover_table
 
 metadata = sa.MetaData()
 expense_concepts, expense_documents, expense_commands = expense_tables(metadata)
@@ -3942,3 +3943,4 @@ catalog_classification_rollout_commands = sa.Table(
 offline_authorization_rollouts, offline_authorization_leases = offline_authorization_tables(
     metadata
 )
+offline_authorization_cutovers = offline_cutover_table(metadata)

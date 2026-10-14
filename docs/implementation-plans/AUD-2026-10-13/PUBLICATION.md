@@ -245,3 +245,23 @@ No cambia runtime, migraciones ni skips. El gate obligatorio de once módulos PG
 frontend, Docker, políticas y dependencias pasaron. CI del SHA corregido queda pendiente.
 Corrección local: módulo PostgreSQL completo con tres casos verdes en 138.76 s, un warning
 existente; Ruff y nueve pruebas de trazabilidad verdes. Revisión independiente focal sin hallazgos.
+
+## Incremento W04 en revisión: preparación controlada
+
+`codex/offline-authority-adoption` agrega el recibo aditivo 0089 y un comando privado de operador
+para preparar una organización existente. Requiere autoridad organizacional protegida, evidencia
+externamente verificada de retiro de emisores sin registro y confirmación explícita. El servidor
+inicia dos horas de drenado; replay recupera el mismo acuse. Importa identidad legacy con versión
+NULL y deja el origen intacto; no copia tokens ni convierte la importación en permiso.
+Una selección de organización `draining` exige el recibo consistente; cambiar sólo el estado o
+las fechas del rollout no reemplaza el recibo. No existe transición a `clean_install` en este comando.
+
+Local: 41 pruebas dirigidas y cinco negativas adicionales; dos carreras PG con downgrade 0089 y
+tres tablas conservadas, dos regresiones fiscales head con siete tablas conservadas; mypy83,
+Ruff y arquitectura/trazabilidad verdes. Auditoría independiente cerrada, con tres refutaciones
+originales conservadas y corregidas. TDD-TC-355 concentra los tiempos y límites exactos.
+CI/publicación de este SHA quedan pendientes; `main` publicado arriba sigue siendo c00d483/0088.
+
+La ejecución productiva del operador, migración 0089 y flags necesitan autorización separada.
+Este incremento no activa movilidad ni emisión firmada; registro de comandos inciertos y restante
+adopción/rollback siguen pendientes. `execution.json` mantiene las 31 tareas y sus decisiones.
