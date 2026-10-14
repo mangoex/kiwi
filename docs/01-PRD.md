@@ -386,6 +386,12 @@ funcional separada.
   de facturas es un borrador para revisión humana: no inventa proveedor, folio, cantidades ni precios;
   conserva cantidades decimales exactas e importes en centavos, y reporta entradas insuficientes o
   inválidas. La extracción no confirma compras ni genera inventario, caja, deuda o efectos fiscales.
+  Las recomendaciones seguirán D05_v1 de SDD §63: consumo confirmado y calendario completo,
+  plazo del proveedor explícito, seguridad configurable, pendientes residuales por ETA, reservas
+  contadas una vez y empaques/mínimos con capacidad máxima comprobada. Datos desconocidos,
+  desabasto censurado o proyección incoherente requieren revisión. La propuesta explica período,
+  corte y versiones; revalidar precede crear borrador. Diseño y referencia aritmética no acreditan
+  implementación I03/I04; la demanda constante del runtime actual debe sustituirse en esas tareas.
 - `PRD-FR-105`: Debe generar la cuenta por pagar al confirmar una recepción a crédito.
   La recepción física y el pago son procesos separados. La conciliación de un XML con una
   recepción ya contabilizada no vuelve a crear la obligación ni recibe inventario nuevamente.
@@ -398,9 +404,14 @@ funcional separada.
   recepción, por sucursal, almacén y artículo. Editar cotizaciones o presentaciones no lo modifica.
 - `PRD-FR-110`: Compras, retiros y movimientos de recepción deben aceptar claves de idempotencia,
   conservar actor/documento y corregirse mediante compensaciones referenciadas, nunca borrado.
-- `PRD-FR-111`: En este incremento el costo neto inventariable excluye impuestos informativos y
-  reduce descuentos de línea. Flete y gastos no se distribuyen hasta aprobar una política; una
-  recepción con existencia física negativa se rechaza con decisión de costeo pendiente.
+- `PRD-FR-111`: D06 v1 de SDD §63 define costo inventariable como precio neto de descuentos,
+  impuestos no recuperables y costos de adquisición directamente atribuibles. La recuperabilidad
+  se determina mediante un perfil versionado de la razón social y evidencia, no por una tasa fija.
+  Se separan valuación, deuda bruta y acreditamiento efectivo. Perfil desconocido requiere revisión,
+  nunca costo/impuesto cero inventado. Costos extra se distribuyen de forma exacta y conservativa;
+  la corrección histórica requiere compensación autorizada y conserva originales. El runtime
+  legacy conserva su perfil informativo v0; no se reinterpreta ni migra historia automáticamente.
+  Existencia negativa sigue rechazándose; D06 no habilita promedios o compensaciones ficticias.
 
 ### 4.9 Reparto y rutas
 
