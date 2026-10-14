@@ -7,6 +7,18 @@ de sucursales, cuentas por pagar y compensaciones. No se modifica producción de
 
 ## Versión de código publicada para el redeploy
 
+PR [75](https://github.com/mangoex/kiwi/pull/75) integrada como
+`642c978708ddf7360e81af855e7c8818d058940e`, árbol idéntico al head probado
+`7e5706773c7693ba941ef6758667a39c542966ae`.
+[CI38589569398](https://github.com/mangoex/kiwi/actions/runs/38589569398): cinco jobs verdes,
+2118 aprobadas, ocho skips existentes y siete warnings en 1526.06s; gate obligatorio PostgreSQL
+verde, mypy API86/gateway4 y Ruff, frontend/build/browser, Docker y dependencias/políticas verdes.
+D05/D06 quedan especificadas en SDD §63 con 35 pruebas de referencia: no integran el motor
+de recomendación ni XML/CxP/ledger. Auditoría independiente cerró tres hallazgos de diseño.
+No cambió runtime productivo, configuración ni esquema; sigue requerido0091. El incremento XML
+posterior, en checkout separado, no forma parte de esta publicación. Cierre posterior R0 sólo
+registra estas evidencias y conserva el plan completo y la autorización productiva separada.
+
 PR [74](https://github.com/mangoex/kiwi/pull/74) integrada en `main` como
 `4cbe2a33a93f483131b0fe97f2a4617777f4982e`. El árbol completo coincide exactamente con
 `e7651675dafd0fbe00857897cc470b61338a4439`, aprobado por
@@ -28,9 +40,8 @@ fixture, manteniendo el 403, y se agregó el positivo de compatibilidad sin acce
 no cambió runtime ni se desactivaron pruebas. La evidencia fallida permanece en TDD/execution.
 
 W02/W03 continúan parciales; otros módulos y registro central de estos comandos siguen pendientes.
-El plan de 31 tareas sigue en implementación. Las respuestas nuevas D05/D06 autorizan diseñar con
-fuentes oficiales/buenas prácticas; se registran como delegación de diseño y no como políticas ya
-implementadas. El cierre posterior es R0: evidencia de Git/CI y esas respuestas, con runtime intacto.
+El plan de 31 tareas sigue en implementación. D05/D06 están concretadas por PR75 con fuentes
+oficiales/buenas prácticas y límites de atribución; su integración transaccional permanece pendiente.
 
 ### Procedimiento para el redeploy del operador
 
