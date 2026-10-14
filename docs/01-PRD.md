@@ -525,6 +525,9 @@ funcional separada.
 - `PRD-FR-183`: Debe soportar varias cajas desconectadas simultáneamente.
 - `PRD-FR-184`: Debe usar outbox, inbox e idempotencia.
 - `PRD-FR-185`: Debe reconciliar operaciones al recuperar conexión.
+  Los comandos aún no confirmados revalidan la autoridad vigente; el gateway autenticado para la
+  misma sucursal/dispositivo puede recuperar el acuse mínimo ya persistido de la misma intención,
+  aunque cambie la autoridad humana. Ese acuse no ejecuta ni autoriza una operación nueva.
   El cierre de caja se bloquea mientras existan pedidos o cobros sin confirmar en central,
   incluidos conflictos. Si el gateway conserva autoridad y no hay prueba completa de drenaje,
   tampoco se permite cerrar desde nube; la caducidad o desconexión no prueban ausencia de pendientes.

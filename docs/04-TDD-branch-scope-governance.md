@@ -158,6 +158,21 @@ usan el mismo lock canónico: sólo una confirma y la otra reevalúa el nuevo es
 
 ## TDD-TC-354 Offline y autorización obsoleta
 
+Cobertura prevista, pendiente de implementación y ejecución canónica: el contrato de versión
+firmado cubre caja v3/pedidos v4 y su compatibilidad legacy estricta. No se presenta como evidencia
+verde del runtime publicado.
+Vectores API/gateway rechazan bool, float, string, 0, negativo, int32+1, claim ausente y mezcla de
+header/payload. Emisores reales registran la misma versión firmada bajo lock; bundle/semilla
+operacional con versión distinta impide emisión/aceptación nueva, sin inferir un valor histórico.
+Reconciliación prueba claim→hash/registro→usuario, ausencia/NULL/revocación y rechazo sin efecto
+financiero. Carreras PG de revocación contra comandos de caja/pedidos observan el lock real y
+conservan el fence hasta commit; no agregan actor/gobernanza después de sucursal/agregado.
+El replay conserva acuse mínimo pese a versión/permiso humano retirados; caja no lee claves
+retiradas. API pedidos exige dispositivo autenticado propio, hash/intención exactos y ningún
+resultado privado para recuperar tras cambio de época o clave; el caller interno sin ese
+transporte sigue verificando la firma. Firma alterada en un comando nuevo y dispositivo ajeno
+nunca aprovechan el camino de lectura de acuse. Los RED, gates y límites se registran al ejecutarse.
+
 Gateway SQLite verifica que el bundle A rechaza branch B, que no existe selector offline y que una
 lease registrada vigente bloquea selección/reasignación. PostgreSQL fuerza carreras de emisión contra
 ambos comandos bajo el lock común. Tras expirar/revocar y reasignar, el `authorization_version`

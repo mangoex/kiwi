@@ -5233,10 +5233,44 @@ SQL, parámetros ni token en respuesta/log de aplicación. Una pérdida de confi
 Pedidos usa un reloj fresco después de adquirir locks de actor, gateway y dispositivo y revalida
 expiraciones antes de firmar; una espera no convierte el timestamp inicial del request en autoridad.
 
-El incremento del registro conserva los envelopes firmados vigentes. Su versión se liga al hash
-del token en la evidencia central, pero aún no va en el claim; el fencing de reconciliación por
-versión y la adopción controlada siguen pendientes de W04. No se habilita una organización existente
-por este incremento.
+Diseño pendiente de implementación y verificación de W04: el runtime publicado en PR 69 conserva
+caja `offline_grant.v2` y pedidos `order_grant.v3`, con la versión ligada al registro central por
+hash del token. El contrato siguiente no acredita soporte de los formatos nuevos ni habilita su
+emisión; §47.2/47.3 describe el recorrido vigente hasta que se implemente este incremento.
+
+Las nuevas emisiones previstas con registro 0088 usarán caja `offline_grant.v3` (header/payload versión 3) y
+pedidos `order_grant.v4` / `ord-off-grant/v4` (versión 4). Incluyen `authorization_version` firmado,
+entero de 1 a 2147483647: bool, float, string, ausencia y mezcla de formatos se rechazan. Los
+verificadores mantienen los formatos legacy estrictos; no agregan un claim a un token anterior.
+La emisión sin registro sólo conserva la expansión legacy con V2 apagado. Se actualiza primero
+el gateway capaz de verificar ambos formatos, antes de habilitar el emisor nuevo; no se promete
+que un gateway anterior entienda una versión nueva.
+
+Reconciliar un comando nuevo toma gobernanza y actor antes de locks de sucursal/agregado. El fence
+permanece hasta confirmar dominio, inbox y auditoría. La versión firmada coincide con el registro
+por hash, actor, organización, sucursal, dominio, dispositivo/bundle/época y con el usuario actual.
+Una emisión legacy registrada puede usar la versión conocida de esa evidencia; un registro
+`retained_legacy` con versión NULL nunca hereda la versión actual. Con registro presente, ausencia
+de evidencia, revocación o versión obsoleta rechazan la nueva ejecución; un formato nuevo también
+rechaza registro ausente con V2 apagado. Sin registro y V2 apagado sólo permanece la ruta legacy
+que revalida sus permisos existentes. Expiración actual no elimina la vigencia histórica de una
+aceptación dentro del TTL; una revocación central sí impide nuevas confirmaciones.
+
+Pedidos local compara la versión del grant nuevo con el actor de la semilla operacional firmada;
+una semilla obsoleta no se sustituye por la versión del token. Un emisor no entrega grant nuevo
+para un bundle cuyo actor/version no coincide con la autoridad actual. Se obtiene un bundle nuevo.
+Esto no revoca instantáneamente una copia desconectada: siguen aplicando TTL y preflight.
+
+Un replay exacto confirmado recupera sólo el acuse mínimo persistido, sin renovar permiso humano.
+Caja conserva su hash de intención sin token y exige identidad de transporte/dispositivo y
+bindings durables; no depende de signing material retirado. Pedidos puede recuperar por el
+dispositivo actualmente autenticado y ligado al receipt, con hash e intención exactos, antes de
+leer claves o exigir la época actual. Esta es una lectura de acuse ya confirmado: no declara válida
+una firma nueva ni ejecuta el comando. Un caller interno sin identidad de transporte autenticada
+mantiene verificación de grant, firma de dispositivo y época antes del replay. Una intención
+distinta, un dispositivo ajeno o un receipt incompleto nunca recuperan éxito. Ni acuse ni conflicto
+incluyen datos privados del pedido. Adopción controlada y comandos inciertos siguen pendientes;
+este incremento no habilita una organización existente.
 
 `branch_selection_commands` persiste organización, actor, origen, destino, key, request hash,
 `authorization_version`, estado, resultado mínimo y UTC. Unique

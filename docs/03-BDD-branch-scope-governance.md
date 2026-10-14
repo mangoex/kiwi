@@ -119,6 +119,7 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
     And al volver a A el borrador sólo se recupera con el mismo usuario sucursal y caja
 
   @PRD-FR-267
+  @PRD-FR-185
   @BDD-SC-639
   Scenario: Offline permanece fijado al bundle firmado
     Given el POS opera sin conexión mediante un bundle firmado para la sucursal A
@@ -126,6 +127,10 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
     Then el selector no está disponible y active_branch permanece A
     And ningún comando local se acepta con branch_id B
     And emitir una concesión y seleccionar sucursal no pueden confirmar concurrentemente
+    And una emisión nueva firma la versión vigente bajo el lock canónico del actor
+    And central rechaza nuevos comandos con versión obsoleta o sin registro verificable
+    And el gateway autenticado recupera sólo el acuse mínimo de una intención ya confirmada
+    And ese acuse no renueva permiso ni ejecuta de nuevo dinero pedidos o inventario
 
   @PRD-FR-268
   @BDD-SC-640
