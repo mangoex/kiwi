@@ -110,6 +110,49 @@ La regresión API de apertura recorre ambos aliases `/cash/shifts/open` y `/cash
 abre A con contexto A, comprueba selección B bloqueada y rechaza apertura directa B con el mismo
 contexto, sin turno B. Apertura sin contexto o con secreto supersedido falla antes del ledger.
 
+`test_operational_document_workspaces.py` recorre las ocho escrituras HTTP de compras directas
+y gastos: contexto ausente antes de creación/confirmación/cancelación/edición/resolución; recursos
+con secreto supersedido, sucursal cruzada, versión cambiada y recovery_only; cero cambios en
+ledger/documentos/commands/workspace y sólo auditoría segura permitida. Los positivos y replays
+exigen efectos reales bajo contexto coincidente; el payload nunca cambia la sucursal del recurso.
+PostgreSQL observa Lock real frente a selección en ambos órdenes y mutación de versión
+retenida detrás de confirmación; SQLite rechaza también una versión ya cambiada antes del envío;
+SQLite verifica compatibilidad de la transacción de writer y legado V2 apagado. Se preservan pruebas
+de negocio de compra/gasto y recuperación existentes, sin adaptar negatives para evadir la guarda.
+Perfiles branch-scoped sólo de compras/gastos reemiten sin POS y escriben con el secreto obtenido;
+el provider real adquiere contexto en las rutas documentales (case/trailing slash incluidos), pero no
+lo exige en catálogo aunque exista alias de compras. Esta evidencia acota W02/W03;
+otros módulos y registro central de estos comandos continúan pendientes.
+
+Evidencia local del incremento documental: 27 positivos/rechazos/replays aprobados en 114.64 s
+más dos perfiles sin POS aprobados en 48.46 s. La primera corrida de 29 incluyó dos assertions
+sobrantes copiadas del probe independiente; se corrigió sólo ese fixture y se repitieron ambos
+casos. El snapshot usa PK real, incluida la compuesta de costos; confirmación usa payload válido
+`{}`. RED de controladores exactos 8e41a62: siete devuelven 200 donde se exige 403; resolución
+repetida focalmente también devuelve 200. El intento de overlay HTTP falló por lookup de router y
+el primer probe de resolución por argumento ajeno: ninguno acredita RED. La adquisición sin POS
+produjo dos RED por permission_denied, y el provider Node falló por omitir POST. PostgreSQL aislado:
+seis aprobadas en 411.00 s, cuatro órdenes selección/escritura y dos escritura/mutación de versión,
+todas con wait_event_type=Lock observado. No se afirma carrera PostgreSQL de autoridad primero.
+Auditoría Sol independiente cerró P1 de adquisición documental y P2 de variantes de pathname;
+probes de permiso revocado, rollback postINSERT y privacidad quedaron verdes. Mypy 86 archivos,
+Ruff y build Admin verdes. Regresiones de compra/gasto/workspace y trazabilidad: 115 aprobadas
+en 543.14 s. Browser del Admin compilado: perfiles documentales válidos con permisos read/manage,
+header de contexto vigente, catálogo corporativo sin reemisión y snapshots visibles en 1440/390,
+sin pageerror. El primer fixture browser omitió read y luego devolvió [] en una lista paginada de
+gastos: no acredita QA; corregido a items/next_cursor y agregada aserción de ausencia de pageerror.
+Primera CI f414d60/run38571663719: un fallo, 2081 aprobadas, ocho skips existentes y siete warnings
+en 1697.80 s; frontend/Docker/políticas/dependencias verdes. El caso fiscal «config-only» retenía
+admin.manage/catalog.manage, que proyectan purchases.manage; su reemisión 200 era legítima por ese
+permiso documental. Se aisló el rol de ambos casos fiscales antes de otorgar sólo el permiso
+necesario: configuración estricta conserva 403, lector fiscal sin aliases obtiene contexto sin POS.
+Se agregó el positivo configuración corporativa+catalog alias: contexto documental 200 y facturas
+403, sin conceder POS ni lectura fiscal. Dirigidas locales: dos aprobadas en 18.18 s y alias
+aprobado en 10.90 s; el intento del alias con permission.code duplicado sólo fue fallo del fixture.
+Probes independientes: tres aprobadas en 12.01 s, incluidos ambos aliases admin/catalog y todos
+los comandos/lecturas fiscales denegados, cero PAC y facturas intactas. No cambió runtime ni se
+relajó un negative. CI del SHA corregido y publicación se registran en PUBLICATION/execution.
+
 `test_branch_workspace_route_guard.py` recorre humanos de KDS, impresión y sincronización:
 falta de contexto, branch cruzado y secreto supersedido rechazan antes de consultar el recurso;
 la omisión de branch en query resuelve el workspace persistido después de seleccionar B, no su base A.

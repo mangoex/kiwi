@@ -103,7 +103,7 @@ try {
   await admin.addInitScript(() => localStorage.setItem('auth_token','qa-catalog-only'));
   let reissues=0;
   const catalogOnly={...session(id(3),null,null),permissions:['catalog.manage'],
-    admin_capabilities:{'catalog.manage':true,'pos.operate':false},scope:{level:'organization',assigned_branch_id:null,allowed_branch_ids:branches.map(b=>b.id),authorization_version:1}};
+    admin_capabilities:{'catalog.manage':true,'purchases.manage':true,'pos.operate':false},scope:{level:'organization',assigned_branch_id:null,allowed_branch_ids:branches.map(b=>b.id),authorization_version:1}};
   await admin.route('**/api/v1/**',async route => {
     const path=new URL(route.request().url()).pathname.replace('/api/v1','');
     if (path==='/auth/session') return route.fulfill({json:catalogOnly});
@@ -115,4 +115,47 @@ try {
   await admin.locator('.productos-window-container').waitFor();
   assert.equal(reissues,0);
   console.log('Definitive 409 preserves mounted capture; catalog-only Admin does not require POS workspace.');
+
+  // Built Admin acquires a workspace for document-only operators on its operational routes.
+  for (const [capability,path,title] of [
+    ['purchases.manage','/purchases','Compra de sucursal'],
+    ['expenses.manage','/expenses','Gastos'],
+  ]) {
+    const operator=await browser.newPage({viewport:{width:1440,height:900}});
+    await operator.addInitScript(()=>localStorage.setItem('auth_token','qa-document-only'));
+    const documentProfile={...session(id(3),id(10),1),permissions:[capability,capability.replace('.manage','.read')],
+      admin_capabilities:{[capability]:true,[capability.replace('.manage','.read')]:true,'pos.operate':false},
+      scope:{level:'branch',assigned_branch_id:id(3),allowed_branch_ids:[id(3)],authorization_version:1}};
+    const documentContext='qa-document-browser-context-'+'x'.repeat(32);
+    const writes=[],reads=[],documentErrors=[];
+    operator.on('pageerror',error=>documentErrors.push(error.message));
+    await operator.route('**/api/v1/**',async route=>{
+      const request=route.request(),endpoint=new URL(request.url()).pathname.replace('/api/v1','');
+      if(endpoint==='/auth/session')return route.fulfill({json:documentProfile});
+      if(endpoint==='/auth/branch-context-reissues'){
+        writes.push({body:request.postDataJSON(),key:request.headers()['idempotency-key']});
+        return route.fulfill({json:{...documentProfile,branch_context_reissue_required:false,
+          branch_workspace_context:documentContext,branch_workspace_secret_version:2}});
+      }
+      reads.push({endpoint,context:request.headers()['x-branch-context']});
+      return route.fulfill({json:endpoint==='/expenses'?{items:[],next_cursor:null}:endpoint.includes('cash-context')?{open_registers:[]}:[]});
+    });
+    await operator.goto((process.env.ADMINRETRO_BASE_URL||'http://127.0.0.1:3002/admin')+path,
+      {waitUntil:'domcontentloaded',timeout:60000});
+    await operator.getByRole('heading',{name:title,exact:true}).waitFor();
+    await operator.getByText(capability==='purchases.manage'?'No hay compras registradas':'No hay gastos para estos filtros.',{exact:true}).waitFor();
+    assert.deepEqual(documentErrors,[]);
+    assert.equal(writes.length,1,capability);
+    assert.equal(writes[0].body.context_id,id(10));
+    assert.ok(writes[0].key);
+    assert.ok(reads.length>0);
+    assert.ok(reads.every(read=>read.context===documentContext));
+    await operator.screenshot({path:'output/playwright/branch-workspace/document-'+capability+'-1440.png',fullPage:true});
+    await operator.setViewportSize({width:390,height:844});
+    await operator.getByRole('heading',{name:title,exact:true}).waitFor();
+    assert.deepEqual(documentErrors,[]);
+    await operator.screenshot({path:'output/playwright/branch-workspace/document-'+capability+'-390.png',fullPage:true});
+    await operator.close();
+  }
+  console.log('Built Admin document-only profiles acquire context on purchase/expense routes; current headers at 1440/390.');
 } finally {await browser.close();}

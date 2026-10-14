@@ -78,6 +78,9 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
     Then la selección se rechaza con código estable
     And active_branch continúa siendo A
     And ningún módulo ejecuta comandos con B ni restaura un contexto obsoleto
+    And compras directas y gastos rechazan escrituras sin el workspace vigente antes de efectos
+    And confirmar editar o cancelar deriva la sucursal del documento original sin tomarla del payload
+    And el operador sólo de compras o gastos reemite contexto con su capacidad vigente sin adquirir POS
     When otra pestaña intenta operar con el workspace context supersedido de A
     Then el backend rechaza la operación aunque el payload declare una sucursal autorizada
     When la selección A hacia B sí confirmó pero su respuesta se perdió
