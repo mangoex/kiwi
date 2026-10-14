@@ -295,6 +295,20 @@ Preguntas operativas de este incremento: ¿falta registro o cambió la versión?
 503 conserva intención. ¿Cuánto espera la reconciliación por autoridad? Observar espera Lock y
 latencia por sucursal en canary autorizado; estas pruebas no establecen un umbral productivo.
 
+CI de `f6f79ed`, run [38514602872](https://github.com/mangoex/kiwi/actions/runs/38514602872),
+terminó con 1954 pruebas verdes, dos fallos, ocho skips existentes y siete warnings en 996.38 s.
+Ambas variantes PostgreSQL de replay (`head` y `0077`) conservaban la expectativa anterior de
+rechazar el acuse exacto tras desactivar al actor. El contrato nuevo devolvió el mismo acuse.
+Se corrige únicamente esa expectativa y se conserva una refutación con otro comando firmado:
+rechazo `actor_not_authorized`, acuse de conflicto estable y conservación de pedido, producción
+y movimientos de inventario. El downgrade histórico conserva ahora ambos registros del inbox.
+El gate obligatorio confirmó 71 casos ejecutados entre once módulos PostgreSQL; frontend,
+Docker, política y dependencias aprobaron, pero no convierten este run fallido en verde.
+La corrección requiere su prueba PostgreSQL focal y CI del SHA siguiente antes del merge.
+El módulo PostgreSQL completo pasó localmente: tres casos, un warning existente, 138.76 s
+(`signed-authority-pg-replay-ci-correction.xml`). Ruff y nueve pruebas de trazabilidad verdes;
+revisión independiente focal sin hallazgos y runtime idéntico a `f6f79ed`. CI final sigue pendiente.
+
 Preguntas operativas: ¿qué concesión impide seleccionar y hasta cuándo? Estado/timestamps del
 preflight y leases incompatibles por actor responden sin mostrar token. ¿Cada emisión tiene
 evidencia y audit confirmados? Correlacionar lease ID/evento/source grant. ¿Se deniega por contexto

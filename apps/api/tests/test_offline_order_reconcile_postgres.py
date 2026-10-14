@@ -241,19 +241,57 @@ def test_postgres_duplicate_replay_uses_retained_catalog_and_one_effect(tmp_path
             == 15900
         )
         assert session.scalar(sa.select(sa.func.count()).select_from(models.production_tasks)) == 2
+        inventory_movements = session.scalar(
+            sa.select(sa.func.count()).select_from(models.inventory_movements)
+        )
+    local.execute(
+        grant,
+        "create",
+        {"lines": [{"product_id": COMBO, "quantity": 1}], "register_id": "CAJA-01"},
+        "offline-pg-replay-002",
+        now=ACCEPTED_AT,
+    )
+    new_envelope = next(
+        row["envelope"] for row in outbox.pending()
+        if row["envelope"]["command_id"] != envelope["command_id"]
+    )
     with engine.begin() as connection:
         connection.execute(
             models.users.update().where(models.users.c.id == ACTOR).values(status="inactive")
         )
     with Session(engine) as session:
-        with pytest.raises(BusinessError):
-            reconcile_order_command(
-                session,
-                envelope,
-                keyring={"central": issuer.public_key()},
-                now=ACCEPTED_AT + timedelta(hours=3),
-                commit=True,
-            )
+        assert reconcile_order_command(
+            session,
+            envelope,
+            keyring={"central": issuer.public_key()},
+            now=ACCEPTED_AT + timedelta(hours=3),
+            commit=True,
+        ) == results[0]
+        denied = reconcile_order_command(
+            session,
+            new_envelope,
+            keyring={"central": issuer.public_key()},
+            now=ACCEPTED_AT + timedelta(hours=3),
+            commit=True,
+        )
+        assert denied["status"] == "conflict"
+        assert denied["code"] == "actor_not_authorized"
+        assert denied["checkpoint"] > results[0]["checkpoint"]
+        assert reconcile_order_command(
+            session,
+            new_envelope,
+            keyring={"central": issuer.public_key()},
+            now=ACCEPTED_AT + timedelta(hours=3),
+            commit=True,
+        ) == denied
+        assert session.scalar(sa.select(sa.func.count()).select_from(models.orders)) == 1
+        assert session.scalar(sa.select(sa.func.count()).select_from(models.production_tasks)) == 2
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(models.inventory_movements)
+        ) == inventory_movements
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(models.offline_order_inbox)
+        ) == 2
     engine.dispose()
     if revision == "head":
         return
@@ -276,7 +314,7 @@ def test_postgres_duplicate_replay_uses_retained_catalog_and_one_effect(tmp_path
     with engine.connect() as connection:
         assert (
             connection.scalar(sa.select(sa.func.count()).select_from(models.offline_order_inbox))
-            == 1
+            == 2
         )
         assert (
             connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one()

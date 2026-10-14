@@ -213,3 +213,15 @@ en `main` bc55e2b; no se silencian ni se presentan como un gate Windows verde.
 W04 continúa parcial: faltan adopción controlada y registro completo de comandos inciertos.
 `execution.json` conserva las 31 tareas y decisiones; no habilita movilidad de organizaciones
 existentes `unprepared`, emisión productiva fiscal, canary, migraciones ni despliegue.
+
+### Corrección del primer CI de W04
+
+Run [38514602872](https://github.com/mangoex/kiwi/actions/runs/38514602872), SHA `f6f79ed`:
+1954 pruebas verdes y dos fallos de expectativa en replay PostgreSQL, ocho skips existentes y
+siete warnings. Las variantes actual/histórica esperaban denegar un acuse ya confirmado tras
+desactivar al actor. Se ajustan al contrato aprobado y comprueban separadamente rechazo de un
+comando firmado nuevo, recuperación exacta del conflicto y conservación de efectos/historia.
+No cambia runtime, migraciones ni skips. El gate obligatorio de once módulos PG confirmó 71 casos;
+frontend, Docker, políticas y dependencias pasaron. CI del SHA corregido queda pendiente.
+Corrección local: módulo PostgreSQL completo con tres casos verdes en 138.76 s, un warning
+existente; Ruff y nueve pruebas de trazabilidad verdes. Revisión independiente focal sin hallazgos.
