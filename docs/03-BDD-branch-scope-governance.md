@@ -82,6 +82,10 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
     Then el backend rechaza la operación aunque el payload declare una sucursal autorizada
     When la selección A hacia B sí confirmó pero su respuesta se perdió
     Then un replay autenticado con la misma clave recupera B y rota un secreto nuevo si B sigue vigente
+    And cada rotación registra actor sucursal versiones y comando de selección sin secreto ni clave de replay
+    When falla la auditoría de selección reemisión o replay después de insertar un evento parcial
+    Then el servicio revierte contexto command log y evento antes de devolver el error
+    And capturar el error y confirmar la sesión posteriormente no persiste la operación fallida
     And una recarga puede reemitir el contexto vigente sin persistir ni revelar el secreto anterior
     And si cambió versión permiso o contexto el replay no revive B
     When dos reemisiones responden fuera de orden
@@ -95,6 +99,15 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
     Then recibe 409 con la razón estable correspondiente
     And no se confirma ni publica la nueva sucursal
     And la operación pendiente permanece recuperable en la sucursal original
+    When el preflight offline está sin preparar o faltan sus tablas
+    Then la selección nueva falla cerrada con branch_offline_preflight_required
+    And una tabla vacía no acredita ausencia de grants antiguos
+    When una concesión registrada vigente fue revocada sólo en central sin acuse del gateway
+    Then sigue bloqueando un destino incompatible hasta su expiración
+    And reemitir o recuperar el contexto vigente conserva su sucursal
+    When falla la persistencia o commit de la concesión antes de confirmarse
+    Then no se entrega el token ni quedan concesión fuente registro y auditoría parciales
+    And el error estable offline_authority_persistence_unavailable no expone token SQL ni parámetros
 
   @PRD-FR-267
   @BDD-SC-638

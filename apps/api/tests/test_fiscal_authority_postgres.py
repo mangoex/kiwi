@@ -454,7 +454,23 @@ def test_snapshot_holds_all_source_row_locks_until_transaction_ends(pg_engine):
         assert payment_snapshot(check, operations.ORGANIZATION_ID, BRANCH_ID, order) == snapshot
 
 
-def test_download_reauthorization_cannot_be_overtaken_before_audit_commit(pg_engine, monkeypatch):
+@pytest.fixture
+def fiscal_read_v2(monkeypatch):
+    from restaurant_os.config import get_settings
+
+    monkeypatch.setenv("RESTAURANTOS_BRANCH_SCOPE_V2_ENABLED", "true")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "branch_status,role_scope",
+    [("active", "organization"), ("inactive", "organization"), ("inactive", "branch")],
+)
+def test_download_reauthorization_cannot_be_overtaken_before_audit_commit(
+    pg_engine, monkeypatch, branch_status, role_scope, fiscal_read_v2
+):
     actor, role, permission, invoice, sat_uuid = (str(uuid4()) for _ in range(5))
     now = datetime.now(timezone.utc)
     with Session(pg_engine) as setup:
@@ -471,7 +487,7 @@ def test_download_reauthorization_cannot_be_overtaken_before_audit_commit(pg_eng
                 id=role,
                 organization_id=operations.ORGANIZATION_ID,
                 name="Synthetic reader",
-                scope="organization",
+                scope=role_scope,
                 created_at=now,
             )
         )
@@ -490,7 +506,11 @@ def test_download_reauthorization_cannot_be_overtaken_before_audit_commit(pg_eng
                 updated_at=now,
             )
         )
-        setup.execute(models.user_roles.insert().values(user_id=actor, role_id=role))
+        setup.execute(
+            models.user_roles.insert().values(
+                user_id=actor, role_id=role, branch_id=BRANCH_ID if role_scope == "branch" else None
+            )
+        )
         setup.execute(
             models.facturapi_config.insert().values(
                 id="download-known-legacy-origin",
@@ -523,6 +543,11 @@ def test_download_reauthorization_cannot_be_overtaken_before_audit_commit(pg_eng
                 raw_sat_response={"id": "remote-safe", "uuid": sat_uuid, "status": "valid"},
                 created_at=now,
             )
+        )
+        setup.execute(
+            models.branches.update()
+            .where(models.branches.c.id == BRANCH_ID)
+            .values(status=branch_status)
         )
         setup.commit()
 

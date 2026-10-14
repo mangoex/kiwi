@@ -128,6 +128,10 @@ def payment_snapshot(
     )
     if not payments or paid < total:
         raise BusinessError("fiscal_order_not_fully_paid", "A fully paid order is required")
+    if paid > total:
+        raise BusinessError(
+            "fiscal_payment_evidence_invalid", "Payment net must reconcile to the current total"
+        )
     return FiscalPaymentSnapshot(
         order_id=order_id,
         order_version=int(order["version"]),

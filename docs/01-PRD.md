@@ -511,6 +511,9 @@ funcional separada.
   emisión, cancelación, creación de recibos y configuración tienen permisos separados.
   Recuperar el contexto fiscal de la sucursal autorizada no exige conceder operación de POS ni
   habilita venta, caja, selección de otra sucursal o concesiones offline.
+  La lectura fiscal corporativa consulta detalle y documentos de su organización sin requerir
+  contexto operativo. Desactivar una sucursal conserva la consulta histórica bajo permisos
+  fiscales vigentes sobre ella; no habilita nuevas emisiones ni recibos en esa sucursal.
   Credenciales y payloads sensibles no se exponen en listas, auditoría, errores ni logs. La factura global
   automática conserva OPEN-006 y no se habilita mediante un conjunto arbitrario de pedidos.
 

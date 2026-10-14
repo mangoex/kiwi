@@ -3,8 +3,12 @@ from __future__ import annotations
 import sqlalchemy as sa
 
 from restaurant_os.expense_schema_v1 import tables as expense_tables
+from restaurant_os.fiscal_command_schema import ORDER_SCOPE_INDEX
+from restaurant_os.fiscal_command_schema import tables as fiscal_command_tables
 from restaurant_os.fiscal_emitter_schema import LEGAL_ENTITY_INDEX
 from restaurant_os.fiscal_emitter_schema import tables as fiscal_emitter_tables
+from restaurant_os.offline_authorization_schema import USER_SCOPE_INDEX
+from restaurant_os.offline_authorization_schema import tables as offline_authorization_tables
 
 metadata = sa.MetaData()
 expense_concepts, expense_documents, expense_commands = expense_tables(metadata)
@@ -213,6 +217,7 @@ users = sa.Table(
     ),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Index(USER_SCOPE_INDEX, "organization_id", "id", unique=True),
     sa.UniqueConstraint(
         "organization_id", "employee_code", name="uq_users_organization_employee_code"
     ),
@@ -3755,6 +3760,11 @@ cfdi_invoices = sa.Table(
     ),
 )
 
+sa.Index(ORDER_SCOPE_INDEX, orders.c.id, orders.c.organization_id, orders.c.branch_id, unique=True)
+fiscal_commands, fiscal_command_orders, fiscal_order_reservations, fiscal_command_outbox = (
+    fiscal_command_tables(metadata)
+)
+
 customer_feedbacks = sa.Table(
     "customer_feedbacks",
     metadata,
@@ -3927,4 +3937,8 @@ catalog_classification_rollout_commands = sa.Table(
     sa.UniqueConstraint(
         "organization_id", "actor_id", "idempotency_key", name="uq_class_rollout_command"
     ),
+)
+
+offline_authorization_rollouts, offline_authorization_leases = offline_authorization_tables(
+    metadata
 )

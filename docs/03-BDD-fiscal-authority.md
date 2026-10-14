@@ -13,6 +13,14 @@ Feature: Emitir y recuperar documentos con autorización y evidencia final
     Then recibe una denegación estable antes del proveedor y no obtiene datos sensibles
     And un usuario inactivo o con sólo orders.read tampoco obtiene autoridad fiscal
     And una lista sin branch sólo incluye sucursales autorizadas
+    Given un lector con alcance fiscal corporativo
+    When consulta detalle o descarga documentos de otra sucursal de su organización
+    Then su permiso actual sobre el recurso autoriza lectura sin contexto operativo
+    Given una sucursal desactivada con facturas históricas
+    When un lector autorizado consulta lista detalle o PDF XML
+    Then conserva esa historia sin reactivar sucursal ni adquirir permiso de emisión o recibo
+    But actor inactivo permiso retirado recurso ajeno o alcance insuficiente no obtienen historia
+    And la portabilidad móvil sobre ramas activas no concede historia de ramas cerradas no asignadas
 
   @BDD-SC-680
   Scenario: El conjunto completo cumple elegibilidad y configuración
@@ -21,6 +29,9 @@ Feature: Emitir y recuperar documentos con autorización y evidencia final
     When un actor autorizado solicita emisión con una intención válida
     Then se conservan todos los pedidos y sus importes exactos en el snapshot fiscal
     But un pedido desconocido repetido parcial cancelado ajeno o de otro emisor rechaza todo
+    And pagos y compensaciones confirmados concilian exactamente con el total vigente
+    But un neto mayor al total requiere revisión antes de emisión recibo o preparación durable
+    And el rechazo no altera pedidos pagos correcciones ni genera una intención fiscal
     And configuración ausente apagada o fiscalmente insuficiente no llama al proveedor
     And una configuración antigua sin razón social vinculada no habilita un emisor nuevo
     And cambiar el ambiente exige credencial explícita sin copiar la clave de otro emisor

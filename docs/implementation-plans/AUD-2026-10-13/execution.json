@@ -68,7 +68,12 @@
         "output/audit-remediation/sol-workspace/AUDIT.md",
         "output/audit-remediation/workspace-operational-routes-current.xml",
         "output/audit-remediation/workspace-operational-race-postgres.xml",
-        "output/audit-remediation/workspace-operational-legacy-current.xml"
+        "output/audit-remediation/workspace-operational-legacy-current.xml",
+        "output/audit-remediation/workspace-replay-audit-red.xml",
+        "output/audit-remediation/workspace-replay-audit-current.xml",
+        "output/audit-remediation/workspace-replay-audit-existing-rollback.xml",
+        "output/audit-remediation/workspace-replay-audit-postgres.xml",
+        "output/audit-remediation/sol-workspace-replay/AUDIT.md"
       ]
     },
     {
@@ -93,8 +98,22 @@
         "W02"
       ],
       "decisions": [],
-      "status": "planned",
-      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone"
+      "status": "shared_registry_emitters_and_transition_blockers_tested_adoption_signed_version_and_uncertain_registry_pending",
+      "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone",
+      "evidence": [
+        "output/audit-remediation/offline-authority-registry-red.xml",
+        "output/audit-remediation/offline-authority-orders-red.xml",
+        "output/audit-remediation/offline-authority-directed.xml",
+        "output/audit-remediation/offline-authority-foreign-organization.xml",
+        "output/audit-remediation/offline-authority-postgres.xml",
+        "output/audit-remediation/offline-authority-workspace-postgres.xml",
+        "output/audit-remediation/offline-authority-architecture.xml",
+        "output/audit-remediation/offline-authority-cash-sync-first.xml",
+        "output/audit-remediation/offline-authority-cash-sync-head.xml",
+        "output/audit-remediation/offline-authority-clock-current.xml",
+        "output/audit-remediation/offline-authority-clock-positive.xml",
+        "output/audit-remediation/sol-offline-authority/AUDIT.md"
+      ]
     },
     {
       "id": "W05",
@@ -231,7 +250,18 @@
         "output/audit-remediation/fiscal-emitter-postgres-migration-retry.xml",
         "output/audit-remediation/fiscal-bound-positive-current.xml",
         "output/audit-remediation/fiscal-origin-authority-postgres-current.xml",
-        "output/audit-remediation/fiscal-emitter-ci-gates-current.xml"
+        "output/audit-remediation/fiscal-emitter-ci-gates-current.xml",
+        "output/audit-remediation/fiscal-history-red.xml",
+        "output/audit-remediation/fiscal-history-first-green.xml",
+        "output/audit-remediation/fiscal-history-current.xml",
+        "output/audit-remediation/fiscal-history-retry.xml",
+        "output/audit-remediation/fiscal-history-final.xml",
+        "output/audit-remediation/fiscal-history-mobile-scope-red.xml",
+        "output/audit-remediation/fiscal-history-scope-final.xml",
+        "output/audit-remediation/fiscal-history-postgres.xml",
+        "output/audit-remediation/fiscal-history-postgres-assigned.xml",
+        "output/audit-remediation/fiscal-history-traceability.xml",
+        "output/audit-remediation/sol-fiscal-history/AUDIT.md"
       ]
     },
     {
@@ -241,7 +271,7 @@
         "P03"
       ],
       "decisions": [],
-      "status": "eligibility_snapshot_and_bounded_transport_reviewed_durable_emission_pending",
+      "status": "private_durable_preparation_reviewed_exact_tax_worker_http_recovery_pending",
       "completion_evidence": "task output + applicable AC/TC + gates, never compilation alone",
       "evidence": [
         "output/audit-remediation/fiscal-eligibility-red.xml",
@@ -256,7 +286,30 @@
         "output/audit-remediation/fiscal-json-fast-retry.xml",
         "output/audit-remediation/fiscal-json-boundaries-current.xml",
         "output/audit-remediation/fiscal-shared-transports-current.xml",
-        "output/audit-remediation/sol-fiscal-json/AUDIT.md"
+        "output/audit-remediation/sol-fiscal-json/AUDIT.md",
+        "output/audit-remediation/fiscal-command-preparation-red.xml",
+        "output/audit-remediation/fiscal-command-error-red.xml",
+        "output/audit-remediation/fiscal-command-sqlite-final.xml",
+        "output/audit-remediation/fiscal-command-migration-current.xml",
+        "output/audit-remediation/fiscal-command-postgres-current.xml",
+        "output/audit-remediation/fiscal-command-postgres-retry.xml",
+        "output/audit-remediation/fiscal-command-postgres-final.xml",
+        "output/audit-remediation/fiscal-command-regressions.xml",
+        "output/audit-remediation/fiscal-command-evidence-gate.xml",
+        "output/audit-remediation/sol-fiscal-intents/AUDIT.md",
+        "output/audit-remediation/fiscal-exact-json-red.xml",
+        "output/audit-remediation/fiscal-exact-json-first-green.xml",
+        "output/audit-remediation/fiscal-exact-json-current.xml",
+        "output/audit-remediation/fiscal-exact-json-traceability.xml",
+        "output/audit-remediation/fiscal-exact-json-transport-regressions.xml",
+        "output/audit-remediation/sol-exact-fiscal-json/AUDIT.md",
+        "output/audit-remediation/fiscal-exact-json-chunked-current.xml",
+        "output/audit-remediation/fiscal-exact-json-legacy-compatibility.xml",
+        "output/audit-remediation/fiscal-net-reconciliation-red.xml",
+        "output/audit-remediation/fiscal-net-reconciliation-current.xml",
+        "output/audit-remediation/fiscal-net-reconciliation-retry.xml",
+        "output/audit-remediation/fiscal-net-traceability.xml",
+        "output/audit-remediation/sol-fiscal-net/AUDIT.md"
       ]
     },
     {
@@ -917,6 +970,8 @@
     "D04: credit_receipt_confirmation"
   ],
   "review_status": {
+    "offline_authorization": "Independent R3 audit closed: commit error exposure reproduced and corrected, issuer denial parity corrected; recorded mixed fixture runs,22 refutations+6migration+2foreignorg green. W04 partial.",
+    "workspace_replay_audit": "Independent R3 audit closed without blockers;30 canonical and4 independent green,20 injected faults. Own SQLite and received PostgreSQL distinguished; W02/W04 remain partial.",
     "corporate_allocation_and_ui": "independent_findings_corrected",
     "authority_mutations": "independent_findings_corrected",
     "workspace_durable_and_cash_open": "independent_findings_corrected_cash_kds_print_sync_reviewed_remaining_routes_pending",
@@ -924,23 +979,35 @@
     "full_scope": "pending",
     "fiscal_authority": "independent_authority_download_and_explicit_emitter_findings_corrected_dispatch_pending",
     "fiscal_eligibility": "independent_one_p1_one_p2_corrected_snapshot_only",
-    "fiscal_transport": "independent_json_deadline_and_document_truncation_review_closed"
+    "fiscal_transport": "independent_json_deadline_and_document_truncation_review_closed",
+    "fiscal_command": "preparation audit closed: privacy/atomicity/authority/source-audit/migration refutations and independent PG XML validation; private foundation only",
+    "fiscal_exact_json": "31 initial +11 chunked escape refutations passed; no blockers; memory residual corrected, total process/input/concurrency budget not claimed",
+    "fiscal_net_reconciliation": "Independent R3 audit closed without blockers;10 actual cash/valid adjustment refutations green; no new SQL/PG claim",
+    "fiscal_history": "Independent scope audit closed: mobile-portability scope leak refuted and corrected;29 refutations plus76 directed green; login/UI without active branch not certified"
   },
   "latest_local_evidence": {
+    "offline_authorization": "Additive0088 starts existing orgs unprepared, no token/history rewrite or fabricated legacy version. Registered cash/orders hash/version/audit own commit and rollback; current V2 workspace required before signer. Transition blocks live incompatible leases incl centralrevoked and retained-untracked legacy; inclusive final second covered. Local17directed+2foreignorg, PG3 observed governance/FK cases+5workspace cases, architecture32+cashsync/head25 green. Initial cashsync12green/1old-mock signature failure retained; strict new arg+None assertion, no guard relaxation. Ruff/mypy6/scanner/ratchet/whitespace green, exact synthetic fixture hash provenance updated. Claim version, central reconciliation, controlled cutover/adoption, uncertain/reconciliation registry pending; finalSHA CI pending.",
+    "workspace_replay_audit": "Replay audits each rotation without secret/key; select/reissue own rollback before propagating Exception. RED5 expected, directed41 + existing rollback1 + PostgreSQL race1 passed. Ruff/mypy1/traceability9/scanner/diff-ratchet/whitespace green. Independent audit closed:30 canonical,4 refutations/20 fault injections green; auditor's initial denial-audit expectation failure retained separately. Final SHA CI pending; W02/W04 remain partial.",
     "authority": "9 boundary tests passed; PostgreSQL shared-role barrier passed",
     "ui": "blank input, token switched before click, response lost/reload exact replay, stale replay detail, two tabs and failed refresh passed with synthetic API",
     "traceability": "9 passed",
     "workspace_backend": "25 directed workspace and branch-selection tests passed; PostgreSQL context uniqueness, replay and cash-open/selection barrier passed",
     "workspace_client": "memory/provider tests, owner without home, uncertain selection exact replay, reload rotation, definitive rejection preserving capture and catalog-only Admin passed; 1440 and 390 screenshots inspected",
     "workspace_remaining": "other operational routes, leases, uncertain-command registry, reassignment, recovery-only rollout/rollback and Admin owner without home pending; no whole-scope certification",
-    "ci": "not_run",
+    "ci": "PR68 main914679c success. PR69 855ddc5 run38490477430 success:1870passed/8skipped/7warnings. 6acab5b run38496167613 failed:1892passed/2failed/8skipped/7warnings1441.57s, historical0087 downgrade reached head0088 guard first; frontend/Docker/policy/dependency passed. 559ede8 run38499379049:1895passed/8skipped/7warnings965.71s, mandatory11PGmodules and mypy81 success; Ruff E501 models.py3942 and frontend modal focus timeout failed. Mechanical line wrap preserves UTF8-decoded AST, full Ruff/mypy81 local green; unchanged browser test passes desktop/mobile locally. Original failures retained, new finalSHA CI pending.",
+    "publication_pg_fixture": "Independent focal review: existing race prefix identical, all prior functions preserved; head asserts0088 rejection/six retained tables, isolated actual0087 exact rejection/four retained tables. Initial local6passed239.09s before head snapshot strengthening; final head2passed97.13s/4deselected with six-table retention. Architecture/traceability/verifier32green, Ruff/scanner/diffgreen. XML publication-fiscal-pg-current.xml and publication-fiscal-pg-head-retention.xml; review sol-publication-pg-fixture/AUDIT.md. Guide updated additive0087/88 and existing orgs unprepared. No production action or whole-plan completion.",
     "production": "not_authorized",
     "workspace_operational_routes": "11 scoped guard API tests; 9 legacy/device tests; PostgreSQL guard/selection wait-event barrier passed; independent Sol refutations passed",
-    "postgres_evidence_gate": "9 mandatory modules including fiscal_emitter; verifier negative/positive tests 13 passed, 6 deselected; this validates the verifier only, not execution of all 9 modules; CI not run",
+    "postgres_evidence_gate": "10 mandatory modules including fiscal_command; 21 verifier contract tests passed. This is verifier evidence, not execution of all 10 modules. Current fiscal_command PG 5 passed; CI for new increment pending.",
     "fiscal_authority": "23 API authority cases, 12 audit/atomicity cases and 5 legacy positives passed; 7 SQLite migration cases, 1 PostgreSQL migration and independent PG revocation barrier passed; typecheck/lint local; whole F02 incomplete",
     "fiscal_eligibility": "36 directed cases with FakePAC; independent 17 refutations green and real PostgreSQL four-source row locks observed; durable commands, exact tax/serialization and state lifecycle pending",
     "fiscal_artifacts": "78 authority/download/context cases, added deep projection case, 2 slowdrip loopback cases and PostgreSQL governance/actor/document wait-event barrier passed; reader/config-only V2 separation, authenticated PDF, no key hydration and changed account browser checks at 1440/390; Admin build, recursive typecheck in 6 projects with scripts, focal mypy/lint, 9 traceability and diff check green; CI/PAC/production not run",
     "fiscal_emitters": "28 issuer tests and 41 independent refutations plus existing legacy atomicity; SQLite migration retry 5 passed; PG 2 actual create/revoke lock races plus additive migration retry passed; 198-case fiscal run remains 197 passed and 1 interrupted Alembic process; PG original retains upgrade timeout and 2 passed races; focal retries recorded separately; 36 eligibility and 5 positive explicit-issuer tests passed; 2 legacy/download PG regressions passed; Admin build/typecheck, focal mypy/Ruff and browser reader1440/390, configurator390 green; external version requires explicit reload, keys clear on reload or issuer/account change; first browser visibility fixture and navigation attempts failed, retry passed; no implicit mock, no legacy enable/rebind, historical credential retained; F03 durable commands/exact money, F04 lifecycle, CI/PAC/production pending; total JSON deadline subsequently reviewed separately",
-    "fiscal_transports": "51 permanent JSON/document/TLS transport and download cases passed; 7 issuer response boundary regressions passed, 34 deselected; independent TLS-local 12 passed and document truncation RED then 1 passed; Ruff, focal mypy and diff check green; JSON initial RED 2 failed/1 passed and two mixed attempts (43 passed/1 failed, 2 passed/1 failed) retained; read1, remaining per-read timeout, normal EOF completion and incomplete Content-Length guards corrected; DNS/TCP/TLS before socket and CPU/scheduler hard wall time remain limited; no retry does not prove absence of remote emission; F03 durable reconciliation and exact money pending; no PostgreSQL change/test, CI/PAC/production not run"
+    "fiscal_transports": "51 permanent JSON/document/TLS transport and download cases passed; 7 issuer response boundary regressions passed, 34 deselected; independent TLS-local 12 passed and document truncation RED then 1 passed; Ruff, focal mypy and diff check green; JSON initial RED 2 failed/1 passed and two mixed attempts (43 passed/1 failed, 2 passed/1 failed) retained; read1, remaining per-read timeout, normal EOF completion and incomplete Content-Length guards corrected; DNS/TCP/TLS before socket and CPU/scheduler hard wall time remain limited; no retry does not prove absence of remote emission; F03 durable reconciliation and exact money pending; no PostgreSQL change/test, CI/PAC/production not run",
+    "fiscal_command": "Private prepare_invoice only: 22 preparation + 9 traceability passed; migration/head 14; PostgreSQL 5; eligibility/gateway regressions 20; mandatory verifier gate 21; focal Ruff/mypy green; independent audit closed foundation. Additive 0087 draft, no HTTP/PAC/worker. Exact fiscal concepts/taxes, external recovery and F04 pending. Initial REDs and PG fixture failures retained separately.",
+    "plan_integrity_current_attempt": "verificar_plan.py rejects current HEAD 914679c because manifest retains original audit baseline e1422dc. Historical planning guard retained, no relaxation; this attempt is not a green current implementation gate. Current spec links verified independently by test_traceability.",
+    "fiscal_exact_json": "Decimal JSON transport: initial34 directed +17 transport regressions green; chunked35 directed +5 legacy green; independent31 initial +11 chunking refutations green. Same1MiB-control probe: traced peak12584934 before/1154124 after; retains body/finalcopy/input/concurrency residual. RED1 TypeError retained. Ruff/mypy6-source package, traceability9 and diffcheck green. Synthetic fixture provenance/exact hash/path verified. Tax decision requested; concepts/taxes/worker/API/recovery pending; new increment not integrated in main, CI pending.",
+    "fiscal_net_reconciliation": "Net must equal current total.6 negative excess cases across issue/receipt/prepare +3 positive balanced-adjustment cases. Final eligibility/evidence/preparation suite67passed; independent10 green, Ruff/mypy1/traceability9/diff green. RED:6 expected +3 invalid duplicate-payment fixtures; first mixed64passed/6fixture failures retained; independent mixed33passed/6old-fixture failures retained. Confirmed payment uniqueness unchanged; no source writes. Current diff not covered by baseline7366de9 CI run38483537392, still in progress when checked; final SHA CI pending.",
+    "fiscal_history": "Corporate fiscal read is resource-scoped without operational context. Closed history requires current corporate-read or exact assigned-read role; mobile workspace grant remains active-branch only. Final76 directed and29 independent green; earlier4RED + mixed2passed/2fixture failures and72passed/2fixture failures retained; root/mobile and independent mobile scope RED retained.3 real PostgreSQL cases (2corp active/inactive +1assigned inactive) passed; both actual revoker and document PID Lock observed through audit commit. Ruff/mypy1/traceability9/diff green. PRD/SDD/BDD/TDD/matrix updated. No UI/login-without-active-branch proof, no PAC/production; current increment CI pending, F02/F03/F04 remain partial."
   }
 }

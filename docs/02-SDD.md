@@ -5174,6 +5174,13 @@ autenticado rota su secreto y devuelve B sin exigir el token A ya supersedido. S
 a C, el contexto fue revocado, la versión cambió o perdió autoridad, devuelve
 `idempotent_result_superseded`/`permission_denied` y no revive B.
 
+Cada secreto reemitido, incluido el replay de una selección, registra
+`auth.branch_context_reissued` sobre el contexto con actor, sucursal y versiones, sin secreto ni
+idempotency key. El replay añade el ID del comando de selección y motivo `selection_replay`.
+Auditoría, rotación y respuesta se confirman en la misma transacción. Selección y reemisión son
+fronteras transaccionales: ante una excepción ejecutan rollback antes de propagarla; el caller
+no puede confirmar accidentalmente un contexto o una auditoría parciales tras capturar el error.
+
 Tras éxito, el cliente cancela consultas, desmonta formularios, limpia sólo concesiones offline
 incompatibles y publica la sesión devuelta. Carritos y borradores permanecen almacenados bajo
 usuario+sucursal+caja, sin viajar al destino; una captura activa exige confirmación de abandono y se
@@ -5194,6 +5201,42 @@ lease, seleccionar workspace y reasignar comparten el lock canónico del usuario
 grants legacy rastreables se importan al registro y los no rastreables se drenan hasta su TTL máximo o
 se invalidan rotando la época/clave de firma. Mientras ese preflight no llegue a cero, selección y
 reasignación permanecen deshabilitadas.
+
+El registro conserva sólo hash y bindings del grant, nunca una segunda copia del token. La versión
+de autoridad de una emisión nueva se toma del usuario bajo el lock canónico; una concesión legacy
+retenida sin evidencia de esa versión lleva `authorization_version=NULL` y procedencia explícita,
+sin inventar una versión histórica. El esquema admite caja/pedidos; un nuevo dominio requiere
+extender su registro antes de habilitar su emisión.
+
+`offline_authorization_rollouts` es evidencia organizacional del preflight. La migración crea
+`unprepared`, con inicio de registro/drenado nulos; ni una tabla vacía ni la hora de migración
+acreditan que todos los emisores antiguos se retiraron. El drenado debe partir de un cutover
+verificado y cubrir el TTL máximo de dos horas; grants de pedidos retenidos aún no registrados
+también bloquean mientras sean vigentes. La preparación incompleta o esquema ausente falla cerrado
+con `branch_offline_preflight_required`. Una instalación limpia sólo se acredita antes de cualquier
+emisión, con origen controlado; no existe una ruta ordinaria para declarar este estado desde UI.
+El registro y adopción productivos conservan autorización separada.
+
+Una revocación central no prueba que el gateway desconectado la recibió: la lease sigue bloqueando
+un destino incompatible hasta expirar. Una lease vigente de la misma sucursal no impide recuperar
+ese contexto. Una reemisión que cambie de sucursal aplica la misma guarda que selección; reemisión
+del contexto vigente y replay de una selección ya confirmada conservan su recuperación.
+
+Los emisores de caja/pedidos consultan permisos efectivos después del lock de gobernanza y actor;
+en V2 exigen el workspace actual antes de leer material de firma. PostgreSQL usa `FOR NO KEY UPDATE`
+en el actor: conserva el mutex frente a selección/mutaciones de autoridad y permite `KEY SHARE` de
+auditoría por FK, evitando el ciclo actor→sucursal contra sucursal→audit del reconciliador. Registro,
+fuente retenida de pedidos y auditoría se confirman antes de entregar el token. Errores SQL de
+preparación o commit se revierten y se traducen a `offline_authority_persistence_unavailable`, sin
+SQL, parámetros ni token en respuesta/log de aplicación. Una pérdida de confirmación tras commit no prueba que
+éste no ocurrió; no se deshace historia confirmada mediante rollback.
+Pedidos usa un reloj fresco después de adquirir locks de actor, gateway y dispositivo y revalida
+expiraciones antes de firmar; una espera no convierte el timestamp inicial del request en autoridad.
+
+El incremento del registro conserva los envelopes firmados vigentes. Su versión se liga al hash
+del token en la evidencia central, pero aún no va en el claim; el fencing de reconciliación por
+versión y la adopción controlada siguen pendientes de W04. No se habilita una organización existente
+por este incremento.
 
 `branch_selection_commands` persiste organización, actor, origen, destino, key, request hash,
 `authorization_version`, estado, resultado mínimo y UTC. Unique
@@ -5862,8 +5905,17 @@ organización, versión de autoridad y workspace. Config pública se proyecta po
 una clave inesperada legacy no hidrata form ni cache. Una nueva clave vive sólo en memoria, vacío
 omite reemplazo y éxito limpia el campo. Cada escritura comprueba la cuenta validada antes de enviar.
 El listado administrativo sin branch admite consolidado sólo con `invoicing.read` de alcance
-organización; una cuenta con alcance sucursal conserva su workspace vigente. Detalle, recibo,
-emisión, cancelación y consulta explícita de branch requieren ese contexto cuando V2 está activo.
+organización. Ese permiso corporativo autoriza también detalle/PDF/XML por recurso sin contexto
+operativo, incluso con otra sucursal seleccionada; no toma alcance de un rol corporativo sin esa
+capacidad. Una cuenta de sucursal mantiene el contexto vigente para lectura de sucursales activas.
+La lectura de historia de sucursales inactivas valida pertenencia y permiso fiscal actual; no
+depende de recuperar un contexto operativo que ya no puede emitirse. Ese alcance histórico
+exige permiso corporativo fiscal o un rol con `invoicing.read` asignado expresamente a
+la sucursal cerrada. La portabilidad `organization_branch_workspaces` sigue limitada a sucursales
+activas como establece §50; nunca se usa para inferir alcance sobre historia inactiva ajena.
+El listado del lector de sucursal combina su contexto activo autorizado con historia inactiva
+autorizada; si sólo tiene alcance inactivo, ofrece sólo esa historia. Recibo, emisión y cancelación conservan contexto activo
+y sucursal activa cuando V2 está habilitado. La excepción de lectura nunca concede operaciones.
 Denegaciones del contexto registran códigos e IDs verificados, sin su secreto. Guardar configuración
 registra estado/entorno e indicador de reemplazo de credencial en la misma transacción, sin payload
 ni RFC ni credencial. Un fallo de auditoría impide confirmar el cambio.
@@ -5957,7 +6009,11 @@ emisión/recibo del mismo conjunto mientras su resultado sea pendiente o inciert
 cancelación usan comandos explícitos y relaciones, nunca una nueva clave para repetir el efecto.
 
 La proyección de elegibilidad conserva al menos un pago CONFIRMED del mismo alcance y moneda.
-Su neto, sumando CHARGE y restando REFUND confirmados, debe cubrir el importe vigente. Una
+Su neto, sumando CHARGE y restando REFUND confirmados, debe coincidir exactamente con el importe
+vigente: menor conserva rechazo por pago incompleto; mayor requiere revisión de evidencia antes
+de emisión, recibo o preparación durable. No se factura un total menor al neto cobrado ni se
+modifican fuentes para forzar conciliación. El efectivo entregado y su cambio pertenecen al
+contrato de cobro; no se suman al importe confirmado aplicado al pedido. Una
 corrección APPLIED aporta el importe corregido; la última por applied_at/id gobierna esa proyección.
 Cada compensación debe enlazar un pago original confirmado del pedido y corresponder exactamente
 al delta y moneda de su corrección. Evidencia incompleta/inconsistente requiere revisión antes del
@@ -5972,6 +6028,15 @@ descuentos, moneda, tratamiento por concepto, tasa/exención y si los importes i
 No se presume IVA 16%. Si el snapshot comercial no contiene información fiscal suficiente, se
 requiere configuración explícita y se identifica su versión/fuente; la ausencia falla cerrada.
 El adaptador serializa decimales exactos como números JSON válidos sin convertirlos a float.
+El transporte admite `Decimal` finito de hasta 128 dígitos y exponente entre -128 y 128,
+sin depender de la precisión global de Decimal. El escape de strings usa bloques de 4096 caracteres
+y comprueba el acumulado UTF-8 antes de ampliar el cuerpo; no materializa toda la expansión de una
+cadena antes del rechazo. El límite del cuerpo no incluye la memoria de entrada ni de Python.
+Conserva strings como strings y no interpola
+fragmentos JSON. Rechaza ciclos, claves no textuales, tipos desconocidos, números no finitos,
+profundidad superior a 64 y cuerpos mayores de 32 MiB antes de abrir la conexión; el error público
+es `fiscal_provider_payload_invalid`, sin contenido. Los floats finitos legacy siguen serializando
+como antes: esta compatibilidad de transporte no acredita cálculo fiscal exacto del flujo antiguo.
 La suma del total fiscal debe conservar el total autorizado; diferencias de redondeo se resuelven
 de forma determinista por concepto y quedan en el snapshot, sin alterar el pedido original.
 
@@ -5985,6 +6050,35 @@ original sensibles se cifran; auditoría conserva IDs/códigos/estado sin RFC ni
 `fiscal_command_orders` y `cfdi_invoice_orders` enlazan todos los pedidos y versiones, no sólo el
 campo compatible order_id. Unique por organización/actor/operación/key impide duplicar intención.
 Mismo key con otro payload falla; replay reautoriza antes de devolver el resultado.
+
+Primer incremento de persistencia F03: `prepare_invoice` conserva en una transacción comando,
+snapshot de pago/receptor cifrado, vínculos de todos los pedidos, reservas activas y outbox de
+preparación. Gobierno y fila física de organización, actor, sucursal/emisor y pedidos se bloquean antes de
+capturar evidencia; la confirmación incluye auditoría mínima. La clave se acota a 128 caracteres
+ASCII visibles; el hash canónico incluye actor/organización/operación/sucursal, IDs ordenados y
+receptor explícito. Un replay autorizado conserva el snapshot y la revisión del emisor originales,
+aunque cambien las fuentes. Otra clave no elude una reserva activa; no impone exclusividad fiscal
+perpetua. La revisión aditiva 0087 conserva las tablas previas y bloquea downgrade con intenciones.
+
+Este snapshot inicial no es un payload enviable: `dispatch_ready=false` y el outbox identifica
+`fiscal.issue.prepare`; falta materializar conceptos/impuestos exactos antes de habilitar dispatch.
+No se conecta aún a rutas HTTP ni al PAC. El constraint del snapshot de pago sólo admite readiness
+falsa y su lector sólo proyecta pending; otro estado/readiness sin evidencia final requiere revisión.
+Una materialización fiscal completa deberá versionar ese contrato antes de permitir dispatch.
+No se infiere IVA/receptor ni se fabrica una factura.
+AES-GCM liga el snapshot a actor/scope/comando/revisión del emisor; se verifica antes del replay.
+El sobre conserva el límite de 64 KiB del lector cifrado; un snapshot mayor rechaza antes de guardar.
+Preguntas operativas: ¿se confirmó la intención completa? Command ID/estado/conteo de vínculos y
+audit `invoicing.command.prepared`. ¿otro intento repite o cambia el efecto? Audit de replay y
+códigos `fiscal_idempotency_conflict`/`fiscal_order_reserved`, sin clave/receptor/payload en logs.
+La proyección de replay comprueba además vínculos/reservas/outbox íntegros; una reserva perdida
+no permite otra clave mientras exista un vínculo a una intención activa. Las identidades usan
+`FOR NO KEY UPDATE` en PostgreSQL para bloquear cambios de autoridad sin bloquear FK KEY SHARE
+de un writer financiero que ya tomó el pedido y necesita auditar antes de confirmar. Los locks
+fuente del snapshot mantienen su contrato existente. Replay toma también el lock físico de
+organización compartido por desactivación de sucursal y la fila branch antes de autorizar.
+Un fallo SQLAlchemy revierte la preparación y devuelve `fiscal_persistence_unavailable` sin
+exponer statement, parámetros, clave de idempotencia ni ciphertext en la excepción pública.
 
 Worker reclama en una transacción corta, libera locks antes de red y confirma evidencia en una
 transacción nueva. Error de transporte después de enviar implica `unknown`, nunca rechazo definitivo.

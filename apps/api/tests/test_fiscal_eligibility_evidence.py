@@ -132,3 +132,107 @@ def test_snapshot_is_frozen_and_preserves_exact_sources(fiscal_data):
         snapshot.total_cents = 500
     assert list(session.execute(sa.select(models.order_corrections)).mappings()) == before
     assert calls == []
+
+
+def _applied_correction(session, payment, *, amount, version):
+    previous_ids = set(session.scalars(sa.select(models.order_corrections.c.id)))
+    existing._correction(session, payment)
+    correction = next(
+        row
+        for row in session.execute(sa.select(models.order_corrections)).mappings()
+        if row["id"] not in previous_ids
+    )
+    session.execute(
+        models.order_corrections.update()
+        .where(models.order_corrections.c.id == correction["id"])
+        .values(
+            folio="COR-CHARGE-" + str(version),
+            captured_order_version=version - 1,
+            resulting_order_version=version,
+            corrected_total_cents=amount,
+            settlement_delta_cents=amount - 1999,
+            after_snapshot={"total_cents": amount},
+        )
+    )
+    session.execute(
+        models.order_payment_adjustments.update()
+        .where(models.order_payment_adjustments.c.correction_id == correction["id"])
+        .values(
+            adjustment_type="CHARGE" if amount > 1999 else "REFUND", amount_cents=abs(amount - 1999)
+        )
+    )
+    session.execute(
+        models.orders.update()
+        .where(models.orders.c.id == authority.ORDER_A)
+        .values(version=version)
+    )
+    session.commit()
+
+
+def _fiscal_operation(session, client, auth_headers, kind):
+    if kind != "prepare":
+        return existing._request(client, auth_headers, kind)
+    from test_fiscal_command_preparation import _prepare
+
+    return _prepare(session)
+
+
+@pytest.mark.parametrize("kind", ["issue", "receipt", "prepare"])
+@pytest.mark.parametrize("condition", ["one_cent_excess", "successive_charges"])
+def test_net_above_total_requires_review_without_source_or_fiscal_effects(
+    client, auth_headers, fiscal_data, kind, condition
+):
+    from restaurant_os.operations import BusinessError
+
+    session, calls = fiscal_data
+    authority._grant(
+        session, "invoicing.receipt.create" if kind == "receipt" else "invoicing.issue"
+    )
+    payment = existing._payment(session, amount=2000 if condition == "one_cent_excess" else 1999)
+    if condition == "successive_charges":
+        _applied_correction(session, payment, amount=2099, version=2)
+        _applied_correction(session, payment, amount=2199, version=3)
+    tables = (
+        models.orders,
+        models.payments,
+        models.order_corrections,
+        models.order_payment_adjustments,
+        models.cfdi_invoices,
+        models.fiscal_commands,
+        models.fiscal_command_orders,
+        models.fiscal_order_reservations,
+        models.fiscal_command_outbox,
+    )
+    before = [list(session.execute(sa.select(table)).mappings()) for table in tables]
+    if kind == "prepare":
+        with pytest.raises(BusinessError) as denied:
+            _fiscal_operation(session, client, auth_headers, kind)
+        assert denied.value.code == "fiscal_payment_evidence_invalid"
+    else:
+        response = _fiscal_operation(session, client, auth_headers, kind)
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "fiscal_payment_evidence_invalid"
+    session.commit()
+    assert calls == []
+    assert [list(session.execute(sa.select(table)).mappings()) for table in tables] == before
+
+
+@pytest.mark.parametrize("kind", ["issue", "receipt", "prepare"])
+def test_confirmed_payment_and_balanced_adjustments_remain_eligible(
+    client, auth_headers, fiscal_data, kind
+):
+    session, calls = fiscal_data
+    authority._grant(
+        session, "invoicing.receipt.create" if kind == "receipt" else "invoicing.issue"
+    )
+    payment = existing._payment(session)
+    _applied_correction(session, payment, amount=2099, version=2)
+    _applied_correction(session, payment, amount=1899, version=3)
+    _applied_correction(session, payment, amount=2199, version=4)
+    result = _fiscal_operation(session, client, auth_headers, kind)
+    if kind == "prepare":
+        assert result["total_cents"] == 2199 and result["state"] == "pending"
+        assert calls == []
+    else:
+        assert result.status_code == 200, result.text
+        assert calls == [kind]

@@ -19,11 +19,25 @@ inválido, URL legacy maliciosa ignorada, cuenta/contexto revocado durante red, 
 redirección y archivo excesivo. Assert ninguna transacción abierta durante el adaptador, bytes
 privados ausentes en errores/logs y fuente legacy conservada. Cliente real usa bearer/contexto,
 descarta respuesta tardía y revoca blob; navegador verifica descarga y el estado visible.
+Lectura histórica/corporativa: `test_fiscal_historical_reads.py` exige lista/detalle/PDF/XML de
+sucursales inactivas autorizadas y lectura corporativa de otra sucursal activa sin contexto.
+El lector de sucursal activa conserva su fence; org-role sin `invoicing.read` no amplía el permiso
+de otro rol. Revalidación tras red impide bytes si se revoca actor/permiso/recurso. Emitir/recibir
+en una sucursal inactiva rechaza antes del proveedor. Sin modificación de documentos, claves
+históricas ni creación de contexto durante la lectura.
+Una refutación móvil comprueba que `organization_branch_workspaces` no presta autoridad histórica
+de B cerrada a un rol asignado sólo en A; exige alcance fiscal corporativo o asignación exacta
+con esa capacidad como define SDD §50. El listado mixto usa contexto persistido revalidado, sin
+inferir home branch desde roles históricos adicionales.
 
 ## TDD-TC-383 Elegibilidad y conservación de dinero
 
 BDD-SC-680: conjunto vacío/duplicado/missing, mezcla branch/emisor/org/moneda, pago parcial,
-PENDING, ausencia de pago, cancelado pagado y compensación confirmada. Comparar conjunto exacto de
+PENDING, ausencia de pago, cancelado pagado y compensación confirmada. Sobrepago de un centavo,
+cargos sucesivos respecto del pago original requieren revisión en emisión,
+recibo y preparación; importe inferior conserva rechazo por pago incompleto. Un pago confirmado y ajustes CHARGE/REFUND cuyo neto
+coincide exactamente con el total son positivos; se conserva la unicidad del pago confirmado. Se comprueban cero llamadas/efectos fiscales y fuentes
+históricas iguales después del rechazo y de commit posterior. Comparar conjunto exacto de
 relaciones y versión fuente. Config ausente/apagada/ambigua y datos fiscales incompletos generan
 rechazo sin PAC. Centavos como 19.99, medio centavo y acumulados no usan float; total de conceptos e
 impuestos conserva el total autorizado. No se acepta IVA ni datos de identidad por fallback.
@@ -40,6 +54,22 @@ BDD-SC-681: same-key/body, key con payload distinto, recursos cambiados, revocac
 respuesta perdida y reinicio. FakePAC guarda clave/ref remota; inyectar caída antes/después de PAC
 y antes/después de commit. Resultado desconocido permanece recuperable; nuevo key no evade la
 reserva del pedido. Comparar una intención, outbox/inbox coherentes y una identidad externa.
+
+Preparación incremental de TDD-TC-384: `test_fiscal_command_preparation.py` exige confirmación
+atómica de comando/vínculos/reservas/outbox, snapshot cifrado, replay con las fuentes cambiadas,
+receptor explícito, clave estricta, conflicto de otro payload/clave y rollback ante fallo de audit.
+RED inicial: falta `prepare_invoice`; no llega al proveedor. Las pruebas del núcleo no acreditan
+HTTP/worker, payload con impuestos ni recuperación externa; esos recorridos siguen pendientes.
+
+Evidencia local de este incremento privado, sobre baseline publicada `914679c`: 22 casos de
+preparación y 9 de trazabilidad verdes (`fiscal-command-sqlite-final.xml`); 14 de migración/head,
+5 PostgreSQL de concurrencia/autoridad/FK-audit, 20 regresiones de elegibilidad/gateway y 21 del
+gate de evidencia verdes. Los XML residen en `output/audit-remediation/`. El RED de error SQLAlchemy
+se conserva en `fiscal-command-error-red.xml`: propagaba parámetros privados; el caso verde exige
+error de negocio sanitizado, contexto suprimido y rollback completo. La auditoría independiente
+registra las refutaciones y los fallos anteriores en `sol-fiscal-intents/AUDIT.md`.
+CI del paquete anterior PR68 está verde; este incremento 0087 no está integrado en main ni cubierto por
+esa ejecución. No acredita envío al PAC, worker, impuestos ni migración productiva.
 
 ## TDD-TC-385 Proyección monotónica de emisión y cancelación
 
@@ -63,6 +93,20 @@ pagados, intención incierta recuperable por cuenta, doble clic/tabs, reload y r
 Estados pendientes no muestran UUID/enlace final ni permiten nueva emisión. Descargas pasan por
 API autenticada. BDD-SC-680 verifica petición estricta y conserva importes/versiones, sin cálculo
 fiscal paralelo en JavaScript. Typecheck, prueba semántica y navegador dirigidos al flujo afectado.
+
+Transporte exacto de TDD-TC-383: `test_fiscal_exact_json.py` inspecciona bytes POST reales en
+loopback, decodificados con Decimal: 19.99, seis decimales, tasa y centavos altos conservan valor
+y tipo numérico aun con contexto Decimal de baja precisión. Prueba invoice/receipt, Unicode y
+strings que parecen JSON, y rechaza entrada inválida antes de red sin exponer payload. Los
+límites de profundidad, cifra/exponente y cuerpo son límites técnicos del serializador; no
+definen catálogo SAT ni tratamientos fiscales. La cobertura del cálculo/worker sigue pendiente. RED inicial: 1 TypeError al serializar Decimal;
+Primera implementación: 34 casos dirigidos y 17 regresiones JSON/TLS/documento verdes.
+Tras la refutación de amplificación de strings se usa escape por bloques: 35 casos dirigidos
+verdes, incluido escape idéntico al estándar en fronteras Unicode/control; cinco legacy verdes. Ruff, mypy de dos fuentes y
+9 enlaces de trazabilidad verdes; auditoría independiente en
+`output/audit-remediation/sol-exact-fiscal-json/AUDIT.md`. La clave literal del test es sintética,
+identificada por provenance y hash/ruta exactos en el mecanismo SEC001 existente; no se altera
+el scanner ni se excluyen pruebas. No acredita cálculo fiscal, PAC ni CI del nuevo incremento.
 
 Las pruebas legacy `test_facturapi_integration.py` no acreditan este contrato. F02..F04 implementan
 los casos progresivamente; los archivos y gates todavía no ejecutados permanecen pendientes.
@@ -172,3 +216,59 @@ ausencia de emisión tras timeout. Una intención durable debe reconciliar esa i
 F03 requiere comando/relaciones/snapshot durable/worker/recuperación y dinero/impuestos exactos;
 el deadline total JSON está revisado y con gate combinado focal verde. F04 requiere estados finales. Ninguna evidencia
 local acredita CI, sandbox externo, migración o comportamiento productivo.
+
+
+Evidencia focal de conciliación del neto (TDD-TC-383): el RED original conserva seis rechazos
+ausentes y tres fixtures incompatibles con unicidad de pago confirmado. La primera repetición
+tuvo 64 verdes y seis fallas de esos fixtures; se corrigió el diseño de la prueba, preservando
+el constraint. La repetición definitiva `fiscal-net-reconciliation-retry.xml` pasó 67 casos:
+seis negativos de sobrepago/cargos sucesivos y tres positivos de ajustes balanceados, más las
+regresiones existentes de elegibilidad/preparación. Diez refutaciones independientes verdes
+incluyen cobro real sintético 9500 con recibido 10000/cambio 500 y REFUND/CHARGE/delta cero.
+`sol-fiscal-net/AUDIT.md` conserva también el intento mixto independiente de 33 verdes/seis
+fixtures antiguos ya cargados. Ruff, mypy focal, nueve enlaces y diff-check verdes. No cambia
+SQL/locks ni activa una nueva afirmación PostgreSQL; CI final, worker/PAC y producción pendientes.
+
+
+Evidencia local de lectura histórica/corporativa (TDD-TC-382): RED inicial cuatro 403; dos
+repeticiones mixtas (2 verdes/2 fallas y 72 verdes/2 fallas) retenidas por una lectura de
+comparación del seed que dejaba su Session abierta antes del transporte. Se cerró esa lectura
+sin modificar la guarda de I/O. Repetición final 76 verdes; auditoría independiente 29
+refutaciones y combinación de 105 verdes. La fuga móvil a B cerrada no asignada tuvo RED real
+y se corrigió con permiso corporativo o rol de lectura exactamente asignado; no se extiende §50.
+Tres casos PostgreSQL reales V2 verdes, en dos XML: lector corporativo con sucursal activa e
+inactiva, y lector de sucursal asignada inactiva. En los tres, revocador y writer del documento
+quedaron observados en pg_stat_activity con wait_event_type=Lock hasta commit de auditoría.
+Artefactos `fiscal-history-*.xml` y `sol-fiscal-history/AUDIT.md` bajo output/audit-remediation.
+El rechazo del perfil operativo con dos roles fue un hallazgo estático; no se fabricó RED:
+la refutación cargó ya la lectura por contexto persistido. Login/profile/reissue sin rama activa
+y su UI siguen pendientes W04/R01; esta lectura no acredita ese recorrido ni F03/F04/PAC/producción.
+
+Publicación PR69: CI `38496167613` sobre `6acab5b` terminó con 1892 verdes, ocho skips,
+siete warnings y dos fallos en TDD-TC-384. Las carreras conservaron la intención única,
+pero su expectativa de downgrade 0087 era anterior a head 0088: el rollout sintético
+`clean_install` activa primero la guarda de evidencia offline. Se conservan las carreras
+en head, el Lock observado y todos sus rechazos; ahora exigen el error exacto 0088,
+versión intacta y conservación de las seis tablas fiscales/offline. El nuevo caso
+`test_0087_fiscal_history_blocks_downgrade` aísla la revisión 0087 real, confirma ausencia
+de esquema 0088, exige su error exacto y conserva comando, vínculos, reservas y outbox.
+No se editan migraciones, guardas, workflow, skips ni verificador; el caso nuevo se exige
+automáticamente por colección dentro de los once módulos PG obligatorios.
+La primera corrida focal pasó seis casos en 239.09 s, con un warning de Starlette:
+`publication-fiscal-pg-current.xml`. El módulo se cargó antes de ampliar el snapshot
+de los dos casos head; su repetición final pasó dos casos en 97.13 s (cuatro deseleccionados),
+`publication-fiscal-pg-head-retention.xml`, con conservación de las seis tablas.
+Arquitectura/trazabilidad/verificador: 32 verdes; scanner, Ruff y diff-check verdes. La revisión
+independiente de este ajuste se conserva en `sol-publication-pg-fixture/AUDIT.md`.
+No cambia runtime ni el alcance parcial F03/F04/W04; CI debe confirmar el SHA posterior.
+
+CI `38499379049` sobre `559ede8`: 1895 verdes, ocho skips y siete warnings en 965.71 s;
+el gate de los once módulos PostgreSQL pasó y mypy aprobó los 81 archivos. Ruff detectó
+E501 (101 caracteres) en la asignación de tablas offline de `models.py`, no incluida en
+el gate focal anterior. Se dividió esa línea sin cambiar el AST (comparación con lectura
+UTF-8 explícita; el primer intento decodificó la salida Git como ANSI y se conservó como
+intento fallido). Ruff completo `apps/api tests`, mypy81 y diff-check locales verdes.
+Frontend de ese intento agotó la espera de foco del modal en `test_catalog_classification.mjs:119`;
+la prueba existente pasó localmente en escritorio1440/móvil390, sin edición de UI ni tests.
+La UI y el test no tienen diff frente a main914679c, y el CI anterior pasó ese recorrido.
+No se borra el timeout ni se amplía su presupuesto; requiere confirmación posterior en CI.

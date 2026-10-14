@@ -92,7 +92,8 @@ def _lock_actor(session: Session, actor: str) -> None:
                 models.users.c.organization_id == ops.ORGANIZATION_ID,
                 models.users.c.id == actor,
             )
-            .with_for_update()
+            # NO KEY UPDATE conflicts with authority mutations but permits FK audit writers.
+            .with_for_update(key_share=True)
         )
         .mappings()
         .first()
@@ -243,6 +244,19 @@ def reissue_branch_context(
     payload: dict[str, Any],
     idempotency_key: str | None,
 ) -> dict[str, Any]:
+    try:
+        return _reissue_branch_context(session, actor, payload, idempotency_key)
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _reissue_branch_context(
+    session: Session,
+    actor: str,
+    payload: dict[str, Any],
+    idempotency_key: str | None,
+) -> dict[str, Any]:
     if set(payload) != {"context_id", "expected_authorization_version"}:
         raise ops.BusinessError(
             "branch_context_payload_invalid", "Context reissue payload is invalid"
@@ -300,6 +314,9 @@ def reissue_branch_context(
     if row and not (old or requested) and row["branch_id"] != branch:
         # A changed authority version must not turn first emission into a branch-switch bypass.
         _assert_no_open_shift(session, actor)
+        from restaurant_os.offline_authorization import assert_transition_allowed
+
+        assert_transition_allowed(session, actor, branch)
     issued = (
         _rotate(session, row)
         if row and (old or requested)
@@ -333,6 +350,19 @@ def reissue_branch_context(
 
 
 def select_branch_workspace(
+    session: Session,
+    actor: str,
+    payload: dict[str, Any],
+    idempotency_key: str | None,
+) -> dict[str, Any]:
+    try:
+        return _select_branch_workspace(session, actor, payload, idempotency_key)
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _select_branch_workspace(
     session: Session,
     actor: str,
     payload: dict[str, Any],
@@ -373,7 +403,22 @@ def select_branch_workspace(
             raise ops.BusinessError("idempotency_conflict", "Idempotency-Key was already used")
         context_id = str(old["result"].get("context_id") or "")
         live = _live_result(row, context_id, version)
-        result = _issued_profile(session, actor, _rotate(session, live))
+        issued = _rotate(session, live)
+        ops._audit(
+            session,
+            action="auth.branch_context_reissued",
+            entity_type="branch_workspace",
+            entity_id=issued[0],
+            payload={
+                "authorization_version": version,
+                "secret_version": issued[2],
+                "selection_command_id": str(old["id"]),
+                "reason": "selection_replay",
+            },
+            branch_id=str(live["branch_id"]),
+            actor_user_id=actor,
+        )
+        result = _issued_profile(session, actor, issued)
         session.commit()
         return result
     source = str(profile["active_branch"]["id"]) if profile["active_branch"] else None
@@ -382,6 +427,9 @@ def select_branch_workspace(
             "branch_context_mismatch", "Source branch is not the canonical workspace"
         )
     _assert_no_open_shift(session, actor)
+    from restaurant_os.offline_authorization import assert_transition_allowed
+
+    assert_transition_allowed(session, actor, target)
     command_id = ops._id()
     session.execute(
         models.branch_selection_commands.insert().values(

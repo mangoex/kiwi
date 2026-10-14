@@ -32,12 +32,12 @@
     },
     {
       "path": "apps/api/tests/test_pco008_cash_sync.py",
-      "sha256": "5885412502575d6de7fbe63f3d474b90c46d9a72a23b5666d53f3a65016b5324",
+      "sha256": "88e9d3cf0f8f50da615376a63348144184380962961bae959bfd015b7c6d2d0e",
       "provenance": "restaurantos-pco008-cash-sync-tests-v1"
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "6a6009aa2914c5496e4506132a2c4d352ddd77f877c87e8f41ab9c487706e7e1",
+      "sha256": "7b153c2161ab742312b46d99bcd1dce9d98f3f03e9f2d5d28604e5f1405b1045",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
@@ -157,7 +157,7 @@
     },
     {
       "path": "apps/api/tests/test_fiscal_authority_postgres.py",
-      "sha256": "ff2ce97d6459d888d0c625f5ffa5539280c9df73b64727e5eff57d1801ad27d6",
+      "sha256": "b4daf10553a148b885fbe0a355e6865e7459f024b23f0a08038368d5b1bc3c7b",
       "provenance": "restaurantos-audit-test-fiscal-authority-postgres-v1"
     },
     {
@@ -194,6 +194,16 @@
       "path": "tests/browser/test_fiscal_artifacts.mjs",
       "sha256": "f17646426eb3ecfc3db0c4bc33e59969cb1ac9c60e973128066229fad6396fdc",
       "provenance": "restaurantos-fiscal-artifacts-browser-v1"
+    },
+    {
+      "path": "apps/api/tests/test_fiscal_exact_json.py",
+      "sha256": "ab2afced8d0b48b36ba8ba7378ee0c1ac459d5a40fd9783bc8e80b1752efdbd2",
+      "provenance": "restaurantos-fiscal-exact-json-tests-v1"
+    },
+    {
+      "path": "apps/api/tests/test_offline_authorization_migration.py",
+      "sha256": "e1caeb8f2214a619bc8d83589ab2a5cb9d4e7208cce61fa93f0f4dd0abac4f19",
+      "provenance": "restaurantos-offline-authorization-migration-tests-v1"
     }
   ]
 }

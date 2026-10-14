@@ -103,6 +103,63 @@ def test_concurrent_reissue_replay_rotates_one_context_without_plaintext(context
         assert profile["branch_workspace_secret_version"] == 3
 
 
+def test_concurrent_selection_replay_audits_each_committed_rotation(context_engine):
+    engine, initial = context_engine
+    barrier = Barrier(2)
+
+    def replay():
+        with Session(engine) as session:
+            barrier.wait(timeout=8)
+            return select_branch_workspace(
+                session,
+                ADMIN_USER_ID,
+                {"target_branch_id": BRANCH_ID, "expected_authorization_version": 1},
+                "pg-workspace-initial",
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: replay(), range(2)))
+    assert {result["branch_workspace_secret_version"] for result in results} == {2, 3}
+    latest = max(results, key=lambda result: result["branch_workspace_secret_version"])
+    stale = min(results, key=lambda result: result["branch_workspace_secret_version"])
+    with Session(engine) as session:
+        rows = session.execute(sa.select(models.branch_workspace_sessions)).mappings().all()
+        assert len(rows) == 1
+        assert rows[0]["state"] == "active"
+        assert rows[0]["id"] == initial["branch_workspace_context_id"]
+        command = session.execute(sa.select(models.branch_selection_commands)).mappings().one()
+        audits = (
+            session.execute(
+                sa.select(models.audit_events).where(
+                    models.audit_events.c.action == "auth.branch_context_reissued",
+                    models.audit_events.c.entity_id == initial["branch_workspace_context_id"],
+                )
+            )
+            .mappings()
+            .all()
+        )
+        assert len(audits) == 2
+        assert {audit["payload"]["secret_version"] for audit in audits} == {2, 3}
+        assert all(audit["payload"]["selection_command_id"] == command["id"] for audit in audits)
+        assert all(audit["payload"]["reason"] == "selection_replay" for audit in audits)
+        assert (
+            validate_branch_context(
+                session, ADMIN_USER_ID, BRANCH_ID, latest["branch_workspace_context"]
+            )["id"]
+            == rows[0]["id"]
+        )
+        with pytest.raises(AuthorizationError) as rejected:
+            validate_branch_context(
+                session, ADMIN_USER_ID, BRANCH_ID, stale["branch_workspace_context"]
+            )
+        assert rejected.value.code == "branch_context_superseded"
+        persisted = str(
+            [dict(row) for row in rows] + [dict(audit) for audit in audits] + [dict(command)]
+        )
+        for result in [initial, *results]:
+            assert result["branch_workspace_context"] not in persisted
+
+
 def test_competing_selections_preserve_one_current_workspace(context_engine):
     engine, _ = context_engine
     barrier = Barrier(2)

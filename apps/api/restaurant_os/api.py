@@ -3713,6 +3713,7 @@ def offline_cash_grant(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     if set(payload) != {"branch_id", "source_device_id"}:
@@ -3724,6 +3725,7 @@ def offline_cash_grant(
             organization_id=ORGANIZATION_ID,
             branch_id=str(payload["branch_id"]),
             source_device_id=str(payload["source_device_id"]),
+            branch_context=branch_context,
         )
     )
 
@@ -8025,6 +8027,7 @@ def offline_order_grant(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     if set(payload) != {"branch_id", "source_device_id", "bundle_id", "lease_epoch"}:
@@ -8043,50 +8046,6 @@ def offline_order_grant(
     ]
 
     def issue() -> dict[str, Any]:
-        role_ids = [
-            row["role_id"]
-            for row in session.execute(
-                sa.select(
-                    models.roles.c.id.label("role_id"),
-                    models.roles.c.scope,
-                    models.user_roles.c.branch_id,
-                )
-                .select_from(
-                    models.user_roles.join(
-                        models.roles, models.user_roles.c.role_id == models.roles.c.id
-                    )
-                )
-                .where(
-                    models.user_roles.c.user_id == actor_id,
-                    models.roles.c.organization_id == ORGANIZATION_ID,
-                    sa.or_(
-                        models.roles.c.scope == "organization",
-                        sa.and_(
-                            models.roles.c.scope == "branch",
-                            models.user_roles.c.branch_id == branch_id,
-                        ),
-                    ),
-                )
-            ).mappings()
-        ]
-        granted: set[str] = set(
-            session.scalars(
-                sa.select(models.permissions.c.code)
-                .select_from(
-                    models.role_permissions.join(
-                        models.permissions,
-                        models.role_permissions.c.permission_id == models.permissions.c.id,
-                    )
-                )
-                .where(models.role_permissions.c.role_id.in_(role_ids))
-            )
-        )
-        capabilities = [
-            capability for capability in requested_capabilities if capability in granted
-        ]
-        if not capabilities:
-            raise BusinessError("permission_denied", "Actor has no offline order capabilities")
-        key, kid = offline_order_signing_material()
         grant = issue_order_grant(
             session,
             organization_id=ORGANIZATION_ID,
@@ -8094,13 +8053,14 @@ def offline_order_grant(
             source_device_id=str(payload["source_device_id"]),
             actor_id=actor_id,
             bundle_id=str(payload["bundle_id"]),
-            lease_epoch=int(payload["lease_epoch"]),
-            capabilities=capabilities,
-            private_key=key,
-            kid=kid,
-            now=datetime.now(timezone.utc),
+            lease_epoch=payload["lease_epoch"],
+            capabilities=requested_capabilities,
+            private_key=None,
+            kid=None,
+            now=None,
+            branch_context=branch_context,
+            signing_material=offline_order_signing_material,
         )
-        session.commit()
         return grant
 
     return _business_response(issue)

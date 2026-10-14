@@ -14,6 +14,7 @@ from threading import Timer
 from typing import Any
 
 from .documents import valid_remote_id
+from .json_codec import encode_json
 
 logger = logging.getLogger(__name__)
 
@@ -128,12 +129,15 @@ class FacturapiClient:
         endpoint: str,
         data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        try:
+            body_bytes = encode_json(data) if data is not None else None
+        except (ValueError, TypeError, UnicodeError, OverflowError):
+            raise RuntimeError("fiscal_provider_payload_invalid") from None
         if self.is_mock:
             return self._mock_response(method, endpoint, data)
 
         transport = _DeadlineHTTPSHandler(time.monotonic() + 20)
         url = f"{FACTURAPI_BASE_URL}{endpoint}"
-        body_bytes = json.dumps(data).encode("utf-8") if data else None
         req = urllib.request.Request(
             url,
             data=body_bytes,

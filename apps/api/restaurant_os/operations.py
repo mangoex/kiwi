@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlalchemy as sa
 from sqlalchemy.engine import CursorResult
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
@@ -9128,20 +9128,38 @@ def issue_offline_cash_grant(
     organization_id: str,
     branch_id: str,
     source_device_id: str,
+    branch_context: str | None = None,
 ) -> dict[str, Any]:
+    try:
+        return _issue_offline_cash_grant(
+            session, actor_user_id=actor_user_id, organization_id=organization_id,
+            branch_id=branch_id, source_device_id=source_device_id, branch_context=branch_context,
+        )
+    except SQLAlchemyError:
+        session.rollback()
+        raise BusinessError("offline_authority_persistence_unavailable", "Offline authority evidence could not be retained") from None
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _issue_offline_cash_grant(
+    session: Session,
+    *,
+    actor_user_id: str,
+    organization_id: str,
+    branch_id: str,
+    source_device_id: str,
+    branch_context: str | None,
+) -> dict[str, Any]:
+    from restaurant_os.offline_authorization import lock_grant_actor, register_grant
     from restaurant_os.offline_grants import OFFLINE_GRANT_TTL_SECONDS, create_offline_grant_v2
 
-    if organization_id != ORGANIZATION_ID:
-        raise AuthorizationError("permission_denied", "Organization scope is invalid")
     actor_id = _actor_user_id(actor_user_id)
-    for permission in ("cash.movement.withdraw", "cash.movement.deposit"):
-        try:
-            authorize_branch_scope(session, actor_id, permission, branch_id)
-            break
-        except AuthorizationError:
-            session.rollback()
-    else:
-        raise AuthorizationError("permission_denied", "Cash movement permission is required")
+    version, registered = lock_grant_actor(session, actor_id, organization_id, branch_id, branch_context)
+    permissions = ("cash.movement.withdraw", "cash.movement.deposit")
+    permission = next((code for code in permissions if _actor_has_permission(session, actor_id, code, branch_id)), permissions[0])
+    require_permission(session, actor_id, permission, branch_id)
     device = (
         session.execute(
             sa.select(models.device_credentials).where(
@@ -9150,7 +9168,7 @@ def issue_offline_cash_grant(
                 models.device_credentials.c.branch_id == branch_id,
                 models.device_credentials.c.capability == "gateway.sync",
                 models.device_credentials.c.revoked_at.is_(None),
-            )
+            ).with_for_update(key_share=True)
         )
         .mappings()
         .first()
@@ -9175,6 +9193,14 @@ def issue_offline_cash_grant(
         kid=kid,
         now=now,
     )
+    if registered:
+        register_grant(
+            session, actor=actor_id, branch=branch_id, kind="cash", token=grant,
+            version=version, device_id=source_device_id,
+            issued_at=datetime.fromtimestamp(now, UTC),
+            expires_at=datetime.fromtimestamp(now + OFFLINE_GRANT_TTL_SECONDS, UTC),
+        )
+    session.commit()
     return {
         "offline_grant": grant,
         "expires_at": datetime.fromtimestamp(now + OFFLINE_GRANT_TTL_SECONDS, UTC).isoformat(),

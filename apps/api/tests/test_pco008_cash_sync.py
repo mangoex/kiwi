@@ -258,7 +258,9 @@ def test_http_routes_accept_bearer_and_persisted_scoped_device(
         organization_id: str,
         branch_id: str,
         source_device_id: str,
+        branch_context: str | None = None,
     ) -> dict[str, Any]:
+        observed["context"] = branch_context
         observed["grant"] = (
             actor_user_id,
             organization_id,
@@ -289,6 +291,7 @@ def test_http_routes_accept_bearer_and_persisted_scoped_device(
     )
     assert grant_response.status_code == 200
     assert observed["grant"] == (CASHIER_ID, ORG_ID, BRANCH_A, DEVICE_ID)
+    assert observed["context"] is None
 
     command = _envelope("018f6f73-2d0a-74f0-8f1c-000000009777")
     sync_response = client.post(
