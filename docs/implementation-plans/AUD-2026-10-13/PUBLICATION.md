@@ -7,19 +7,27 @@ de sucursales, cuentas por pagar y compensaciones. No se modifica producción de
 
 ## Versión de código publicada para el redeploy
 
-PR [70](https://github.com/mangoex/kiwi/pull/70) integrada en `main` como `fbb9822`.
-Su árbol coincide exactamente con `ee4a9f4`, aprobado por
-[CI 38516802834](https://github.com/mangoex/kiwi/actions/runs/38516802834): 1956 pruebas verdes,
-ocho skips existentes y siete warnings en 1491.66 s. El gate obligatorio confirmó 71 casos
-ejecutados entre once módulos PostgreSQL. Mypy del backend (81 archivos) y gateway focal
-(cuatro archivos), Ruff de API/tests/gateway, frontend, Docker, políticas y dependencias verdes.
+PR [72](https://github.com/mangoex/kiwi/pull/72) integrada en `main` como
+`758a1b1eb3f4621b594cd04d0be488a365573e3c`. El árbol completo coincide exactamente con
+`f58a0015b2bb2394b51e9de34bfbe3c51a287c11`, aprobado por
+[CI 38544220053](https://github.com/mangoex/kiwi/actions/runs/38544220053): 2022 pruebas aprobadas,
+ocho skips existentes y siete warnings en 1608.37 s. El gate obligatorio confirmó 82 casos
+ejecutados entre doce módulos PostgreSQL. Mypy API (85 archivos)/gateway (cuatro), Ruff,
+frontend, Docker, políticas y dependencias aprobados. Frontend pasó en el intento 2 sobre el
+mismo SHA; el timeout original de catálogo y su diagnóstico se conservan en el cierre inferior.
 
-El esquema requerido sigue siendo `0088_offline_authorization`; el contenedor inicia la API
-sin ejecutar Alembic. Aplicar/verificar las migraciones conforme a las instrucciones de esta guía
-antes de servir el nuevo código. El formato firmado nuevo permanece apagado por defecto;
-su activación exige actualizar primero los gateways compatibles. La adopción de organizaciones
-existentes y el registro de comandos inciertos siguen pendientes. W04 y el plan de 31 tareas
-continúan parciales; este cierre acredita Git/CI, sin cambios productivos.
+El esquema requerido es `0090_operational_intents`; el contenedor inicia la API sin ejecutar
+Alembic. Antes de servir el nuevo código, respaldar PostgreSQL y, desde `apps/api` con la conexión
+del entorno correspondiente, aplicar `python -m alembic -c alembic.ini upgrade head` y comprobar
+`python -m alembic -c alembic.ini current`. Desde 0089 se agrega la tabla/índice vacíos; una base
+anterior recorre la cadena pendiente. Desplegar API/POS del mismo commit y comprobar
+`/health/ready` y `/health/version`, conservando el SHA desplegado. No forzar downgrade 0090 si
+existe cualquier intención, incluidas terminales: la guarda conserva su historia.
+
+Conservar `RESTAURANTOS_SIGNED_OFFLINE_AUTHORITY_ENABLED` apagado salvo activación operativa
+autorizada. La nueva tabla no acredita adopción ni retirada de emisores legacy. El registro central
+cubre inicialmente pedido/pago/movimiento; otros comandos, offline y adopción siguen pendientes.
+W04 y el plan de 31 tareas continúan parciales. Este cierre acredita Git/CI, sin cambios productivos.
 
 El cierre posterior es R0: actualiza sólo esta guía y la referencia de evidencia en
 `execution.json`, conservando runtime, estados de tareas y decisiones. Los resultados fallidos
@@ -295,7 +303,7 @@ cambiar runtime, las 31 tareas ni sus estados parciales. El registro de comandos
 la adopción/rollback restante continúan pendientes. No se ejecutó redeploy, migración,
 configuración, CLI de adopción ni canary productivo; esas acciones quedan a cargo del usuario.
 
-## Incremento W04 en revisión: registro central de comandos
+## Evidencia local previa del incremento W04: registro central de comandos
 
 `codex/uncertain-command-registry` agrega 0090 y el protocolo previo al envío para pedido,
 pago y movimiento de caja centrales. Con V2 estas tres rutas exigen intención registrada;
@@ -308,10 +316,34 @@ El cliente conserva pendientes y evita fallback al gateway después de registrar
 Local: 60 regresiones, ocho casos PostgreSQL con seis carreras observadas y dos downgrades;
 cuatro regresiones fiscales/cutover de historia en head0090. Auditoría independiente cerrada
 con un P1 y tres P2 corregidos. TDD-TC-354 conserva intentos originales, fases y límites;
-scanner/ratchet/diff locales verdes; CI/publicación del SHA final aún pendientes. `main` publicado sigue en 47a7f79/0089.
+scanner/ratchet/diff locales verdes. En esa fase CI/publicación estaban pendientes y `main`
+seguía en 47a7f79/0089; el cierre siguiente registra la validación y publicación finales.
 
 La nueva revisión crea tabla/índice vacíos; no declara adopción ni fabrica ausencia histórica.
 0090 no permite downgrade con ninguna intención, incluso terminal. Aplicación productiva de
 migración/configuración/despliegue conserva autorización separada. Apertura/cierre de caja,
 compensaciones, otros comandos, journals restantes y reconciliación/outbox offline siguen
 pendientes. El manifiesto conserva el plan completo de 31 tareas y W04 parcial.
+
+## Cierre Git/CI del registro central (PR 72)
+
+Commits `4b40483` y `f58a001` publicados en la PR 72; merge `758a1b1` sincronizado en el
+checkout principal. Comparación completa con el head probado: sin diferencias.
+El CI inicial de 4b40483 aprobó 2012 pruebas, ocho skips existentes y siete warnings en
+1574.34 s; los cinco jobs aprobaron. Antes de merge se corrigió incompatibilidad del registro
+con claves de caja 1–180, normalización de sucursal/tipo y NBSP del SDK. Pedidos/pagos conservan
+12–160 y cuerpo/hash originales. RED, pruebas dirigidas y auditoría independiente están en
+TDD-TC-354; no hay bloqueadores abiertos en este incremento.
+
+CI final f58a001: Python 2022 aprobadas, ocho skips existentes y siete warnings en 1608.37 s;
+82 casos entre doce módulos PostgreSQL, incluidos nueve del registro central. El primer job
+frontend falló por timeout del botón Crear grupo deshabilitado en catálogo. La prueba original
+pasó localmente en 1440/390 tanto con desarrollo como con bundles de producción, sin cambios
+de runtime/prueba. Tras terminar Python se repitió sólo frontend sobre el mismo SHA; pasó el
+recorrido original de catálogo y todos sus gates, incluida recuperación de intención en ambos
+tamaños sin envío financiero ni adquisición de contexto. CI terminó en success, intento 2;
+no se agregaron skips ni se relajaron verificaciones.
+
+El cierre posterior R0 modifica sólo esta guía y evidencia de `execution.json`: conserva runtime,
+las 31 tareas, sus estados parciales y D02/D03/D04. No se ejecutó redeploy, migración, configuración,
+CLI ni canary productivos. Los pasos de redeploy superiores quedan a cargo del usuario.
