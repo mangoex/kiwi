@@ -7,6 +7,31 @@ de sucursales, cuentas por pagar y compensaciones. No se modifica producción de
 
 ## Versión de código publicada para el redeploy
 
+PR [77](https://github.com/mangoex/kiwi/pull/77) integrada como
+`cccd3162721a0c56c1d5143d2b3dc68b394f34f5`, árbol completo idéntico al head probado
+`9b0f6f18f90bfbfacdf111e306adba83014991fb`.
+[CI38614598330](https://github.com/mangoex/kiwi/actions/runs/38614598330): cinco jobs verdes,
+2211 aprobadas, ocho skips existentes y siete warnings en1684.34s; gate obligatorio108casos
+entre13módulos PostgreSQL, incluyendo12XML. Mypy API93/gateway4, Ruff, frontend/build/browser,
+ambas imágenes Docker y gateXML, dependencias, políticas y ratchet aprobados.
+
+Captura documental XML privada `unverified`: original cifrado exacto, receptor del servidor,
+idempotencia/conflictos y descarga reautorizada/auditada. Preflight y revalidación cercan autoridad;
+lectura1MiB/5s sin locks SQL; las esperas de base de datos usan workers. La migración aditiva
+`0092_supplier_xml_imports` conserva historia y bloquea downgrade con cualquier evidencia privada.
+`RESTAURANTOS_SUPPLIER_XML_IMPORTS_ENABLED` permanece apagado por defecto; configuración/keyring
+histórico y activación productiva requieren autorización separada. La interfaz XML, validación
+fiscal completa/SAT, conceptos, mapping y conciliación siguen pendientes; X01 y el plan31 son
+parciales. Capturar no crea recepción, inventario, costo, caja ni cuenta por pagar.
+
+CI previa38609023051/21d86e8:2198P13F8skips7warnings1749.39s; todos los fallos eran expectativas
+head0091 desactualizadas. Las12PGXML/28HTTP/10crypto pasaron. Se corrigieron siete literales en
+cuatro archivos conservando destinos/mensajes/snapshots históricos;22focales de compatibilidad
+pasaron en522.95s. Sol revisó el ajuste sin relajación de gates y cerró en el mismo ciclo los
+hallazgos de privacidad/frontera y la disponibilidad del event loop. Ver `SUPPLIER-XML-AUDIT.md`.
+Este cierre posterior R0 sólo registra evidencia y actualiza la guía; no modifica runtime ni
+las decisiones autorizadas. No hubo despliegue, migración, configuración ni canary productivos.
+
 PR [76](https://github.com/mangoex/kiwi/pull/76) integrada como
 `050c0dea2439b832b8021c3a4e3120107bfd7d2c`, árbol idéntico al head probado
 `bb70f4d23942a3db73cb66211c62a74205d4a321`.
@@ -56,25 +81,29 @@ oficiales/buenas prácticas y límites de atribución; su integración transacci
 
 ### Procedimiento para el redeploy del operador
 
-El esquema requerido es `0091_cash_lifecycle_intents`. El contenedor inicia la API sin ejecutar
+El esquema requerido es `0092_supplier_xml_imports`. El contenedor inicia la API sin ejecutar
 Alembic. Desde la imagen aprobada, respaldar PostgreSQL y detener el tráfico de escritura antes de
 aplicar la migración separada. Ejecutar desde `apps/api` (en el contenedor, `/app/apps/api`), con la
 conexión del entorno correspondiente:
 
 ```bash
 python -m alembic -c alembic.ini current
-python -m alembic -c alembic.ini upgrade 0091_cash_lifecycle_intents
+python -m alembic -c alembic.ini upgrade 0092_supplier_xml_imports
 python -m alembic -c alembic.ini current
 ```
 
-La revisión final debe ser `0091_cash_lifecycle_intents (head)`. Un error de migración detiene la
+La revisión final debe ser `0092_supplier_xml_imports (head)`. Un error de migración detiene la
 promoción. Desplegar API/POS/Admin del mismo commit, comprobar `/health/ready` y `/health/version` y
 conservar el SHA reportado; readiness verifica conectividad, por lo que no sustituye Alembic current.
+0092 añade únicamente las tablas de evidencia privada; cualquier fila de importación, conflicto o
+comando bloquea su downgrade. Conservar esquema y evidencia para rollback de aplicación o forward-fix.
+
 0091 deriva namespaces sin cambiar las columnas originales de filas0090. No forzar downgrade0091
 con historia de cualquiera de sus cuatro tipos nuevos, incluso terminal; conservar el esquema y
 usar forward-fix. La guarda0090 también conserva cualquier intención de sus tipos originales.
 
-Conservar `RESTAURANTOS_SIGNED_OFFLINE_AUTHORITY_ENABLED` apagado salvo activación operativa
+Conservar `RESTAURANTOS_SUPPLIER_XML_IMPORTS_ENABLED` y
+`RESTAURANTOS_SIGNED_OFFLINE_AUTHORITY_ENABLED` apagados salvo activación operativa
 separada y autorizada. Este cierre acredita Git/CI; no ejecutó despliegue, migración, configuración,
 CLI de operador, canary ni cambios de datos productivos. El cierre posterior es R0 y sólo actualiza
 esta guía y execution.json, sin cambiar el runtime aprobado ni las decisiones del usuario.
