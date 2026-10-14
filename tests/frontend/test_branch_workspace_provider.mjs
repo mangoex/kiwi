@@ -117,7 +117,7 @@ auditHooks.slots=[];auditHooks.cursor=0;auditHooks.effects=[];auditHooks.initial
 window.location.search='';
 let adminSource=readFileSync('apps/admin-web/src/lib/adminSession.tsx','utf8');
 adminSource=adminSource.slice(0,adminSource.indexOf('  if (!token()) return'))+'  return {state};\n}\n';
-const router=mod('export const useLocation=()=>({key:"qa-admin-route"});export const Navigate="navigate";');
+const router=mod('export const useLocation=()=>({key:"qa-admin-route",pathname:globalThis.adminPath||"/catalog"});export const Navigate="navigate";');
 const ui=mod('export const quarantineWorkspaceSnapshots=()=>{};');
 const queries=mod('export const useResetSessionQueries=()=>()=>{};');
 const branches=mod('export const publishAdminSession=session=>{globalThis.publishedAdmin=session;};export const setCanonicalBranchId=()=>{};');
@@ -142,3 +142,43 @@ assert.deepEqual(adminSeen,['/api/v1/auth/session'],'Corporate Admin without POS
 assert.equal(api.branchWorkspaceSecret('qa-valid-central-credential'),null,'Corporate-only Admin clears operational secret');
 assert.equal(globalThis.publishedAdmin.admin_capabilities['catalog.manage'],true);
 console.log('PASS: Admin catalog.manage without pos.operate publishes session and never POSTs reissue; operational memory cleared.');
+
+// Document-only operators must acquire a branch context without a POS permission.
+for (const capability of ['purchases.manage','expenses.manage','expenses.cancel']) {
+  auditHooks.slots=[];auditHooks.cursor=0;auditHooks.effects=[];auditHooks.initial=true;
+  api.clearBranchWorkspace();
+  globalThis.adminPath=capability==='purchases.manage'?'/Purchases/':capability==='expenses.manage'?'/expenses':'/EXPENSES/';
+  const documentProfile={...adminProfile,permissions:[capability],
+    admin_capabilities:{[capability]:true,'pos.operate':false}};
+  const calls=[];
+  globalThis.fetch=async (url,options)=>{
+    calls.push(url);
+    const response=url.endsWith('/auth/branch-context-reissues')
+      ?{...documentProfile,branch_workspace_context:'qa-document-only-secret-'+'x'.repeat(32),
+        branch_context_reissue_required:false}:documentProfile;
+    return new Response(JSON.stringify(response),{status:200});
+  };
+  AdminSessionProvider({children:null});auditHooks.initial=false;
+  for(const effect of auditHooks.effects)effect();
+  await new Promise(resolve=>setTimeout(resolve,30));
+  auditHooks.cursor=0;const ready=AdminSessionProvider({children:null});
+  assert.equal(ready.state.session.user.id,documentProfile.user.id);
+  assert.deepEqual(calls,['/api/v1/auth/session','/api/v1/auth/branch-context-reissues'],capability);
+  assert.notEqual(api.branchWorkspaceSecret('qa-valid-central-credential'),null,capability);
+  assert.equal(globalThis.publishedAdmin.admin_capabilities['pos.operate'],false);
+}
+console.log('PASS: purchase/expense-only Admin profiles acquire operational context without POS capability.');
+
+// A real catalog compatibility alias must not force context issuance on catalog routes.
+auditHooks.slots=[];auditHooks.cursor=0;auditHooks.effects=[];auditHooks.initial=true;
+api.clearBranchWorkspace();globalThis.adminPath='/catalog';
+const catalogCalls=[];
+globalThis.fetch=async url=>{catalogCalls.push(url);return new Response(JSON.stringify({
+  ...adminProfile,admin_capabilities:{'catalog.manage':true,'purchases.manage':true,'pos.operate':false},
+}),{status:200});};
+AdminSessionProvider({children:null});auditHooks.initial=false;
+for(const effect of auditHooks.effects)effect();
+await new Promise(resolve=>setTimeout(resolve,30));
+auditHooks.cursor=0;assert.ok(AdminSessionProvider({children:null}).state.session);
+assert.deepEqual(catalogCalls,['/api/v1/auth/session']);
+console.log('PASS: catalog purchase compatibility alias does not force a workspace on corporate catalog.');

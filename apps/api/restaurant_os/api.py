@@ -6236,11 +6236,17 @@ def post_purchase(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
     idempotency_key: IdempotencyKeyDep = None,
     reviewed_fingerprint: Annotated[str | None, Header(alias="If-Purchase-Preview")] = None,
 ) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
+        from restaurant_os.workspace_fences import require_document_context
+
+        require_document_context(
+            session, actor_id, branch_context, "purchase", branch_id=payload.get("branch_id")
+        )
         return create_purchase_document(
             session, payload, actor_id, idempotency_key, reviewed_fingerprint
         )
@@ -6271,10 +6277,16 @@ def confirm_purchase_endpoint(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
     idempotency_key_header: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
+        from restaurant_os.workspace_fences import require_document_context
+
+        require_document_context(
+            session, actor_id, branch_context, "purchase", target_id=purchase_id
+        )
         idempotency_key = idempotency_key_header or str((payload or {}).get("idempotency_key", ""))
         register_id = str((payload or {}).get("register_id", ""))
         return confirm_purchase_document(
@@ -6291,9 +6303,15 @@ def cancel_purchase_endpoint(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
+        from restaurant_os.workspace_fences import require_document_context
+
+        require_document_context(
+            session, actor_id, branch_context, "purchase", target_id=purchase_id
+        )
         reason = str((payload or {}).get("reason", ""))
         return cancel_purchase_document(session, purchase_id, reason, actor_id)
 
@@ -8668,11 +8686,17 @@ def expense_resolve(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(
-        lambda: expense_service.resolve_command(session, actor, command_key, payload)
-    )
+
+    def operation() -> dict[str, Any]:
+        from restaurant_os.workspace_fences import require_expense_resolution_context
+
+        require_expense_resolution_context(session, actor, branch_context, command_key, payload)
+        return expense_service.resolve_command(session, actor, command_key, payload)
+
+    return _workspace_response(operation)
 
 
 @router.get("/expenses")
@@ -8712,14 +8736,22 @@ def expense_create(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(
-        lambda: expense_service.command(
+
+    def operation() -> dict[str, Any]:
+        from restaurant_os.workspace_fences import require_document_context
+
+        require_document_context(
+            session, actor, branch_context, "expense", branch_id=payload.get("branch_id")
+        )
+        return expense_service.command(
             session, actor, "document.create", None, payload, idempotency_key
         )
-    )
+
+    return _workspace_response(operation)
 
 
 @router.patch("/expenses/{expense_id}")
@@ -8729,14 +8761,20 @@ def expense_edit(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(
-        lambda: expense_service.command(
+
+    def operation() -> dict[str, Any]:
+        from restaurant_os.workspace_fences import require_document_context
+
+        require_document_context(session, actor, branch_context, "expense", target_id=expense_id)
+        return expense_service.command(
             session, actor, "document.edit", expense_id, payload, idempotency_key
         )
-    )
+
+    return _workspace_response(operation)
 
 
 @router.post("/expenses/{expense_id}/confirm")
@@ -8746,14 +8784,20 @@ def expense_confirm(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(
-        lambda: expense_service.command(
+
+    def operation() -> dict[str, Any]:
+        from restaurant_os.workspace_fences import require_document_context
+
+        require_document_context(session, actor, branch_context, "expense", target_id=expense_id)
+        return expense_service.command(
             session, actor, "document.confirm", expense_id, payload, idempotency_key
         )
-    )
+
+    return _workspace_response(operation)
 
 
 @router.post("/expenses/{expense_id}/cancel")
@@ -8763,11 +8807,17 @@ def expense_cancel(
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(
-        lambda: expense_service.command(
+
+    def operation() -> dict[str, Any]:
+        from restaurant_os.workspace_fences import require_document_context
+
+        require_document_context(session, actor, branch_context, "expense", target_id=expense_id)
+        return expense_service.command(
             session, actor, "document.cancel", expense_id, payload, idempotency_key
         )
-    )
+
+    return _workspace_response(operation)

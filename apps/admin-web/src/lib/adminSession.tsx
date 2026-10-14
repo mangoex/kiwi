@@ -88,7 +88,9 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
         || (requested && session.active_branch.id !== requested)) {
         throw new Error('El servidor no confirmó la sucursal y las capacidades de esta sesión.');
       }
-      if (['pos.operate', 'invoicing.read', 'invoicing.issue', 'invoicing.cancel', 'invoicing.receipt.create']
+      const documentWorkspace = ['/purchases', '/expenses'].includes(location.pathname.replace(/\/+$/, '').toLowerCase())
+        && ['purchases.manage', 'expenses.manage', 'expenses.cancel'].some(code => session.admin_capabilities[code]);
+      if (documentWorkspace || ['pos.operate', 'invoicing.read', 'invoicing.issue', 'invoicing.cancel', 'invoicing.receipt.create']
         .some(code => session.admin_capabilities[code])) session = await ensureBranchWorkspace(session,workspaceRequest,token,
         body => fetchApi<AdminSession>('/auth/branch-context-reissues', {
           method:'POST',signal:controller.signal,headers:{'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify(body),
@@ -123,7 +125,7 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
       confirmedCredential.current = null;
       setState({error:error instanceof Error ? error.message : 'No se pudo validar la sesión.'});
     }
-  }, [resetQueries]);
+  }, [resetQueries, location.pathname]);
   useEffect(() => {
     void load();
     return () => { request.current?.abort(); clearBranchWorkspace(); publishAdminSession(null); };

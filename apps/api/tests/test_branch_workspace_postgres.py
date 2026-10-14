@@ -7,7 +7,9 @@ from threading import Barrier, Event, Thread
 
 import pytest
 import sqlalchemy as sa
-from restaurant_os import models
+from fastapi import HTTPException
+from restaurant_os import api, branch_workspaces, expenses, models, workspace_fences
+from restaurant_os import operations as ops
 from restaurant_os.auth import create_session_token
 from restaurant_os.branch_workspaces import (
     reissue_branch_context,
@@ -26,7 +28,9 @@ from sqlalchemy.orm import Session
 from test_branch_scope_selection import _grant_selection
 from test_corporate_purchases import SECOND_BRANCH_ID
 from test_corporate_purchases_postgres import pg_engine as pg_engine
-from test_platform_api import ADMIN_ROLE_ID, ADMIN_USER_ID, BRANCH_ID
+from test_operational_intents import _grant_permission
+from test_platform_api import ADMIN_ROLE_ID, ADMIN_USER_ID, BRANCH_ID, _admin_headers
+from test_purchase_workspace import _presentation, _purchase_payload
 
 
 @pytest.fixture
@@ -387,3 +391,274 @@ def test_human_operational_guard_holds_actor_fence_until_resource_transaction_en
                 session, ADMIN_USER_ID, BRANCH_ID, initial["branch_workspace_context"]
             )
         assert rejected.value.code == "branch_context_superseded"
+
+
+
+def _wait_for_document_lock(engine, pid, entered):
+    assert entered.wait(6), "Contender did not enter"
+    deadline = time.monotonic() + 6
+    while time.monotonic() < deadline:
+        with engine.connect() as connection:
+            wait = connection.scalar(
+                sa.text("SELECT wait_event_type FROM pg_stat_activity WHERE pid=:pid"),
+                {"pid": pid[0]},
+            )
+        if wait == "Lock":
+            return
+        time.sleep(0.025)
+    raise AssertionError("No real PostgreSQL Lock observed")
+
+def _document_confirmation(engine, family, initial):
+    with Session(engine) as session:
+        if family == "purchase":
+            supplier = ops.create_supplier(
+                session, {"code": "PG-DOC", "commercial_name": "Synthetic"}, ADMIN_USER_ID
+            )
+            presentation = ops.create_purchase_presentation(
+                session, _presentation(supplier["id"]), ADMIN_USER_ID
+            )
+            document = ops.create_purchase_document(
+                session,
+                _purchase_payload(supplier["id"], presentation["id"]),
+                ADMIN_USER_ID,
+                "pg-document-draft",
+            )
+        else:
+            for code in ("expense.concept.manage", "expenses.manage", "expenses.cancel"):
+                _grant_permission(session, code)
+            concept = expenses.command(
+                session,
+                ADMIN_USER_ID,
+                "concept.create",
+                None,
+                {"code": "PG-DOC", "name": "Synthetic", "description": "Synthetic"},
+                "pg-document-concept",
+            )
+            document = expenses.command(
+                session,
+                ADMIN_USER_ID,
+                "document.create",
+                None,
+                {
+                    "branch_id": BRANCH_ID,
+                    "concept_id": concept["id"],
+                    "document_date": "2026-10-14",
+                    "total_cents": 25000,
+                    "tax_cents": None,
+                    "payment_method": "transfer",
+                    "reference": "PG-DOCUMENT",
+                    "notes": "",
+                    "evidence_refs": [],
+                },
+                "pg-document-draft",
+            )
+
+    def write():
+        with Session(engine) as session:
+            arguments = dict(
+                session=session,
+                authorization=_admin_headers()["Authorization"],
+                branch_context=initial["branch_workspace_context"],
+            )
+            if family == "purchase":
+                return api.confirm_purchase_endpoint(
+                    purchase_id=document["id"],
+                    payload={},
+                    idempotency_key_header="pg-document-confirm",
+                    **arguments,
+                )
+            return api.expense_confirm(
+                expense_id=document["id"],
+                payload={"branch_id": BRANCH_ID, "version": document["version"]},
+                idempotency_key="pg-document-confirm",
+                **arguments,
+            )
+
+    return document, write
+
+
+def _document_effects(engine, family, target):
+    with Session(engine) as session:
+        table = models.purchase_documents if family == "purchase" else models.expense_documents
+        row = dict(session.execute(sa.select(table).where(table.c.id == target)).mappings().one())
+        tables = (
+            models.inventory_movements,
+            models.inventory_cost_states,
+            models.cash_movements,
+            models.expense_commands,
+        )
+        effects = {
+            table.name: [
+                dict(row)
+                for row in session.execute(sa.select(table).order_by(*table.primary_key)).mappings()
+            ]
+            for table in tables
+        }
+        return row, effects
+
+
+@pytest.mark.parametrize("family", ["purchase", "expense"])
+@pytest.mark.parametrize("winner", ["write", "select"])
+def test_document_confirmation_and_selection_share_transaction_fence(
+    context_engine, monkeypatch, family, winner
+):
+    engine, initial = context_engine
+    document, write = _document_confirmation(engine, family, initial)
+    before = _document_effects(engine, family, document["id"])
+    held, release, entered = Event(), Event(), Event()
+    pid, results, failures = [], {}, []
+    original_context, original_new = (
+        workspace_fences._branch_context,
+        branch_workspaces._new_workspace,
+    )
+
+    def hold_context(*args, **kwargs):
+        original_context(*args, **kwargs)
+        if winner == "write":
+            held.set()
+            assert release.wait(8), "Confirmation was not released"
+
+    def hold_selection(*args, **kwargs):
+        value = original_new(*args, **kwargs)
+        if winner == "select":
+            held.set()
+            assert release.wait(8), "Selection was not released"
+        return value
+
+    monkeypatch.setattr(workspace_fences, "_branch_context", hold_context)
+    monkeypatch.setattr(branch_workspaces, "_new_workspace", hold_selection)
+
+    def run(kind, contender=False):
+        try:
+            if kind == "write":
+                if contender:
+                    # Capture the PID of the same connection used by the real API wrapper.
+                    original_factory = (
+                        api.confirm_purchase_endpoint
+                        if family == "purchase"
+                        else api.expense_confirm
+                    )
+                    with Session(engine) as session:
+                        pid.append(session.scalar(sa.text("SELECT pg_backend_pid()")))
+                        entered.set()
+                        args = dict(
+                            session=session,
+                            authorization=_admin_headers()["Authorization"],
+                            branch_context=initial["branch_workspace_context"],
+                            payload={}
+                            if family == "purchase"
+                            else {"branch_id": BRANCH_ID, "version": document["version"]},
+                        )
+                        results[kind] = original_factory(
+                            **(
+                                {
+                                    "purchase_id": document["id"],
+                                    "idempotency_key_header": "pg-document-confirm",
+                                }
+                                if family == "purchase"
+                                else {
+                                    "expense_id": document["id"],
+                                    "idempotency_key": "pg-document-confirm",
+                                }
+                            ),
+                            **args,
+                        )
+                else:
+                    results[kind] = write()
+            else:
+                with Session(engine) as session:
+                    if contender:
+                        pid.append(session.scalar(sa.text("SELECT pg_backend_pid()")))
+                        entered.set()
+                    results[kind] = select_branch_workspace(
+                        session,
+                        ADMIN_USER_ID,
+                        {"target_branch_id": SECOND_BRANCH_ID, "expected_authorization_version": 1},
+                        "pg-document-select",
+                    )
+        except HTTPException as error:
+            results[kind] = error.detail["code"]
+        except BaseException as error:
+            failures.append(error)
+
+    loser = "select" if winner == "write" else "write"
+    first, second = Thread(target=run, args=(winner,)), Thread(target=run, args=(loser, True))
+    first.start()
+    try:
+        assert held.wait(8)
+        second.start()
+        _wait_for_document_lock(engine, pid, entered)
+        assert results == {}
+    finally:
+        release.set()
+        first.join(15)
+        if second.ident:
+            second.join(15)
+    assert not first.is_alive() and not second.is_alive()
+    assert not failures, failures
+    assert results["select"]["active_branch"]["id"] == SECOND_BRANCH_ID
+    after = _document_effects(engine, family, document["id"])
+    if winner == "write":
+        assert results["write"]["status"] == "confirmed"
+        assert after[0]["status"] == "confirmed" and after[0]["branch_id"] == BRANCH_ID
+        assert after[1] != before[1]
+    else:
+        assert results["write"] == "branch_context_superseded"
+        assert after == before
+
+
+@pytest.mark.parametrize("family", ["purchase", "expense"])
+def test_document_confirmation_commits_before_authority_version_change(
+    context_engine, monkeypatch, family
+):
+    engine, initial = context_engine
+    document, write = _document_confirmation(engine, family, initial)
+    held, release, entered = Event(), Event(), Event()
+    pid, results, failures = [], [], []
+    original = workspace_fences._branch_context
+
+    def hold(*args, **kwargs):
+        original(*args, **kwargs)
+        held.set()
+        assert release.wait(8), "Confirmation was not released"
+
+    monkeypatch.setattr(workspace_fences, "_branch_context", hold)
+
+    def confirmation():
+        try:
+            results.append(write())
+        except BaseException as error:
+            failures.append(error)
+
+    def authority():
+        try:
+            with Session(engine) as session:
+                pid.append(session.scalar(sa.text("SELECT pg_backend_pid()")))
+                entered.set()
+                ops._authority_governance_lock(session)
+                ops._bump_authority_versions(session, [ADMIN_USER_ID])
+                session.commit()
+        except BaseException as error:
+            failures.append(error)
+
+    first, second = Thread(target=confirmation), Thread(target=authority)
+    first.start()
+    try:
+        assert held.wait(8)
+        second.start()
+        _wait_for_document_lock(engine, pid, entered)
+        assert results == []
+    finally:
+        release.set()
+        first.join(15)
+        if second.ident:
+            second.join(15)
+    assert not first.is_alive() and not second.is_alive()
+    assert not failures, failures
+    assert results[0]["status"] == "confirmed"
+    before = _document_effects(engine, family, document["id"])
+    with pytest.raises(HTTPException) as rejected:
+        write()
+    assert rejected.value.status_code == 403
+    assert rejected.value.detail["code"] == "authorization_version_conflict"
+    assert _document_effects(engine, family, document["id"]) == before

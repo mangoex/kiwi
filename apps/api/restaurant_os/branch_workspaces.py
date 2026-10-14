@@ -306,6 +306,9 @@ def _reissue_branch_context(
         "invoicing.issue",
         "invoicing.cancel",
         "invoicing.receipt.create",
+        "purchases.manage",
+        "expenses.manage",
+        "expenses.cancel",
     )
     if not any(
         ops._actor_has_permission(session, actor, code, branch) for code in workspace_capabilities

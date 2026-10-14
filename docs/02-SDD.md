@@ -5150,7 +5150,11 @@ sesión y no invalida su autorización independiente ante 401, timeout o descone
 gateway elimina cualquier header de workspace central; los comandos centrales mantienen su manejo
 obligatorio de 401. Admin sin capacidades que utilicen workspace no solicita contexto operativo
 como condición para consultar/configurar su catálogo autorizado. Un actor fiscal obtiene y recupera
-su contexto con su capacidad fiscal, sin requerir permiso de operación POS.
+su contexto con su capacidad fiscal, sin requerir permiso de operación POS. Los operadores de
+compras/gastos pueden reemitir con `purchases.manage`, `expenses.manage` o `expenses.cancel`,
+con alcance autorizado vigente y sin conceder POS. Admin adquiere este contexto documental sólo
+al entrar a `/purchases` o `/expenses`; la compatibilidad de `catalog.manage` con compras no
+convierte la consulta de catálogo corporativo en una operación de sucursal.
 
 ### 58.3 Cambio operativo de sucursal
 
@@ -5210,6 +5214,23 @@ no_effect exige intención originalmente prepared sin recurso, y no se infiere d
 Cambiar sucursal o reemitir un contexto distinto exige no tener prepared/applied en ninguna sucursal.
 Rotar el mismo contexto conserva la recuperación. En el incremento histórico 0090, apertura/cierre
 y compensaciones requerían integración posterior; 0091 los incorpora como se detalla abajo.
+Compras directas y documentos de gastos cercan sus escrituras HTTP con el workspace vigente:
+crear compra, confirmar/cancelar compra; crear/editar/confirmar/cancelar gasto y resolver su comando
+de documento. La sucursal del recurso persistido es autoritativa en actualizaciones, nunca la del
+payload. La creación conserva la sucursal explícita de su contrato. Gobernanza precede actor/contexto
+y ambos permanecen en la misma transacción hasta el commit del comando existente; autorización de
+negocio y forma del cuerpo continúan en sus dominios. Falta de contexto, secreto supersedido, versión
+obsoleta, recovery_only o sucursal distinta deniegan antes de efectos; la auditoría usa actor/branch
+persistidos o NULL y no conserva secretos/key/cuerpo. Catálogos corporativos de conceptos y comandos
+corporativos con destinos explícitos conservan su autoridad organizacional. Este cercado no acredita
+registro central de pendientes de estos comandos; su integración sigue en W04.
+
+Preguntas operativas del cercado: ¿por qué se denegó un documento? Auditoría authorization.denied
+con motivo y actor/sucursal válidos, sin secreto. ¿Una selección se confirmó antes de terminar la
+escritura? Verificar lineage de workspace y command log/documento bajo el actor fence. ¿Se recuperó
+un resultado financiero? El command log existente conserva su key original; ausencia de respuesta
+no autoriza cambiar sucursal ni emitir otro comando.
+
 Otros comandos operativos y pendientes offline siguen pendientes. Estos incrementos no acreditan
 el registro completo ni habilitan movilidad productiva.
 
