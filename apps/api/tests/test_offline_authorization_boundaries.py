@@ -7,7 +7,7 @@ import pytest
 import sqlalchemy as sa
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from restaurant_os import api as api_module
-from restaurant_os import models, operations
+from restaurant_os import models, offline_authorization, operations
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from test_branch_workspace_authority import _reissue, _select
@@ -110,7 +110,9 @@ def test_expiration_keeps_last_valid_integer_second_blocked(
     with factory() as session:
         expiry = session.scalar(sa.select(models.offline_authorization_leases.c.expires_at))
     expiry = expiry.replace(tzinfo=UTC) if expiry.tzinfo is None else expiry
-    monkeypatch.setattr(operations, "_now", lambda: expiry + timedelta(seconds=seconds))
+    monkeypatch.setattr(
+        offline_authorization, "authority_now", lambda: expiry + timedelta(seconds=seconds)
+    )
     response = _select(client, headers, BRANCH_ID)
     assert response.status_code == (409 if blocked else 200), response.text
     if blocked:

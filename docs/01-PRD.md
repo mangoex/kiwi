@@ -1277,7 +1277,11 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
   secretos planos ni revivir autoridad revocada; una versión monotónica impide que una respuesta de
   reemisión tardía reemplace el secreto más nuevo. Al desactivar movilidad, un contexto no base con
   pendientes entra a `recovery_only`: sólo cierra/recupera el estado existente y rechaza operaciones
-  nuevas hasta completar el drenado o aplicar corrección hacia adelante.
+  nuevas hasta completar el drenado o aplicar corrección hacia adelante. La adopción de una
+  organización existente exige retiro verificado de emisores sin registro, confirmado de forma
+  explícita por autoridad organizacional protegida. El servidor inicia un drenado conservador de
+  dos horas desde esa confirmación; una migración o tabla vacía no acredita preparación. La misma
+  intención recupera su acuse sin reiniciar el plazo, y ninguna adopción fabrica versiones legacy.
 - `PRD-FR-268`: Supervisor, Administrador y Dueño con `staff.branch.reassign` deben poder reasignar de
   forma explícita un Cajero o Cajero jefe a otra sucursal activa autorizada. La operación recibe la
   versión observada y una clave de idempotencia, bloquea las asignaciones afectadas y cambia en una

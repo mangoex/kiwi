@@ -186,12 +186,15 @@ def test_prepare_serializes_on_observed_pg_lock_and_preserves_one_intention(
             models.fiscal_command_outbox,
             models.offline_authorization_rollouts,
             models.offline_authorization_leases,
+            models.offline_authorization_cutovers,
         )
         before = {
             table.name: [dict(row) for row in connection.execute(sa.select(table)).mappings()]
             for table in retained_tables
         }
         assert before[models.offline_authorization_rollouts.name]
+        head_before = connection.scalar(sa.text("SELECT version_num FROM alembic_version"))
+        assert head_before == "0089_offline_cutovers"
     # All sessions are closed before Alembic needs a DDL lock.
     url = pg_engine.url.render_as_string(hide_password=False)
     pg_engine.dispose()
@@ -199,10 +202,7 @@ def test_prepare_serializes_on_observed_pg_lock_and_preserves_one_intention(
     # Head includes the seeded clean-install rollout: 0088 must preserve that evidence first.
     assert blocked.returncode != 0 and "0088 downgrade blocked" in blocked.stderr
     with pg_engine.connect() as connection:
-        assert (
-            connection.scalar(sa.text("SELECT version_num FROM alembic_version"))
-            == "0088_offline_authorization"
-        )
+        assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == head_before
         for table in retained_tables:
             assert [dict(row) for row in connection.execute(sa.select(table)).mappings()] == (
                 before[table.name]

@@ -16,6 +16,7 @@ try:
     from datetime import UTC, datetime
 except ImportError:
     from datetime import datetime, timezone
+
     UTC = timezone.utc
 from hashlib import sha256
 from typing import Any, Literal
@@ -68,6 +69,16 @@ _counter: ContextVar[int] = ContextVar("order_execution_counter", default=0)
 _authorization_denials: ContextVar[list[dict[str, Any]] | None] = ContextVar(
     "order_execution_authorization_denials", default=None
 )
+
+
+@contextmanager
+def without_order_execution_context() -> Iterator[None]:
+    """Keep administrative timestamps and identifiers independent of order acceptance."""
+    context_token = _context.set(None)
+    try:
+        yield
+    finally:
+        _context.reset(context_token)
 
 
 @contextmanager

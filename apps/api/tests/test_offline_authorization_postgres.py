@@ -269,6 +269,142 @@ def test_signed_reconciliation_fence_retained_until_commit(
 UTC = timezone.utc
 
 
+@pytest.mark.parametrize("winner", ["cutover", "grant"])
+def test_cutover_and_issuer_hold_observed_governance_fence(context_engine, monkeypatch, winner):
+    from restaurant_os.offline_adoption import prepare_offline_adoption
+    from test_fiscal_command_postgres import _postgres_alembic
+
+    engine, initial = context_engine
+    device = _device(engine)
+    issuer = Ed25519PrivateKey.generate()
+    monkeypatch.setattr(ops, "_offline_grant_signing_material", lambda: (issuer, "synthetic"))
+    with Session(engine) as session:
+        assert (
+            session.scalar(sa.text("SELECT version_num FROM alembic_version"))
+            == "0089_offline_cutovers"
+        )
+        assert {
+            c["name"] for c in sa.inspect(engine).get_columns("offline_authorization_cutovers")
+        } == set(models.offline_authorization_cutovers.c.keys())
+        session.execute(
+            models.offline_authorization_rollouts.update().values(
+                state="unprepared",
+                registration_started_at=None,
+                legacy_drain_until=None,
+            )
+        )
+        session.commit()
+    reached, released, entered = Event(), Event(), Event()
+    loser_pid = []
+    audit = ops._audit
+    action = (
+        "auth.offline_adoption_prepared" if winner == "cutover" else "auth.offline_grant_registered"
+    )
+
+    def hold(session, *args, **kwargs):
+        actual = kwargs.get("action") or (args[0] if args else None)
+        if actual == action:
+            reached.set()
+            assert released.wait(timeout=10)
+        return audit(session, *args, **kwargs)
+
+    monkeypatch.setattr(ops, "_audit", hold)
+
+    def run(kind, losing=False):
+        with Session(engine) as session:
+            if losing:
+                loser_pid.append(session.scalar(sa.text("SELECT pg_backend_pid()")))
+                entered.set()
+            if kind == "cutover":
+                return prepare_offline_adoption(
+                    session,
+                    ADMIN_USER_ID,
+                    {
+                        "retired_unregistered_issuers": True,
+                        "retirement_evidence_sha256": "a" * 64,
+                    },
+                    "pg-cutover-synthetic-001",
+                )
+            return ops.issue_offline_cash_grant(
+                session,
+                actor_user_id=ADMIN_USER_ID,
+                organization_id=ops.ORGANIZATION_ID,
+                branch_id=BRANCH_ID,
+                source_device_id=device,
+                branch_context=initial["branch_workspace_context"],
+            )
+
+    loser = "grant" if winner == "cutover" else "cutover"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(run, winner)
+        second = None
+        try:
+            assert reached.wait(timeout=8)
+            second = pool.submit(run, loser, True)
+            assert entered.wait(timeout=5)
+            observed = None
+            deadline = time.monotonic() + 6
+            while time.monotonic() < deadline:
+                with engine.connect() as observer:
+                    observed = observer.execute(
+                        sa.text(
+                            "SELECT wait_event_type,wait_event FROM pg_stat_activity WHERE pid=:pid"
+                        ),
+                        {"pid": loser_pid[0]},
+                    ).first()
+                if observed and observed[0] == "Lock":
+                    break
+                time.sleep(0.02)
+            assert observed and observed[0] == "Lock" and "advisory" in observed[1].lower()
+            assert not second.done()
+        finally:
+            released.set()
+        assert first.result(timeout=8)
+        assert second is not None and second.result(timeout=8)
+    with Session(engine) as session:
+        assert (
+            session.scalar(
+                sa.select(sa.func.count()).select_from(models.offline_authorization_cutovers)
+            )
+            == 1
+        )
+        assert (
+            session.scalar(
+                sa.select(sa.func.count()).select_from(models.offline_authorization_leases)
+            )
+            == 1
+        )
+        version = session.scalar(
+            sa.select(models.offline_authorization_leases.c.authorization_version)
+        )
+        assert version == 1
+        assert (
+            session.scalar(sa.select(models.offline_authorization_rollouts.c.state)) == "draining"
+        )
+        retained_tables = (
+            models.offline_authorization_cutovers,
+            models.offline_authorization_rollouts,
+            models.offline_authorization_leases,
+        )
+        before = {
+            table.name: [dict(row) for row in session.execute(sa.select(table)).mappings()]
+            for table in retained_tables
+        }
+    url = engine.url.render_as_string(hide_password=False)
+    engine.dispose()
+    blocked = _postgres_alembic(url, "downgrade", "0088_offline_authorization")
+    assert blocked.returncode != 0 and "0089 downgrade blocked" in blocked.stderr
+    with Session(engine) as session:
+        assert (
+            session.scalar(sa.text("SELECT version_num FROM alembic_version"))
+            == "0089_offline_cutovers"
+        )
+        for table in retained_tables:
+            assert [dict(row) for row in session.execute(sa.select(table)).mappings()] == before[
+                table.name
+            ]
+
+
 def _device(engine):
     now = datetime.now(UTC)
     device = str(uuid4())

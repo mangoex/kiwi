@@ -133,6 +133,9 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
     And el gateway autenticado recupera sólo el acuse mínimo de una intención ya confirmada
     And ese acuse no renueva permiso ni ejecuta de nuevo dinero pedidos o inventario
     And una falla de persistencia revierte la unidad y permite reintentar la misma intención
+    And preparar una organización existente exige confirmación protegida del retiro de emisores sin registro
+    And el servidor registra el cutover y drena dos horas sin inventar versiones históricas
+    And repetir exactamente esa preparación recupera su acuse sin reiniciar el plazo
 
   @PRD-FR-268
   @BDD-SC-640

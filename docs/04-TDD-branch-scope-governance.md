@@ -317,6 +317,45 @@ tokens ni IDs de actores como etiquetas de métricas.
 
 ## TDD-TC-355 Migración forward-only y compatibilidad
 
+Preparación controlada W04: `test_offline_authority_adoption.py` debe refutar actor inactivo o sin
+grant protegido, payload extra, confirmación no booleana, digest/key inválidos, fecha inyectada,
+cutover ya existente e historia inválida. Prueba importación NULL sin token duplicado, acuse exacto
+sin reiniciar plazo, auditoría/commit fallidos sin writes parciales y último segundo aún bloqueado.
+La migración del recibo requiere upgrade/re-upgrade sin readiness y downgrade sin pérdida de
+historia en SQLite y PostgreSQL; una barrera PG debe mostrar preparación contra emisor bajo el
+mismo lock de gobernanza. La certificación operacional del retiro permanece fuera de estas pruebas.
+
+Evidencia incremental de preparación: RED ocho fallos por feature ausente (43.88 s), seguido de
+siete verdes/un fallo de fixture sin grant protegido (35.16 s), corregido sin relajar autoridad.
+El gate dirigido final de cuatro módulos pasó 41 casos (142.57 s), y cinco negativos nuevos de
+key/origen pasaron focalmente (25.60 s). Se conservan los batches previos por snapshot. Las carreras
+PG preparación/emisor pasaron en ambos órdenes con Lock/advisory observado (80.64 s); la repetición
+ampliada con downgrade real 0089 y conservación de cutover/rollout/leases pasó dos casos (74.16 s).
+Dos regresiones fiscales head pasaron (89.40 s): guard 0088 sigue preservando siete tablas y head
+0089. Un filtro inicial seleccionó cero casos y no es evidencia verde. Arquitectura/trazabilidad:
+21 casos (73.71 s) y nueve repetidos después de actualizar matriz; Ruff completo y mypy83 verdes.
+CLI real sólo contra PG aislado recuperó el mismo acuse, sin nuevo cutover ni cambio del plazo.
+
+Sol independiente conservó sus RED de limpieza, reloj heredado y bootstrap CLI. Tras las
+correcciones: 17 casos propios de servicio (82.92 s), uno de aislamiento administrativo (24.81 s)
+y ocho de CLI (34.93 s), sin repetir la suite anterior ni ejecutar PG propio. El PG leído se
+identifica como recibido; dictamen sin bloqueantes en
+`output/audit-remediation/sol-offline-adoption/audit.md`. No se añaden silenciamientos/skips.
+
+Afirmación R3: sólo una confirmación protegida inicia el plazo y replay no lo reinicia; importación
+NULL no concede autoridad ni cambia el origen; fallo parcial no fabrica readiness; reloj/auditoría
+no heredan un pedido antiguo. Refutaciones: actor desactivado/sin grant, payload/key alterados,
+origen inválido después de importar uno válido, commit/audit/rollback/engine/dispose fallidos,
+contexto histórico, último segundo firmado, carreras y downgrade. Resultado focal verde; CI del
+SHA final pendiente. Residual: el operador verifica externamente el retiro de todos los emisores
+sin registro; no se certifica automáticamente ese hecho ni se ejecuta preparación productiva.
+W04 sigue parcial por registro de comandos inciertos y cobertura restante de adopción/movilidad.
+
+Preguntas operativas: ¿quién confirmó el retiro y con qué evidencia? Evento
+`auth.offline_adoption_prepared`, actor y digest, sin token ni key. ¿Cuándo termina el drenado?
+Acuse UTC con `legacy_drain_until`; la guarda conserva el último segundo. ¿El resultado es incierto?
+Código redactado y replay de la misma key/payload, sin declarar que un commit no ocurrió.
+
 SQLite y PostgreSQL aislado prueban upgrade desde la head integrada, preflight de IDs/códigos/roles,
 constraint ampliado de authority grants, defaults de `authorization_version`, índice de un workspace
 activo, registro de leases, historial de presentación con branch, seeds exactos y ausencia de
