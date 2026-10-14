@@ -129,5 +129,3 @@ install(); transport((_, number) => {
 await assert.rejects(api.fetchApi('/orders', options), error => error.code === 'operational_command_context_changed');
 assert.equal(requests.length, 1, 'Do not send a prepared command under another account');
 console.log('Durable intent transport order, lost replies and account fence verified.');
-
-await import('./test_operational_intent_handlers.mjs');

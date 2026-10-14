@@ -186,7 +186,7 @@ corregidos, 31 casos propios por batches más SDK/handlers/panel Node. Focal pos
 canónicos y HTTP legacy1P77.08s confirma replay válido/override rechazado e historia idéntica.
 La auditoría propia de historia SQLite no sustituye PostgreSQL; el PG referido es recibido.
 Ocho handlers reales extraídos por AST quedan en `test_operational_intent_handlers.mjs`, importado
-por el test SDK que CI ya ejecuta. Mypy85/Ruff/typecheck/buildPOS verdes; warning de bundle existente.
+directamente por el comando semántico de CI, sin duplicarlo desde el test SDK. Mypy85/Ruff/typecheck/buildPOS verdes; warning de bundle existente.
 Los cuatro tipos nuevos y pedido se recuperan en navegador de bundle producción1440/390 con
 workspace denegado, sin enviar dinero ni adquirir contexto; capturas en output/playwright.
 CI inicial7e95e9e/run38556274577 detectó fixture de memoria que enviaba apertura sin body/key.
@@ -195,7 +195,17 @@ en cash-lifecycle-branch-headers-node22.log; el provider aislado sí pasaba sin 
 sólo el positivo financiero para preparar/body/key/ACK y buscar los headers de la solicitud real;
 todas las negaciones de cuenta, memoria, auth/gateway siguen intactas, y se agrega orden/ID de
 intención/secreto ausente en ACK. No se atribuye el fallo a sleeps ni se modifica runtime.
-CI del SHA corregido sigue pendiente. W04 y el plan31 continúan parciales, sin ejecución productiva.
+Python CI7e95e9e:3F2044P/8 skips existentes/7 warnings1197.75s. Apertura ocultaba la negativa
+403 del lector fiscal bajo falta de intención (REDfocal1F1P14.47s): guard permiso antes de intención,
+con gobernanza primero y revalidación de ejecución conservada. El primer focal7P2F58.06s
+mostró auditoría FK inválida por permiso antes de contexto; orden final gobernanza→contexto→
+permiso→intención conserva audit branch nullable y niega antes del broker sin ampliar el helper global. Fixture de límites PG clona tipo
+con namespace derivado (doce casos positivos/negativos intactos). Handler Node queda explícito
+en package.json para satisfacer el gate existente; se retira import duplicado, no se modifica
+el gate ni sus reglas. REDarquitectura12P1F0.45s. Focal final9P54.40s; PGbounds/wrapper2P87.29s
+y wrapper real tras orden final1P42.78s, con Lock observado. Ruff/mypy85 y trazabilidad verdes.
+CI del SHA final pendiente.
+W04 y el plan31 continúan parciales, sin ejecución productiva.
 
 | Afirmación R3 caja0091 | Evidencia e intento de refutación | Resultado y riesgo residual |
 | --- | --- | --- |

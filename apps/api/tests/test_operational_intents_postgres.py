@@ -207,6 +207,7 @@ def test_migrated_key_constraint_matches_each_domain(context_engine):
                 **template,
                 "id": str(uuid4()),
                 "kind": kind,
+                "command_namespace": operational_intents.command_namespace(kind),
                 "idempotency_key": key,
                 "target_id": BRANCH_ID if kind == "payment.confirm" else None,
             }

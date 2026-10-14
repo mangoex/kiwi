@@ -5234,7 +5234,7 @@ la misma clave incluso entre actores. Pedidos/pagos conservan sus namespaces ind
 terminal; filas de tipos anteriores conservan todas sus columnas originales al volver a 0090.
 Los comandos de dominio admiten commit=False bajo owner central; default True conserva contratos
 legacy. Errores/constraints no hacen rollback/relectura dentro del owner ni confirman efectos solos.
-La guarda de apertura conserva denegaciones históricas de contexto antes de exigir intención,
+La guarda de apertura conserva denegaciones históricas de permiso y contexto antes de exigir intención,
 pero toma gobernanza antes de validar/lockear actor, en la misma transacción que el owner.
 Éxito/replay de apertura/cierre se emite después del commit del owner; un rollback no publica
 éxito financiero. Prueba corrupta de recurso devuelve evidence_conflict antes de consultar SQL.

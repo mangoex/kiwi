@@ -100,6 +100,7 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
     Then prepared y applied bloquean el cambio incluso desde otra sesión o pestaña
     And el propio actor recupera un acuse mínimo desde evidencia del servidor sin ejecutar de nuevo
     And sólo ausencia probada bajo el lock permite no_effect y rechaza un envío tardío
+    And un actor sin permiso de apertura recibe permission_denied aun cuando falta la intención
     And un replay de caja conserva el mismo cierre o compensatorio y exige autoridad vigente
     And la misma clave no prepara open y close ni create y compensate distintos en su namespace compartido
     And compensación rechaza campos extra antes del replay y conserva la identidad de la ruta

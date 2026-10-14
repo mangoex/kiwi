@@ -1972,6 +1972,7 @@ def open_current_cash_shift(
 
             _authority_governance_lock(session)
         _require_operational_workspace(session, actor_id, branch_id, branch_context)
+        authorize_branch_scope(session, actor_id, "cash.shift.open", branch_id)
         if enabled:
             from restaurant_os.operational_intents import execute_intent
 
