@@ -5202,6 +5202,42 @@ grants legacy rastreables se importan al registro y los no rastreables se drenan
 se invalidan rotando la época/clave de firma. Mientras ese preflight no llegue a cero, selección y
 reasignación permanecen deshabilitadas.
 
+El registro conserva sólo hash y bindings del grant, nunca una segunda copia del token. La versión
+de autoridad de una emisión nueva se toma del usuario bajo el lock canónico; una concesión legacy
+retenida sin evidencia de esa versión lleva `authorization_version=NULL` y procedencia explícita,
+sin inventar una versión histórica. El esquema admite caja/pedidos; un nuevo dominio requiere
+extender su registro antes de habilitar su emisión.
+
+`offline_authorization_rollouts` es evidencia organizacional del preflight. La migración crea
+`unprepared`, con inicio de registro/drenado nulos; ni una tabla vacía ni la hora de migración
+acreditan que todos los emisores antiguos se retiraron. El drenado debe partir de un cutover
+verificado y cubrir el TTL máximo de dos horas; grants de pedidos retenidos aún no registrados
+también bloquean mientras sean vigentes. La preparación incompleta o esquema ausente falla cerrado
+con `branch_offline_preflight_required`. Una instalación limpia sólo se acredita antes de cualquier
+emisión, con origen controlado; no existe una ruta ordinaria para declarar este estado desde UI.
+El registro y adopción productivos conservan autorización separada.
+
+Una revocación central no prueba que el gateway desconectado la recibió: la lease sigue bloqueando
+un destino incompatible hasta expirar. Una lease vigente de la misma sucursal no impide recuperar
+ese contexto. Una reemisión que cambie de sucursal aplica la misma guarda que selección; reemisión
+del contexto vigente y replay de una selección ya confirmada conservan su recuperación.
+
+Los emisores de caja/pedidos consultan permisos efectivos después del lock de gobernanza y actor;
+en V2 exigen el workspace actual antes de leer material de firma. PostgreSQL usa `FOR NO KEY UPDATE`
+en el actor: conserva el mutex frente a selección/mutaciones de autoridad y permite `KEY SHARE` de
+auditoría por FK, evitando el ciclo actor→sucursal contra sucursal→audit del reconciliador. Registro,
+fuente retenida de pedidos y auditoría se confirman antes de entregar el token. Errores SQL de
+preparación o commit se revierten y se traducen a `offline_authority_persistence_unavailable`, sin
+SQL, parámetros ni token en respuesta/log de aplicación. Una pérdida de confirmación tras commit no prueba que
+éste no ocurrió; no se deshace historia confirmada mediante rollback.
+Pedidos usa un reloj fresco después de adquirir locks de actor, gateway y dispositivo y revalida
+expiraciones antes de firmar; una espera no convierte el timestamp inicial del request en autoridad.
+
+El incremento del registro conserva los envelopes firmados vigentes. Su versión se liga al hash
+del token en la evidencia central, pero aún no va en el claim; el fencing de reconciliación por
+versión y la adopción controlada siguen pendientes de W04. No se habilita una organización existente
+por este incremento.
+
 `branch_selection_commands` persiste organización, actor, origen, destino, key, request hash,
 `authorization_version`, estado, resultado mínimo y UTC. Unique
 `(organization_id,actor_user_id,idempotency_key)` permite recuperar la confirmación sin convertir la

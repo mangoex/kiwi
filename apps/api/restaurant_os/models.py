@@ -7,6 +7,8 @@ from restaurant_os.fiscal_command_schema import ORDER_SCOPE_INDEX
 from restaurant_os.fiscal_command_schema import tables as fiscal_command_tables
 from restaurant_os.fiscal_emitter_schema import LEGAL_ENTITY_INDEX
 from restaurant_os.fiscal_emitter_schema import tables as fiscal_emitter_tables
+from restaurant_os.offline_authorization_schema import USER_SCOPE_INDEX
+from restaurant_os.offline_authorization_schema import tables as offline_authorization_tables
 
 metadata = sa.MetaData()
 expense_concepts, expense_documents, expense_commands = expense_tables(metadata)
@@ -215,6 +217,7 @@ users = sa.Table(
     ),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Index(USER_SCOPE_INDEX, "organization_id", "id", unique=True),
     sa.UniqueConstraint(
         "organization_id", "employee_code", name="uq_users_organization_employee_code"
     ),
@@ -3935,3 +3938,5 @@ catalog_classification_rollout_commands = sa.Table(
         "organization_id", "actor_id", "idempotency_key", name="uq_class_rollout_command"
     ),
 )
+
+offline_authorization_rollouts, offline_authorization_leases = offline_authorization_tables(metadata)

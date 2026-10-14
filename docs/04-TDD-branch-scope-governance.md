@@ -165,6 +165,59 @@ anterior no obtiene nuevos grants ni confirma comandos centrales; los comandos p
 confirmados conservan resultado e historia. La activación se bloquea mientras sobreviva un grant
 legacy no importado; el test acepta únicamente importación verificable, drenado por TTL o rotación de
 época/clave que lo invalide.
+El preflight sin preparar, ausente o con drenado pendiente bloquea selección. Un fixture de
+instalación limpia declara su procedencia antes de toda emisión; no parchea la guarda. Registrar
+caja/pedidos persiste sólo hash, bindings y versión bajo lock compartido, con auditoría atómica.
+Lease revocada sin acuse continúa bloqueando hasta TTL; lease de otra persona no bloquea al actor.
+Un grant legacy retenido con versión desconocida nunca recibe la versión actual por inferencia.
+La migración conserva tokens/historia originales, parte de `unprepared` y bloquea downgrade con
+evidencia de emisión o adopción. PostgreSQL fuerza grant contra selección y confirma que el perdedor
+revalida el estado; SQLite no acredita esos locks.
+
+Evidencia incremental W04: registro RED 4 fallas y pedidos RED 1 (`offline-authority-registry-red.xml`,
+`offline-authority-orders-red.xml`); primer GREEN 4 y segundo 5 conservados. `offline-authority-directed.xml`
+pasó 17 de registro/límites/migración y contratos legacy reales de caja/pedidos. Paridad de organización
+ajena: 2 verdes (`offline-authority-foreign-organization.xml`). `offline-authority-postgres.xml` pasó
+3 casos: emisión contra selección en ambas direcciones con `Lock/advisory` observado y auditoría FK
+compatible mientras el actor seguía bloqueado. `offline-authority-workspace-postgres.xml`: 5 verdes
+de carreras/replays existentes tras ajustar el modo del lock. Arquitectura: 32 verdes, incluidas
+negativas del verificador que ahora exige 11 módulos PG, agregando `offline_authorization` sin
+eliminar ninguno. Es evidencia focal; no prueba ejecución local de los 11 módulos.
+`offline-authority-cash-sync-first.xml` conserva 12 verdes y una falla por mock cuya firma no
+aceptaba el nuevo argumento de contexto; se amplió estrictamente y se comprueba que el transporte
+legacy sin header entregue `None`, sin cambiar guardas. `offline-authority-cash-sync-head.xml`
+pasó 25 de sync de caja y capacidad/cadena Alembic SQLite. Ruff y mypy de seis archivos verdes;
+scanner de cambios/archivos nuevos, ratchet y whitespace verdes. Dos fixtures modificados y el
+nuevo fixture de migración se registran por procedencia/ruta/hash LF exactos; no cambian reglas
+del scanner ni exclusiones de pruebas. CI del SHA definitivo del incremento pendiente.
+Revisión estática identificó timestamp de pedidos capturado antes de locks; se corrigió a reloj
+posterior a actor/gateway/dispositivo. `offline-authority-clock-current.xml`: 3 verdes, reloj t0→t3
+con recurso expirando en t2; prohíbe leer signer y deja cero grants para gateway, bundle y device.
+Sol ejecutó los mismos tres y dos refutaciones propias de iat/registro/dedup con reloj posterior;
+sin RED histórico fabricado ni repetición PG innecesaria. Mypy de dos módulos y Ruff verdes tras
+este ajuste. Esto no acredita clocks o logs de infraestructura productiva.
+`offline-authority-clock-positive.xml`: 6 verdes de registro y recorrido HTTP legacy tras usar
+el reloj fresco; Sol agregó 2 positivas propias de timestamp y deduplicación.
+
+Sol independiente cerró un bloqueante de exposición SQL/token en commit: su RED y repetición
+original GREEN se conservan en `output/audit-remediation/sol-offline-authority/AUDIT.md`. Registro,
+permisos mínimos, depósito sin retiro, TTL, deduplicación, denegación FK nullable y migración se
+refutaron con 22 casos propios, 6 de migración y 2 adicionales de organización ajena verdes. El
+reporte conserva sus errores de fixture y el batch que cargó código durante una edición; no se
+presenta como una corrida completa verde. PG recibido se distingue de sus ejecuciones propias.
+
+Afirmación: grant y selección no confirman autoridad incompatible, y un fallo previo al commit no
+publica token ni persistencia parcial. Refutación: ambos ganadores bajo barrera/espera PG observada,
+insert de audit seguido de error y commit con marcador sintético sensible; resultado verde. Riesgo
+residual: no hay revocación inmediata del dispositivo desconectado, ni prueba de commit realmente
+confirmado con respuesta perdida. Claim firmado de versión, reconciliación, adopción controlada y
+registro de comandos inciertos/reconciliación local aún pendientes; W04 permanece parcial.
+
+Preguntas operativas: ¿qué concesión impide seleccionar y hasta cuándo? Estado/timestamps del
+preflight y leases incompatibles por actor responden sin mostrar token. ¿Cada emisión tiene
+evidencia y audit confirmados? Correlacionar lease ID/evento/source grant. ¿Se deniega por contexto
+obsoleto? Agrupar `authorization.denied` por permission `offline.grant` y reason. No usar secretos,
+tokens ni IDs de actores como etiquetas de métricas.
 
 ## TDD-TC-355 Migración forward-only y compatibilidad
 

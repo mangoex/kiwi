@@ -7602,6 +7602,13 @@ def _seed(session: Session) -> None:
             }
         ],
     )
+    if sa.inspect(session.connection()).has_table("offline_authorization_rollouts"):
+        # Test-only clean installation: organization was created above before any grant issuance.
+        # Upgrade tests preserve the migration's unprepared state instead of using this bootstrap.
+        session.execute(models.offline_authorization_rollouts.insert().values(
+            organization_id=organization_id, state="clean_install",
+            registration_started_at=now, legacy_drain_until=now, created_at=now,
+        ))
     session.execute(
         legal_entities.insert(),
         [

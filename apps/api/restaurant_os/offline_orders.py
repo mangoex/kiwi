@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import secrets
+from collections.abc import Callable
 
 try:
     from datetime import UTC, datetime, timedelta
@@ -23,6 +24,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
 )
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
@@ -373,12 +375,68 @@ def issue_order_grant(
     bundle_id: str,
     lease_epoch: int,
     capabilities: list[str],
-    private_key: Ed25519PrivateKey | bytes | str,
-    kid: str,
-    now: datetime,
+    private_key: Ed25519PrivateKey | bytes | str | None,
+    kid: str | None,
+    now: datetime | None,
+    branch_context: str | None = None,
+    signing_material: Callable[[], tuple[Ed25519PrivateKey, str]] | None = None,
+) -> dict[str, Any]:
+    try:
+        result = _issue_order_grant(
+            session, organization_id=organization_id, branch_id=branch_id,
+            source_device_id=source_device_id, actor_id=actor_id, bundle_id=bundle_id,
+            lease_epoch=lease_epoch, capabilities=capabilities, private_key=private_key,
+            kid=kid, now=now, branch_context=branch_context, signing_material=signing_material,
+        )
+        session.commit()
+        return result
+    except SQLAlchemyError:
+        session.rollback()
+        raise BusinessError(
+            "offline_authority_persistence_unavailable",
+            "Offline authority evidence could not be retained",
+        ) from None
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _issue_order_grant(
+    session: Session,
+    *,
+    organization_id: str,
+    branch_id: str,
+    source_device_id: str,
+    actor_id: str,
+    bundle_id: str,
+    lease_epoch: int,
+    capabilities: list[str],
+    private_key: Ed25519PrivateKey | bytes | str | None,
+    kid: str | None,
+    now: datetime | None,
+    branch_context: str | None,
+    signing_material: Callable[[], tuple[Ed25519PrivateKey, str]] | None,
 ) -> dict[str, Any]:
     """Issue and retain a two-hour signed grant after checking lease and bundle identity."""
-    issued_at = _utc(now)
+    from restaurant_os import operations as ops
+    from restaurant_os.offline_authorization import existing_grant, lock_grant_actor, register_grant
+
+    version, registered = lock_grant_actor(
+        session, actor_id, organization_id, branch_id, branch_context
+    )
+    if type(lease_epoch) is not int or not 1 <= lease_epoch <= 2147483647:
+        raise BusinessError("offline_order_grant_invalid", "Order lease epoch is invalid")
+    if (
+        not isinstance(capabilities, list) or not capabilities
+        or any(capability not in ALLOWED_GRANT_CAPABILITIES for capability in capabilities)
+    ):
+        raise BusinessError("offline_order_grant_invalid", "Order grant capabilities are invalid")
+    capabilities = sorted({capability for capability in capabilities
+                           if ops._actor_has_permission(session, actor_id, capability, branch_id)})
+    if not capabilities:
+        ops.require_permission(session, actor_id, "orders.create", branch_id)
+        raise BusinessError("permission_denied", "Actor has no offline order capabilities")
+    issued_at = _utc(now) if now is not None else ops._now()
     lease = _require_active_lease(
         session,
         organization_id=organization_id,
@@ -401,6 +459,22 @@ def issue_order_grant(
     )
     if bundle is None or _stored_utc(bundle["expires_at"]) <= issued_at:
         raise BusinessError("offline_order_bundle_unavailable", "Retained bundle is unavailable")
+    device = session.execute(sa.select(models.device_credentials).where(
+        models.device_credentials.c.id == source_device_id,
+        models.device_credentials.c.organization_id == organization_id,
+        models.device_credentials.c.branch_id == branch_id,
+        models.device_credentials.c.capability == "gateway.sync",
+        models.device_credentials.c.revoked_at.is_(None),
+    ).with_for_update(key_share=True)).mappings().first()
+    # Refresh the API clock after actor, gateway branch and device locks.
+    # Explicit clocks remain available for deterministic internal verification.
+    issued_at = _utc(now) if now is not None else ops._now()
+    if _stored_utc(lease["expires_at"]) <= issued_at:
+        raise BusinessError("offline_gateway_lease_invalid", "Gateway lease is invalid")
+    if _stored_utc(bundle["expires_at"]) <= issued_at:
+        raise BusinessError("offline_order_bundle_unavailable", "Retained bundle is unavailable")
+    if not device or not device["expires_at"] or _stored_utc(device["expires_at"]) <= issued_at:
+        raise BusinessError("gateway_device_inactive", "Gateway device is not active")
     if (
         not isinstance(capabilities, list)
         or not capabilities
@@ -425,10 +499,22 @@ def issue_order_grant(
         "iat": int(issued_at.timestamp()),
         "exp": int(expires_at.timestamp()),
     }
+    if signing_material is not None:
+        private_key, kid = signing_material()
+    if private_key is None or not isinstance(kid, str) or not kid:
+        raise BusinessError(
+            "offline_grant_configuration_invalid", "Grant signing configuration is unavailable"
+        )
     token = _sign_grant(claims, private_key, kid=kid)
+    if registered and existing_grant(
+        session, actor=actor_id, branch=branch_id, kind="orders", token=token, version=version,
+        device_id=source_device_id, bundle_id=bundle_id, epoch=lease_epoch,
+    ):
+        return {"grant": token, "expires_at": expires_at}
+    source_grant_id = str(uuid4())
     session.execute(
         models.offline_order_grants.insert().values(
-            id=str(uuid4()),
+            id=source_grant_id,
             organization_id=organization_id,
             branch_id=branch_id,
             device_id=source_device_id,
@@ -442,6 +528,14 @@ def issue_order_grant(
             expires_at=expires_at,
         )
     )
+    if registered:
+        register_grant(
+            session, actor=actor_id, branch=branch_id, kind="orders", token=token,
+            version=version, device_id=source_device_id, bundle_id=bundle_id,
+            epoch=lease_epoch, source_grant_id=source_grant_id,
+            issued_at=datetime.fromtimestamp(claims["iat"], UTC),
+            expires_at=datetime.fromtimestamp(claims["exp"], UTC),
+        )
     return {"grant": token, "expires_at": expires_at}
 
 

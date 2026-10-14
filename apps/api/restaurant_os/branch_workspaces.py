@@ -92,7 +92,8 @@ def _lock_actor(session: Session, actor: str) -> None:
                 models.users.c.organization_id == ops.ORGANIZATION_ID,
                 models.users.c.id == actor,
             )
-            .with_for_update()
+            # NO KEY UPDATE conflicts with authority mutations but permits FK audit writers.
+            .with_for_update(key_share=True)
         )
         .mappings()
         .first()
@@ -313,6 +314,9 @@ def _reissue_branch_context(
     if row and not (old or requested) and row["branch_id"] != branch:
         # A changed authority version must not turn first emission into a branch-switch bypass.
         _assert_no_open_shift(session, actor)
+        from restaurant_os.offline_authorization import assert_transition_allowed
+
+        assert_transition_allowed(session, actor, branch)
     issued = (
         _rotate(session, row)
         if row and (old or requested)
@@ -423,6 +427,9 @@ def _select_branch_workspace(
             "branch_context_mismatch", "Source branch is not the canonical workspace"
         )
     _assert_no_open_shift(session, actor)
+    from restaurant_os.offline_authorization import assert_transition_allowed
+
+    assert_transition_allowed(session, actor, target)
     command_id = ops._id()
     session.execute(
         models.branch_selection_commands.insert().values(
