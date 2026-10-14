@@ -45,3 +45,6 @@ locks reales de importación frente a selección/revocación y conservar cero ef
 BDD-SC-694: upgrade/downgrade vacío SQLite/PostgreSQL desde0091, FKs scopes/hash/estado/unique,
 downgrade bloqueado con historia y mismas filas tras el intento. Integrar módulo PG obligatorio
 en CI/collection/JUnit, ausenciaURL gate no aprobado; no apagar otras suites ni relajar verifier.
+Las regresiones de historia0087..0091 conservan sus targets, mensajes de rechazo y snapshots;
+las comparaciones de head después de upgrade/rollback transaccional se actualizan explícitamente
+a0092. La cadena sigue teniendo un único head, y SQLite debe recorrer el historial completo.
