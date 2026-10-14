@@ -141,7 +141,17 @@ en 543.14 s. Browser del Admin compilado: perfiles documentales válidos con per
 header de contexto vigente, catálogo corporativo sin reemisión y snapshots visibles en 1440/390,
 sin pageerror. El primer fixture browser omitió read y luego devolvió [] en una lista paginada de
 gastos: no acredita QA; corregido a items/next_cursor y agregada aserción de ausencia de pageerror.
-CI final y publicación se registran en PUBLICATION/execution.
+Primera CI f414d60/run38571663719: un fallo, 2081 aprobadas, ocho skips existentes y siete warnings
+en 1697.80 s; frontend/Docker/políticas/dependencias verdes. El caso fiscal «config-only» retenía
+admin.manage/catalog.manage, que proyectan purchases.manage; su reemisión 200 era legítima por ese
+permiso documental. Se aisló el rol de ambos casos fiscales antes de otorgar sólo el permiso
+necesario: configuración estricta conserva 403, lector fiscal sin aliases obtiene contexto sin POS.
+Se agregó el positivo configuración corporativa+catalog alias: contexto documental 200 y facturas
+403, sin conceder POS ni lectura fiscal. Dirigidas locales: dos aprobadas en 18.18 s y alias
+aprobado en 10.90 s; el intento del alias con permission.code duplicado sólo fue fallo del fixture.
+Probes independientes: tres aprobadas en 12.01 s, incluidos ambos aliases admin/catalog y todos
+los comandos/lecturas fiscales denegados, cero PAC y facturas intactas. No cambió runtime ni se
+relajó un negative. CI del SHA corregido y publicación se registran en PUBLICATION/execution.
 
 `test_branch_workspace_route_guard.py` recorre humanos de KDS, impresión y sincronización:
 falta de contexto, branch cruzado y secreto supersedido rechazan antes de consultar el recurso;
