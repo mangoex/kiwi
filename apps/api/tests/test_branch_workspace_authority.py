@@ -126,6 +126,95 @@ def test_old_selection_cannot_revive_after_switch_back(workspace):
     )
 
 
+def test_each_selection_replay_audits_rotation_without_secret(workspace):
+    client, fixture, factory, headers = workspace
+    initial = _reissue(client, headers).json()
+    selected = _select(client, headers, BRANCH_ID).json()
+    replays = [_select(client, headers, BRANCH_ID).json() for _ in range(2)]
+    assert [result["branch_workspace_secret_version"] for result in replays] == [2, 3]
+    with factory() as session:
+        command = session.execute(sa.select(models.branch_selection_commands)).mappings().one()
+        audits = (
+            session.execute(
+                sa.select(models.audit_events).where(
+                    models.audit_events.c.action == "auth.branch_context_reissued",
+                    models.audit_events.c.entity_id == selected["branch_workspace_context_id"],
+                )
+            )
+            .mappings()
+            .all()
+        )
+        assert len(audits) == 2
+        assert {audit["payload"]["secret_version"] for audit in audits} == {2, 3}
+        for audit in audits:
+            assert audit["actor_user_id"] == fixture["supervisor_id"]
+            assert audit["branch_id"] == BRANCH_ID
+            assert audit["payload"]["authorization_version"] == 1
+            assert audit["payload"]["selection_command_id"] == command["id"]
+            assert audit["payload"]["reason"] == "selection_replay"
+        persisted = str(session.execute(sa.select(models.audit_events)).mappings().all())
+        for result in [initial, selected, *replays]:
+            assert result["branch_workspace_context"] not in persisted
+        assert "workspace-select-qa" not in persisted
+
+
+@pytest.mark.parametrize(
+    "operation", ["selection", "selection_replay", "reissue", "reissue_replay"]
+)
+def test_workspace_command_owns_rollback_after_partial_audit(workspace, monkeypatch, operation):
+    from restaurant_os import operations
+    from restaurant_os.branch_workspaces import reissue_branch_context, select_branch_workspace
+
+    client, fixture, factory, headers = workspace
+    if operation != "reissue":
+        assert _reissue(client, headers).status_code == 200
+    if operation == "selection_replay":
+        assert _select(client, headers, BRANCH_ID).status_code == 200
+    tables = (
+        models.branch_workspace_sessions,
+        models.branch_selection_commands,
+        models.branch_context_reissue_commands,
+        models.audit_events,
+    )
+
+    def snapshot(session):
+        return [
+            [dict(row) for row in session.execute(sa.select(table).order_by(table.c.id)).mappings()]
+            for table in tables
+        ]
+
+    with factory() as session:
+        before = snapshot(session)
+    original_audit = operations._audit
+
+    def fail_after_audit(*args, **kwargs):
+        original_audit(*args, **kwargs)
+        raise RuntimeError("injected-partial-workspace-audit")
+
+    monkeypatch.setattr(operations, "_audit", fail_after_audit)
+    with factory() as session:
+        with pytest.raises(RuntimeError, match="injected-partial-workspace-audit"):
+            if operation.startswith("selection"):
+                select_branch_workspace(
+                    session,
+                    fixture["supervisor_id"],
+                    {"target_branch_id": BRANCH_ID, "expected_authorization_version": 1},
+                    "workspace-select-qa"
+                    if operation.endswith("replay")
+                    else "workspace-new-selection",
+                )
+            else:
+                reissue_branch_context(
+                    session,
+                    fixture["supervisor_id"],
+                    {"context_id": None, "expected_authorization_version": 1},
+                    "workspace-initial-qa",
+                )
+        assert not session.in_transaction()
+        session.commit()
+        assert snapshot(session) == before
+
+
 def test_owner_without_home_must_select_instead_of_first_branch(workspace):
     from test_platform_api import ADMIN_ROLE_ID
 
@@ -326,7 +415,8 @@ def test_late_audit_failure_rolls_back_selection_and_secret(workspace, monkeypat
                 },
                 "workspace-rollback-injected",
             )
-        session.rollback()
+        assert not session.in_transaction()
+        session.commit()
     with factory() as session:
         row = session.execute(sa.select(models.branch_workspace_sessions)).mappings().one()
         assert row["id"] == initial["branch_workspace_context_id"]

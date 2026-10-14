@@ -5174,6 +5174,13 @@ autenticado rota su secreto y devuelve B sin exigir el token A ya supersedido. S
 a C, el contexto fue revocado, la versión cambió o perdió autoridad, devuelve
 `idempotent_result_superseded`/`permission_denied` y no revive B.
 
+Cada secreto reemitido, incluido el replay de una selección, registra
+`auth.branch_context_reissued` sobre el contexto con actor, sucursal y versiones, sin secreto ni
+idempotency key. El replay añade el ID del comando de selección y motivo `selection_replay`.
+Auditoría, rotación y respuesta se confirman en la misma transacción. Selección y reemisión son
+fronteras transaccionales: ante una excepción ejecutan rollback antes de propagarla; el caller
+no puede confirmar accidentalmente un contexto o una auditoría parciales tras capturar el error.
+
 Tras éxito, el cliente cancela consultas, desmonta formularios, limpia sólo concesiones offline
 incompatibles y publica la sesión devuelta. Carritos y borradores permanecen almacenados bajo
 usuario+sucursal+caja, sin viajar al destino; una captura activa exige confirmación de abandono y se

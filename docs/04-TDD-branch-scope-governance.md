@@ -74,6 +74,12 @@ intentos impide recuperar el resultado como nueva autorización. Una respuesta A
 con el mismo actor/key sólo si B continúa como contexto activo del comando; el replay rota un secreto
 nuevo sin exigir A. Tras recarga, `POST /auth/branch-context-reissues` recupera el contexto vigente
 sin secreto persistido; contexto/versión/permiso cambiados deniegan y nunca reviven B.
+Cada replay de selección registra su rotación con versiones y lineage del comando, sin secreto ni
+idempotency key. La regresión inserta auditoría y luego inyecta una excepción en selección,
+reemisión y ambos replays; exige rollback propiedad del servicio y reutiliza la misma sesión para
+commit sin rollback manual, comparando contextos, commands y auditoría exactos. PostgreSQL fuerza
+dos replays de selección concurrentes y verifica una auditoría por versión, un solo contexto y
+rechazo del secreto anterior.
 Dos reemisiones concurrentes fuerzan respuestas v3→v2: el frontend aplica fencing por context ID y
 `branch_workspace_secret_version`, conserva v3, descarta v2 y no emite ninguna operación con el
 secreto tardío ya inválido.
@@ -113,6 +119,33 @@ dominio ante rechazo. FK activas prueban auditabilidad de actor/sucursal inexist
 Cambiar permisos invalida el contexto anterior y un contexto reemitido no restaura la capacidad
 retirada. La carrera PostgreSQL de `OperationalRouteGuard` observa wait_event de selección
 esperando al actor y verifica que el recurso conserva A hasta terminar su transacción.
+
+Evidencia del incremento de auditoría de replay: `workspace-replay-audit-red.xml` conserva cinco
+fallas esperadas (cero auditorías en replay y ausencia de rollback propio en cuatro caminos).
+`workspace-replay-audit-current.xml`: 41 verdes de autoridad, selección y rutas; la prueba previa de
+fallo de auditoría ahora también confirma sin rollback manual y pasó por separado
+(`workspace-replay-audit-existing-rollback.xml`, 1 verde).
+`workspace-replay-audit-postgres.xml`: 1 verde de dos replays concurrentes, versiones 2/3 con
+auditorías ligadas al mismo comando, un contexto y rechazo de v2. Mypy de un archivo, Ruff, nueve
+pruebas de trazabilidad, scanner, ratchet de diff y whitespace verdes. Auditoría Sol independiente
+cerrada sin bloqueantes: 30 pruebas canónicas y cuatro refutaciones propias (20 fallos inyectados,
+lineage/privacidad, denegación confirmada y matriz de autoridad) verdes. El primer intento de su
+matriz exigía incorrectamente ausencia de toda auditoría de denegación; su reporte conserva la
+corrección y la repetición verde, sin atribuir ese error al runtime. Reporte:
+`output/audit-remediation/sol-workspace-replay/AUDIT.md`. CI del SHA definitivo pendiente;
+esta evidencia no completa W02/W04.
+
+Afirmación: cada replay exitoso conserva causalidad y privacidad de su rotación, y un error previo
+al commit no deja una operación parcial. Refutación: dos replays, fallo después del INSERT de
+auditoría y commit posterior en la misma sesión; resultado verde SQLite/PostgreSQL focal.
+Riesgo residual: pérdida de confirmación de un commit requiere recuperar con la misma key; rollback
+no deshace un commit que el servidor ya confirmó. La auditoría no prueba salud del dispositivo ni
+los bloqueadores offline/comandos inciertos todavía pendientes.
+
+Preguntas operativas: ¿por qué cambió la versión del secreto? Consultar el evento por contexto,
+versiones y `selection_command_id`, sin secretos ni keys. ¿Se confirmó una operación cuya respuesta
+se perdió? Recuperar por el mismo actor/key y comprobar contexto vigente/lineage del command log;
+un error o ausencia de respuesta no autoriza otra selección ni prueba ausencia de commit.
 
 ## TDD-TC-353 Reasignación transaccional y auditable
 

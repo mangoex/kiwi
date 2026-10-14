@@ -82,6 +82,10 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
     Then el backend rechaza la operación aunque el payload declare una sucursal autorizada
     When la selección A hacia B sí confirmó pero su respuesta se perdió
     Then un replay autenticado con la misma clave recupera B y rota un secreto nuevo si B sigue vigente
+    And cada rotación registra actor sucursal versiones y comando de selección sin secreto ni clave de replay
+    When falla la auditoría de selección reemisión o replay después de insertar un evento parcial
+    Then el servicio revierte contexto command log y evento antes de devolver el error
+    And capturar el error y confirmar la sesión posteriormente no persiste la operación fallida
     And una recarga puede reemitir el contexto vigente sin persistir ni revelar el secreto anterior
     And si cambió versión permiso o contexto el replay no revive B
     When dos reemisiones responden fuera de orden

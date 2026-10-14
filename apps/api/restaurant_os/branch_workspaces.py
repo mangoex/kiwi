@@ -243,6 +243,19 @@ def reissue_branch_context(
     payload: dict[str, Any],
     idempotency_key: str | None,
 ) -> dict[str, Any]:
+    try:
+        return _reissue_branch_context(session, actor, payload, idempotency_key)
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _reissue_branch_context(
+    session: Session,
+    actor: str,
+    payload: dict[str, Any],
+    idempotency_key: str | None,
+) -> dict[str, Any]:
     if set(payload) != {"context_id", "expected_authorization_version"}:
         raise ops.BusinessError(
             "branch_context_payload_invalid", "Context reissue payload is invalid"
@@ -338,6 +351,19 @@ def select_branch_workspace(
     payload: dict[str, Any],
     idempotency_key: str | None,
 ) -> dict[str, Any]:
+    try:
+        return _select_branch_workspace(session, actor, payload, idempotency_key)
+    except Exception:
+        session.rollback()
+        raise
+
+
+def _select_branch_workspace(
+    session: Session,
+    actor: str,
+    payload: dict[str, Any],
+    idempotency_key: str | None,
+) -> dict[str, Any]:
     if not get_settings().branch_scope_v2_enabled:
         raise ops.BusinessError("branch_scope_v2_disabled", "Workspace transitions are disabled")
     required = {"target_branch_id", "expected_authorization_version"}
@@ -373,7 +399,22 @@ def select_branch_workspace(
             raise ops.BusinessError("idempotency_conflict", "Idempotency-Key was already used")
         context_id = str(old["result"].get("context_id") or "")
         live = _live_result(row, context_id, version)
-        result = _issued_profile(session, actor, _rotate(session, live))
+        issued = _rotate(session, live)
+        ops._audit(
+            session,
+            action="auth.branch_context_reissued",
+            entity_type="branch_workspace",
+            entity_id=issued[0],
+            payload={
+                "authorization_version": version,
+                "secret_version": issued[2],
+                "selection_command_id": str(old["id"]),
+                "reason": "selection_replay",
+            },
+            branch_id=str(live["branch_id"]),
+            actor_user_id=actor,
+        )
+        result = _issued_profile(session, actor, issued)
         session.commit()
         return result
     source = str(profile["active_branch"]["id"]) if profile["active_branch"] else None

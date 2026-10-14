@@ -68,7 +68,12 @@
         "output/audit-remediation/sol-workspace/AUDIT.md",
         "output/audit-remediation/workspace-operational-routes-current.xml",
         "output/audit-remediation/workspace-operational-race-postgres.xml",
-        "output/audit-remediation/workspace-operational-legacy-current.xml"
+        "output/audit-remediation/workspace-operational-legacy-current.xml",
+        "output/audit-remediation/workspace-replay-audit-red.xml",
+        "output/audit-remediation/workspace-replay-audit-current.xml",
+        "output/audit-remediation/workspace-replay-audit-existing-rollback.xml",
+        "output/audit-remediation/workspace-replay-audit-postgres.xml",
+        "output/audit-remediation/sol-workspace-replay/AUDIT.md"
       ]
     },
     {
@@ -951,6 +956,7 @@
     "D04: credit_receipt_confirmation"
   ],
   "review_status": {
+    "workspace_replay_audit": "Independent R3 audit closed without blockers;30 canonical and4 independent green,20 injected faults. Own SQLite and received PostgreSQL distinguished; W02/W04 remain partial.",
     "corporate_allocation_and_ui": "independent_findings_corrected",
     "authority_mutations": "independent_findings_corrected",
     "workspace_durable_and_cash_open": "independent_findings_corrected_cash_kds_print_sync_reviewed_remaining_routes_pending",
@@ -965,6 +971,7 @@
     "fiscal_history": "Independent scope audit closed: mobile-portability scope leak refuted and corrected;29 refutations plus76 directed green; login/UI without active branch not certified"
   },
   "latest_local_evidence": {
+    "workspace_replay_audit": "Replay audits each rotation without secret/key; select/reissue own rollback before propagating Exception. RED5 expected, directed41 + existing rollback1 + PostgreSQL race1 passed. Ruff/mypy1/traceability9/scanner/diff-ratchet/whitespace green. Independent audit closed:30 canonical,4 refutations/20 fault injections green; auditor's initial denial-audit expectation failure retained separately. Final SHA CI pending; W02/W04 remain partial.",
     "authority": "9 boundary tests passed; PostgreSQL shared-role barrier passed",
     "ui": "blank input, token switched before click, response lost/reload exact replay, stale replay detail, two tabs and failed refresh passed with synthetic API",
     "traceability": "9 passed",
