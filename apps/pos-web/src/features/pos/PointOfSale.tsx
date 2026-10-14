@@ -1504,6 +1504,7 @@ const PointOfSale = () => {
       setCheckoutState('idle');
     } catch (err) {
       if (err instanceof ApiError && err.status >= 400 && err.status < 500
+        && !err.operationalIntentPending
         && err.status !== 401 && !/(idempotency|conflict|unknown|gateway)/.test(err.code)) {
         clearPendingCheckout(checkoutIntent.key);
         checkoutIntentRef.current = null;

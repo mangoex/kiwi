@@ -39,9 +39,10 @@ export function clearPaymentAttempt(storage: StorageAccess, expectedKey?: string
 /** Only definite domain rejections allow a corrected intention. Conflicts stay recoverable. */
 export function paymentWasDefinitelyRejected(error: unknown): boolean {
   if (!error || typeof error !== 'object' || !('code' in error)) return false;
+  if ('operationalIntentPending' in error && error.operationalIntentPending === true) return false;
   return ['cash_received_invalid', 'cash_received_insufficient', 'payment_total_mismatch',
     'invalid_payment_method', 'invalid_payment_amount', 'register_id_required',
-    'cash_shift_not_open', 'order_already_closed', 'order_cancelled',
+    'cash_shift_not_open', 'order_already_closed', 'order_cancelled', 'operational_command_terminal',
   ].includes(String(error.code));
 }
 

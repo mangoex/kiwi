@@ -1282,6 +1282,10 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
   explícita por autoridad organizacional protegida. El servidor inicia un drenado conservador de
   dos horas desde esa confirmación; una migración o tabla vacía no acredita preparación. La misma
   intención recupera su acuse sin reiniciar el plazo, y ninguna adopción fabrica versiones legacy.
+  Los comandos centrales de pedido, pago y caja se registran antes de enviarse. Un resultado
+  incierto se resuelve con evidencia durable del servidor, nunca por una casilla del cliente ni
+  por vencimiento. El actor autenticado puede recuperar su acuse mínimo aunque perdió el permiso
+  de ejecutar; la recuperación no autoriza nuevos efectos ni expone el contenido financiero.
 - `PRD-FR-268`: Supervisor, Administrador y Dueño con `staff.branch.reassign` deben poder reasignar de
   forma explícita un Cajero o Cajero jefe a otra sucursal activa autorizada. La operación recibe la
   versión observada y una clave de idempotencia, bloquea las asignaciones afectadas y cambia en una

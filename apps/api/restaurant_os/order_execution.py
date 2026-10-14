@@ -66,6 +66,7 @@ class ExecutionContext:
 
 _context: ContextVar[ExecutionContext | None] = ContextVar("order_execution_context", default=None)
 _counter: ContextVar[int] = ContextVar("order_execution_counter", default=0)
+_central_denial_owner: ContextVar[bool] = ContextVar("central_denial_owner", default=False)
 _authorization_denials: ContextVar[list[dict[str, Any]] | None] = ContextVar(
     "order_execution_authorization_denials", default=None
 )
@@ -94,19 +95,23 @@ def order_execution_context(context: ExecutionContext) -> Iterator[ExecutionCont
 
 
 @contextmanager
-def defer_authorization_audit() -> Iterator[list[dict[str, Any]]]:
+def defer_authorization_audit(*, central_owner: bool = False) -> Iterator[list[dict[str, Any]]]:
     """Collect offline authorization denials for the owning transaction boundary.
 
     An offline command can be part of an outbox/inbox unit of work.  Its domain
     authorization check must never roll back or commit that owner transaction.
     The caller consumes the yielded records only after its savepoint decision.
+    A trusted central intent boundary opts in explicitly; ordinary central callers
+    retain the existing immediate denial-audit behavior.
     """
     records: list[dict[str, Any]] = []
     token = _authorization_denials.set(records)
+    owner_token = _central_denial_owner.set(central_owner)
     try:
         yield records
     finally:
         _authorization_denials.reset(token)
+        _central_denial_owner.reset(owner_token)
 
 
 def defer_authorization_denial(
@@ -119,7 +124,8 @@ def defer_authorization_denial(
     """Record an offline denial without taking ownership of the session."""
     context = current_execution_context()
     records = _authorization_denials.get()
-    if context is None or context.execution_mode != "offline_reconcile" or records is None:
+    offline_owner = context is not None and context.execution_mode == "offline_reconcile"
+    if records is None or not (offline_owner or _central_denial_owner.get()):
         return False
     records.append(
         {

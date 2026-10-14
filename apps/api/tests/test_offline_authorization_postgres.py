@@ -281,7 +281,7 @@ def test_cutover_and_issuer_hold_observed_governance_fence(context_engine, monke
     with Session(engine) as session:
         assert (
             session.scalar(sa.text("SELECT version_num FROM alembic_version"))
-            == "0089_offline_cutovers"
+            == "0090_operational_intents"
         )
         assert {
             c["name"] for c in sa.inspect(engine).get_columns("offline_authorization_cutovers")
@@ -385,6 +385,7 @@ def test_cutover_and_issuer_hold_observed_governance_fence(context_engine, monke
             models.offline_authorization_cutovers,
             models.offline_authorization_rollouts,
             models.offline_authorization_leases,
+            models.operational_command_intents,
         )
         before = {
             table.name: [dict(row) for row in session.execute(sa.select(table)).mappings()]
@@ -397,7 +398,7 @@ def test_cutover_and_issuer_hold_observed_governance_fence(context_engine, monke
     with Session(engine) as session:
         assert (
             session.scalar(sa.text("SELECT version_num FROM alembic_version"))
-            == "0089_offline_cutovers"
+            == "0090_operational_intents"
         )
         for table in retained_tables:
             assert [dict(row) for row in session.execute(sa.select(table)).mappings()] == before[

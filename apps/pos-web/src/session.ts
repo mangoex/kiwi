@@ -261,7 +261,9 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
         setState({
           status: 'error',
           message:
-            err.status === 403
+            err.code === 'branch_switch_uncertain_command'
+              ? 'Recupera las operaciones pendientes para continuar con tu sucursal.'
+              : err.status === 403
               ? 'Tu cuenta no tiene acceso a esta operación.'
               : err.message,
           statusCode: err.status,
@@ -322,9 +324,15 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
           clearBranchSelectionIntent(state.session);
         }
         if (request.current === controller && credential === currentCredential()) {
-          if (error instanceof ApiError && error.code === 'branch_switch_open_shift'
+          const blockers: Record<string, string> = {
+            branch_switch_open_shift: 'No puedes cambiar de sucursal mientras tu turno está abierto. Continúa y ciérralo aquí.',
+            branch_switch_uncertain_command: 'Recupera el resultado de las operaciones pendientes antes de cambiar de sucursal.',
+            branch_switch_offline_grant: 'La autorización offline de esta sucursal sigue vigente. Espera su drenado antes de cambiar.',
+            branch_switch_pending_reconciliation: 'Sincroniza las operaciones locales pendientes antes de cambiar de sucursal.',
+          };
+          if (error instanceof ApiError && blockers[error.code]
             && hydrateBranchWorkspace(state.session,ticket,currentCredential())) {
-            setState({...state,validating:false,notice:'No puedes cambiar de sucursal mientras tu turno está abierto. Continúa y ciérralo aquí.'});
+            setState({...state,validating:false,notice:blockers[error.code]});
           } else {
             setState({status:'error',message:'No se confirmó el cambio de sucursal. Reintenta para recuperar el mismo comando.',statusCode:error instanceof ApiError ? error.status : 0});
           }

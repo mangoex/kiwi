@@ -5169,6 +5169,49 @@ Un bloqueador devuelve 409 y un código estable (`branch_switch_open_shift`,
 `branch_switch_pending_reconciliation`) sin cambiar la sesión. El replay idéntico devuelve la misma
 respuesta; reutilizar la clave con otro destino o versión devuelve `idempotency_conflict`.
 
+Registro central de comandos inciertos: `operational_command_intents` (0090) conserva identidad
+organización/actor/sucursal/contexto/versión, tipo, clave idempotente y hash del request, sin cuerpo,
+token, secreto ni snapshot financiero. `prepared` bloquea transiciones desde antes del envío;
+`applied` también bloquea hasta recuperar el resultado. `acknowledged` y `no_effect` son terminales.
+No se resuelve por TTL ni por confirmación de ausencia aportada por el navegador. Preparación,
+ejecución, recuperación y selección usan gobernanza → actor → intención → dominio. La intención
+prepared se confirma previamente; applied y evidencia del comando de dominio se confirman juntos.
+Un commit o rollback interno del dominio rompe ese contrato y se rechaza. El downgrade 0090
+rechaza eliminar cualquier intención, incluidas las terminales, para conservar historia.
+
+El incremento inicial integra POST `/orders`, `/orders/{id}/payments` y `/cash/movements`.
+Con workspace V2 esas rutas exigen `X-Operational-Intent`; no existe fallback tras error.
+POST `/operational-intents` recibe kind, target_id y payload del comando con su Idempotency-Key;
+revalida capacidad/contexto vigente y almacena sólo hash/bindings.
+La clave conserva la normalización strip del dominio: caja admite 1–180 caracteres y pedidos/pagos
+12–160. El CHECK de 0090 discrimina por tipo; el SDK valida los mismos límites después de trim.
+La autoridad de caja normaliza sucursal y tipo de movimiento como el dominio, sin modificar el
+cuerpo original ni su hash. No se amplían los límites de pedidos/pagos.
+Un request previo de dominio
+con esa clave exige su recuperación legacy, sin fabricar ausencia. El cliente prepara primero,
+envía exactamente el mismo cuerpo/clave y recupera después de leer la respuesta. Si una fase
+falla, conserva la intención. El endpoint `/operational-intents/{id}/resolve` sólo permite al actor
+activo autenticado recuperar su propia intención: applied exige command log y recurso canónico
+coherentes; prepared sólo pasa a no_effect bajo el lock y sin evidencia de dominio. Una ejecución
+que llega después de no_effect se rechaza. La lectura de pendientes no revela claves/cuerpos ni
+resultados financieros. Recuperación mínima no usa secreto de workspace ni capacidad financiera;
+ejecutar/repetir una respuesta completa sí revalida autoridad vigente. Los errores SQL/limpieza
+devuelven `operational_command_persistence_unavailable` redactado, sin afirmar ausencia de efectos.
+El ingreso de preparación usa el límite canónico de workspace de 262144 bytes antes de parsear
+o autenticar; los acuses/listas propios usan Cache-Control no-store. El owner central difiere
+auditorías de denegación explícitamente y las confirma después del rollback del dominio, sin
+liberar su fence para confirmar un efecto parcial. El default del reconciliador offline se conserva.
+El cliente marca una intención pendiente ante errores de preparación/envío/lectura/contexto:
+no borra el checkout/pago ni dispara un envío alternativo al gateway. Un fallo del housekeeping
+de ACK no convierte una respuesta financiera conocida en ausencia. El panel de recuperación está
+disponible también sin contexto operativo o permiso POS; liga handlers/respuestas a cuenta y
+generación del render. Sólo acuses terminales coherentes de la misma identidad liberan la fila;
+no_effect exige intención originalmente prepared sin recurso, y no se infiere de un else genérico.
+Cambiar sucursal o reemitir un contexto distinto exige no tener prepared/applied en ninguna sucursal.
+Rotar el mismo contexto conserva la recuperación. Apertura/cierre de turnos, compensaciones,
+otros comandos operativos y pendientes offline requieren integración posterior; este incremento
+no acredita el registro completo ni habilita movilidad productiva.
+
 Selección, reemisión de contexto, emisión de concesión offline y reasignación toman el mismo lock canónico del usuario. Una
 selección exitosa supersede el contexto activo y crea uno nuevo antes de confirmar el command log;
 por ello dos selecciones concurrentes sólo dejan un contexto activo. Al reejecutar un comando

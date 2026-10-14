@@ -581,6 +581,59 @@ def _require_operational_workspace(
         raise
 
 
+@router.post("/operational-intents")
+def prepare_operational_intent(
+    payload: dict[str, Any],
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.operational_intents import prepare_intent
+
+    response.headers["Cache-Control"] = "no-store"
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: prepare_intent(
+            session,
+            actor,
+            payload,
+            request.headers.get("Idempotency-Key"),
+            request.headers.get("X-Branch-Context"),
+        )
+    )
+
+
+@router.get("/operational-intents")
+def pending_operational_intents(
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    from restaurant_os.operational_intents import list_pending
+
+    response.headers["Cache-Control"] = "no-store"
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: list_pending(session, actor))
+
+
+@router.post("/operational-intents/{intent_id}/resolve")
+def resolve_operational_intent(
+    intent_id: str,
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.operational_intents import recover_intent
+
+    response.headers["Cache-Control"] = "no-store"
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: recover_intent(session, actor, intent_id))
+
+
 @router.get("/platform/bootstrap-status")
 def get_bootstrap_status(
     session: SessionDep,
@@ -2874,21 +2927,40 @@ def create_order(
         if not idempotency_key and not is_test_actor_header:
             raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
         authorized_branch_id = authorize_branch_scope(session, actor_id, "orders.create", branch_id)
-        return create_local_order(
-            session,
-            lines,
-            owner_name,
-            order_type,
-            authorized_branch_id,
-            register_id,
-            actor_id,
-            customer_id,
-            delivery_address_id,
-            payment_method_intent,
-            driver_id,
-            adjustment_authorization_id,
-            idempotency_key,
-        )
+
+        def execute() -> dict[str, Any]:
+            return create_local_order(
+                session,
+                lines,
+                owner_name,
+                order_type,
+                authorized_branch_id,
+                register_id,
+                actor_id,
+                customer_id,
+                delivery_address_id,
+                payment_method_intent,
+                driver_id,
+                adjustment_authorization_id,
+                idempotency_key,
+                commit=not settings.branch_scope_v2_enabled,
+            )
+
+        if settings.branch_scope_v2_enabled:
+            from restaurant_os.operational_intents import execute_intent
+
+            return execute_intent(
+                session,
+                actor_id,
+                request.headers.get("X-Operational-Intent"),
+                "order.create",
+                None,
+                payload,
+                idempotency_key,
+                request.headers.get("X-Branch-Context"),
+                execute,
+            )
+        return execute()
 
     return _business_response(operation)
 
@@ -3435,16 +3507,39 @@ def create_order_payment(
         )
         if not idempotency_key and not is_test_actor_header:
             raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
-        return pay_order(
-            session,
-            order_id,
-            amount_cents,
-            method,
-            actor_id,
-            register_id,
-            idempotency_key=idempotency_key,
-            **({"received_cash": payload["received_cash"]} if "received_cash" in payload else {}),
-        )
+
+        def execute() -> dict[str, Any]:
+            return pay_order(
+                session,
+                order_id,
+                amount_cents,
+                method,
+                actor_id,
+                register_id,
+                idempotency_key=idempotency_key,
+                commit=not settings.branch_scope_v2_enabled,
+                **(
+                    {"received_cash": payload["received_cash"]}
+                    if "received_cash" in payload
+                    else {}
+                ),
+            )
+
+        if settings.branch_scope_v2_enabled:
+            from restaurant_os.operational_intents import execute_intent
+
+            return execute_intent(
+                session,
+                actor_id,
+                request.headers.get("X-Operational-Intent"),
+                "payment.confirm",
+                order_id,
+                payload,
+                idempotency_key,
+                request.headers.get("X-Branch-Context"),
+                execute,
+            )
+        return execute()
 
     return _business_response(operation)
 
@@ -4064,6 +4159,7 @@ def _business_response(operation: Callable[[], ResponseT]) -> ResponseT:
             "public_order_rate_limited": 429,
             "public_order_schema_invalid": 422,
             "offline_reconciliation_persistence_unavailable": 503,
+            "operational_command_persistence_unavailable": 503,
         }.get(exc.code, 409)
         raise HTTPException(
             status_code=status_code,
@@ -6206,15 +6302,39 @@ def post_cash_concept_archive(
 @router.post("/cash/movements")
 def post_cash_movement(
     payload: dict[str, Any],
+    request: Request,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: create_cash_movement(session, payload, idempotency_key or "", actor_id)
-    )
+
+    def operation() -> dict[str, Any]:
+        enabled = get_settings().branch_scope_v2_enabled
+
+        def execute() -> dict[str, Any]:
+            return create_cash_movement(
+                session, payload, idempotency_key or "", actor_id, commit=not enabled
+            )
+
+        if enabled:
+            from restaurant_os.operational_intents import execute_intent
+
+            return execute_intent(
+                session,
+                actor_id,
+                request.headers.get("X-Operational-Intent"),
+                "cash.movement.create",
+                None,
+                payload,
+                idempotency_key,
+                request.headers.get("X-Branch-Context"),
+                execute,
+            )
+        return execute()
+
+    return _business_response(operation)
 
 
 @router.post("/cash/movements/{movement_id}/compensations")

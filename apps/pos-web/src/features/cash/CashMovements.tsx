@@ -1,5 +1,5 @@
 import React, { useEffect, useReducer, useState } from 'react';
-import { ApiError, fetchApi } from '@restaurantos/api-client';
+import { ApiError, fetchApi, hasPendingOperationalIntent } from '@restaurantos/api-client';
 import { resolvePosBranchId, usePosSession } from '../../session';
 import {
   Wallet,
@@ -256,7 +256,11 @@ export default function CashMovements() {
       setAmount(''); setConceptText(''); setReference(''); setEvidence(''); setKey(null);
       setStatus(refreshed ? 'Movimiento confirmado exitosamente.' : 'Movimiento confirmado; actualiza el ledger.');
     } catch (error) {
-      if (error instanceof ApiError && error.code === 'idempotency_conflict') {
+      if (hasPendingOperationalIntent(error)) {
+        setStatus('Recupera el resultado del servidor antes de cambiar la intención o enviarla al gateway.');
+      } else if (error instanceof ApiError && error.code === 'operational_command_terminal') {
+        setKey(null); setStatus('El servidor confirmó que no hubo efecto. Puedes enviar una intención nueva.');
+      } else if (error instanceof ApiError && error.code === 'idempotency_conflict') {
         setKey(null); setStatus('La solicitud cambió y fue rechazada; genera una nueva intención.');
       } else if (
         (!(error instanceof ApiError) || error.status >= 500)
