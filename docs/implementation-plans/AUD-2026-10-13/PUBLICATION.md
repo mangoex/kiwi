@@ -147,3 +147,17 @@ La configuración cifrada continúa requiriendo el keyring explícito del primer
 Comprobar salud, recuperación de sesión y lectura fiscal permitida; no emitir CFDI para
 validar este incremento privado. Conservar el SHA desplegado y los códigos de rechazo.
 El redeploy, las migraciones y la configuración productivos quedan a cargo del usuario.
+
+## Cierre Git del segundo paquete
+
+PR 69 integrada en `main` como `c81193d`; su árbol coincide exactamente con el SHA probado
+`3685598`. CI [38501465928](https://github.com/mangoex/kiwi/actions/runs/38501465928)
+terminó en success: 1895 pruebas verdes, ocho skips existentes y siete warnings en 1444.02 s.
+El verificador confirmó 67 casos ejecutados entre los once módulos PostgreSQL obligatorios;
+mypy81, Ruff, frontend completo, Docker, políticas y dependencias aprobaron. El run final
+no necesitó reprise de frontend; los fallos anteriores permanecen arriba y en TDD.
+
+Este cierre actualiza sólo la guía y la referencia de evidencia en `execution.json` (R0),
+sin cambiar runtime ni el estado de las 31 tareas. No sustituye los límites del segundo
+paquete: esquema 0088 requerido, organizaciones existentes unprepared, adopción offline
+y cierre fiscal aún pendientes. CI acredita el código integrado; producción no fue modificada.
