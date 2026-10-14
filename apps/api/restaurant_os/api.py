@@ -4281,17 +4281,20 @@ async def post_supplier_xml_original(
 ) -> dict[str, Any]:
     from restaurant_os import supplier_xml_imports as xml
     from restaurant_os.supplier_xml_upload import read_original
+    from starlette.concurrency import run_in_threadpool
     actor = _required_actor_from_request(actor_user_id, authorization)
-    _supplier_xml_response(lambda: xml.authorize_capture(session, actor, str(branch_id), branch_context))
-    session.rollback()  # No database locks are held while accepting request bytes.
+    def preflight() -> None:
+        xml.authorize_capture(session, actor, str(branch_id), branch_context)
+        session.rollback()  # No database locks are held while accepting request bytes.
+    await run_in_threadpool(lambda: _supplier_xml_response(preflight))
     try:
         original = await read_original(request)
     except BusinessError as error:
         raise HTTPException(status_code=413 if error.code == "xml_size_exceeded" else 422,
                             detail={"code": error.code, "message": error.message}) from None
-    return _supplier_xml_response(lambda: xml.capture_original(
+    return await run_in_threadpool(lambda: _supplier_xml_response(lambda: xml.capture_original(
         session, actor, str(branch_id), original, idempotency_key or "", branch_context,
-    ))
+    )))
 
 
 @router.post("/purchases/xml-imports/resolve")
@@ -4301,12 +4304,15 @@ async def resolve_supplier_xml_command(
 ) -> dict[str, Any]:
     from restaurant_os.supplier_xml_imports import resolve_command
     from restaurant_os.supplier_xml_upload import require_empty_body
+    from starlette.concurrency import run_in_threadpool
     actor = _required_actor_from_request(actor_user_id, authorization)
     try:
         await require_empty_body(request)
     except BusinessError as error:
         raise HTTPException(status_code=422, detail={"code": error.code, "message": error.message}) from None
-    return _supplier_xml_response(lambda: resolve_command(session, actor, idempotency_key or ""))
+    return await run_in_threadpool(
+        lambda: _supplier_xml_response(lambda: resolve_command(session, actor, idempotency_key or ""))
+    )
 
 
 @router.get("/purchases/xml-imports/{import_id}")

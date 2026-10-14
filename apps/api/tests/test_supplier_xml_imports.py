@@ -308,6 +308,39 @@ def test_anonymous_xml_is_rejected_before_body_receive(client):
     assert received == []
 
 
+def test_async_upload_runs_database_operations_outside_event_loop(client, monkeypatch):
+    api = service()
+    operations = []
+
+    def worker_only(operation, name):
+        def execute(*args, **kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                operations.append(name)
+                return operation(*args, **kwargs)
+            raise AssertionError("Synchronous database operation blocks the ASGI event loop")
+
+        return execute
+
+    monkeypatch.setattr(api, "authorize_capture", worker_only(api.authorize_capture, "authorize"))
+    monkeypatch.setattr(api, "capture_original", worker_only(api.capture_original, "capture"))
+    monkeypatch.setattr(api, "resolve_command", worker_only(api.resolve_command, "resolve"))
+    key = "threadpool-command"
+    result = client.post(
+        f"/api/v1/purchases/xml-imports/branches/{BRANCH_ID}",
+        content=SOURCE,
+        headers={**_admin_headers(), "Content-Type": "application/xml", "Idempotency-Key": key},
+    )
+    assert result.status_code == 200, result.text
+    result = client.post(
+        "/api/v1/purchases/xml-imports/resolve",
+        headers={**_admin_headers(), "Idempotency-Key": key},
+    )
+    assert result.status_code == 200
+    assert "authorize" in operations and "capture" in operations and "resolve" in operations
+
+
 def test_header_resolve_sql_fault_is_private(client, engine, caplog):
     key = "private-command-sentinel"
     with Session(engine) as session:
@@ -469,6 +502,7 @@ def test_read_and_resolve_require_actual_resource_authority(engine, reason):
                 )
             )
             from test_operational_intents import _grant_permission
+
             _grant_permission(session, "invoicing.config.manage")
         else:
             session.execute(

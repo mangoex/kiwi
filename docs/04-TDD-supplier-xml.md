@@ -35,7 +35,9 @@ Cipher fiscal64KiB y fixtures originales siguen verdes.
 ### TDD-TC-396 Autoridad y concurrencia real
 
 BDD-SC-693: preflight antes de lectura, MIME/compresión/size/deadline/UTF16DTD negativos;
-contexto cambiado durante upload y dos imports UUID/key concurrentes. PostgreSQL debe observar
+contexto cambiado durante upload y dos imports UUID/key concurrentes. Instrumentar operaciones SQL
+de rutas async: se ejecutan fuera del event loop, sin compartir Session simultáneamente.
+PostgreSQL debe observar
 locks reales de importación frente a selección/revocación y conservar cero efectos contables.
 
 ### TDD-TC-397 Migración e historia

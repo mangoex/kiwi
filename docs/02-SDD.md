@@ -6497,6 +6497,10 @@ Ruta POST `/api/v1/purchases/xml-imports/branches/{branch_id}` recibe XML crudo 
 sin compresión, con Idempotency-Key y bearer/contexto. Preflight autoriza sin retener locks durante
 la lectura: cuerpo máximo1MiB y deadline total5s, luego dominio reautoriza antes de efectos.
 Una selección/revocación durante la carga impide persistencia con contexto anterior.
+Las operaciones SQL síncronas de preflight (incluido rollback), captura y resolve se ejecutan
+en worker del framework, sin bloquear el event loop ASGI por una espera de locks. Cada Session
+se usa secuencialmente: nunca comparte operaciones concurrentes y la lectura de red empieza
+después de liberar la transacción previa.
 POST `/api/v1/purchases/xml-imports/resolve` recibe Idempotency-Key en cabecera y cuerpo vacío,
 y recupera el resultado terminal
 del actor/organización bajo permiso actual del recurso; funciona con captura apagada, sin
