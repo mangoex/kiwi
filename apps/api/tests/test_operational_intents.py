@@ -476,7 +476,15 @@ def test_lost_result_after_real_commit_recovers_applied_without_duplicate_effect
         assert session.scalar(sa.select(sa.func.count()).select_from(models.orders)) == 1
 
 
-def test_real_cash_movement_and_intent_share_commit_and_replay(operational):
+@pytest.mark.parametrize(
+    "key,movement_type",
+    [
+        ("uncertain-real-movement-001", "withdrawal"),
+        ("x", "withdrawal"),
+        ("x" * 180, " WITHDRAWAL "),
+    ],
+)
+def test_real_cash_movement_and_intent_share_commit_and_replay(operational, key, movement_type):
     from test_cash_concepts import _concept_payload
     from test_cash_ledger import _movement_payload
 
@@ -488,8 +496,8 @@ def test_real_cash_movement_and_intent_share_commit_and_replay(operational):
         concept = ops.create_cash_concept(
             session, _concept_payload(), "uncertain-concept-001", ADMIN_USER_ID
         )
-    body = _movement_payload(concept["id"])
-    key = "uncertain-real-movement-001"
+    body = _movement_payload(concept["id"], movement_type=movement_type)
+    body["branch_id"] = f" {BRANCH_ID} "
     receipt = _prepare_command(client, headers, "cash.movement.create", body, key)
     command_headers = {**headers, "Idempotency-Key": key, "X-Operational-Intent": receipt["id"]}
     result = client.post("/api/v1/cash/movements", headers=command_headers, json=body)
@@ -506,3 +514,36 @@ def test_real_cash_movement_and_intent_share_commit_and_replay(operational):
         )
     recovered = client.post(f"/api/v1/operational-intents/{receipt['id']}/resolve", headers=headers)
     assert recovered.status_code == 200 and recovered.json()["state"] == "acknowledged"
+
+
+@pytest.mark.parametrize(
+    "kind,key",
+    [
+        ("cash.movement.create", " "),
+        ("cash.movement.create", "x" * 181),
+        ("order.create", "x"),
+        ("order.create", "x" * 161),
+        ("payment.confirm", "x"),
+        ("payment.confirm", "x" * 161),
+    ],
+)
+def test_command_key_limits_remain_specific_to_domain(kind, key):
+    from restaurant_os.operational_intents import _identity
+
+    target = BRANCH_ID if kind == "payment.confirm" else None
+    with pytest.raises(ops.BusinessError) as error:
+        _identity(kind, target, {}, key)
+    assert error.value.code == "idempotency_key_invalid"
+
+
+def test_cash_key_normalization_preserves_original_request_hash():
+    from restaurant_os.operational_intents import _identity
+
+    key, digest = _identity("cash.movement.create", None, {"movement_type": " WITHDRAWAL "}, " x ")
+    assert key == "x"
+    assert (
+        digest == _identity("cash.movement.create", None, {"movement_type": " WITHDRAWAL "}, "x")[1]
+    )
+    assert (
+        digest != _identity("cash.movement.create", None, {"movement_type": "withdrawal"}, "x")[1]
+    )

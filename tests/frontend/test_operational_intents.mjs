@@ -51,6 +51,27 @@ assert.equal(requests[1].init.body, options.body);
 assert.equal(requests[1].headers.get('Idempotency-Key'), options.headers['Idempotency-Key']);
 assert.equal(requests[2].headers.get('X-Branch-Context'), null, 'Minimum recovery never renews workspace authority');
 
+for (const key of ['x', 'x'.repeat(180), '\u00a0x\u00a0']) {
+  install();
+  const cashReceipt = {...receipt, kind:'cash.movement.create'};
+  transport((_, number) => new Response(JSON.stringify(number === 1 ? cashReceipt
+    : number === 2 ? {movement:{id:uuid(6)}} : {...cashReceipt,state:'acknowledged',resource_id:uuid(6)})));
+  await api.fetchApi('/cash/movements', {method:'POST', headers:{'Idempotency-Key':key},
+    body:JSON.stringify({branch_id:uuid(3),register_id:'CAJA-01',movement_type:'withdrawal',
+      concept_id:uuid(7),amount_cents:100,reference:'synthetic',evidence_refs:['synthetic']})});
+  assert.equal(requests[1].headers.get('Idempotency-Key'), key);
+  assert.equal(requests[0].headers.get('Idempotency-Key'), key.trim());
+}
+
+for (const [endpoint, key] of [['/cash/movements', 'x'.repeat(181)], ['/cash/movements', ' '],
+  ['/orders', 'x'], ['/orders', 'x'.repeat(161)], [`/orders/${uuid(6)}/payments`, 'x'],
+  [`/orders/${uuid(6)}/payments`, 'x'.repeat(161)]]) {
+  install(); transport(() => {throw new Error('Invalid key must not reach transport');});
+  await assert.rejects(api.fetchApi(endpoint, {...options, headers:{'Idempotency-Key':key}}),
+    error => error.code === 'operational_command_required' && !api.hasPendingOperationalIntent(error));
+  assert.equal(requests.length, 0);
+}
+
 for (const lostPhase of [1, 2]) {
   install(); transport((_, number) => {
     if (number === lostPhase) throw new TypeError('Synthetic lost response');

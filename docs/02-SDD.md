@@ -5182,7 +5182,12 @@ rechaza eliminar cualquier intención, incluidas las terminales, para conservar 
 El incremento inicial integra POST `/orders`, `/orders/{id}/payments` y `/cash/movements`.
 Con workspace V2 esas rutas exigen `X-Operational-Intent`; no existe fallback tras error.
 POST `/operational-intents` recibe kind, target_id y payload del comando con su Idempotency-Key;
-revalida capacidad/contexto vigente y almacena sólo hash/bindings. Un request previo de dominio
+revalida capacidad/contexto vigente y almacena sólo hash/bindings.
+La clave conserva la normalización strip del dominio: caja admite 1–180 caracteres y pedidos/pagos
+12–160. El CHECK de 0090 discrimina por tipo; el SDK valida los mismos límites después de trim.
+La autoridad de caja normaliza sucursal y tipo de movimiento como el dominio, sin modificar el
+cuerpo original ni su hash. No se amplían los límites de pedidos/pagos.
+Un request previo de dominio
 con esa clave exige su recuperación legacy, sin fabricar ausencia. El cliente prepara primero,
 envía exactamente el mismo cuerpo/clave y recupera después de leer la respuesta. Si una fase
 falla, conserva la intención. El endpoint `/operational-intents/{id}/resolve` sólo permite al actor

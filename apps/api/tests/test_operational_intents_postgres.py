@@ -7,11 +7,13 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
+from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
 from restaurant_os import branch_workspaces, models, operational_intents
 from restaurant_os import operations as ops
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
 from test_branch_workspace_postgres import context_engine as context_engine
 from test_branch_workspace_postgres import pg_engine as pg_engine
@@ -21,6 +23,49 @@ from test_platform_api import ADMIN_USER_ID, BRANCH_ID
 BODY = {"branch_id": BRANCH_ID, "lines": []}
 PREPARE = {"kind": "order.create", "target_id": None, "payload": BODY}
 KEY = "pg-operational-intent-synthetic-001"
+
+
+def test_migrated_key_constraint_matches_each_domain(context_engine):
+    engine, profile = context_engine
+    with Session(engine) as session:
+        receipt = operational_intents.prepare_intent(
+            session, ADMIN_USER_ID, PREPARE, KEY, profile["branch_workspace_context"]
+        )
+        table = models.operational_command_intents
+        template = dict(
+            session.execute(sa.select(table).where(table.c.id == receipt["id"])).mappings().one()
+        )
+        for kind, key, accepted in (
+            ("cash.movement.create", "x", True),
+            ("cash.movement.create", "x" * 180, True),
+            ("cash.movement.create", "", False),
+            ("cash.movement.create", "x" * 181, False),
+            ("order.create", "x" * 12, True),
+            ("order.create", "x" * 160, True),
+            ("order.create", "x", False),
+            ("order.create", "x" * 161, False),
+            ("payment.confirm", "x" * 12, True),
+            ("payment.confirm", "x" * 160, True),
+            ("payment.confirm", "x", False),
+            ("payment.confirm", "x" * 161, False),
+        ):
+            row = {
+                **template,
+                "id": str(uuid4()),
+                "kind": kind,
+                "idempotency_key": key,
+                "target_id": BRANCH_ID if kind == "payment.confirm" else None,
+            }
+            if accepted:
+                with session.begin_nested():
+                    session.execute(sa.insert(table).values(**row))
+            else:
+                with pytest.raises((IntegrityError, DataError)):
+                    with session.begin_nested():
+                        session.execute(sa.insert(table).values(**row))
+        session.commit()
+    with Session(engine) as session:
+        assert session.scalar(sa.select(sa.func.count()).select_from(table)) == 7
 
 
 def _wait_for_lock(engine, pid, entered):

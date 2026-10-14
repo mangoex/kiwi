@@ -74,7 +74,11 @@ def _identity(kind: str, target: object, body: dict[str, Any], key: str | None) 
         )
     if kind == "payment.confirm":
         _uuid(target)
-    if not isinstance(key, str) or not 12 <= len(key) <= 160 or key != key.strip():
+    if not isinstance(key, str):
+        raise ops.BusinessError("idempotency_key_invalid", "A stable command key is required")
+    key = key.strip()
+    minimum, maximum = (1, 180) if kind == "cash.movement.create" else (12, 160)
+    if not minimum <= len(key) <= maximum:
         raise ops.BusinessError("idempotency_key_invalid", "A stable command key is required")
     try:
         digest = hashlib.sha256(
@@ -115,12 +119,12 @@ def _authority(
         branch = body.get("branch_id")
         permission = "orders.create"
         if kind == "cash.movement.create":
-            if body.get("movement_type") not in ("deposit", "withdrawal"):
+            branch = str(body.get("branch_id", "")).strip()
+            movement_type = str(body.get("movement_type", "")).strip().lower()
+            if movement_type not in ("deposit", "withdrawal"):
                 raise ops.BusinessError("cash_movement_invalid", "Movement type is invalid")
             permission = (
-                "cash.movement.deposit"
-                if body["movement_type"] == "deposit"
-                else "cash.movement.withdraw"
+                "cash.movement.deposit" if movement_type == "deposit" else "cash.movement.withdraw"
             )
     if not isinstance(branch, str):
         raise ops.BusinessError("operational_command_payload_invalid", "Command branch is required")

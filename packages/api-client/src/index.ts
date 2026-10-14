@@ -113,8 +113,9 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}, v
     }
   };
   if (command) {
-    const key = new Headers(options.headers).get('Idempotency-Key');
-    if (!key || key.length < 12 || key.length > 160 || key !== key.trim()
+    const key = new Headers(options.headers).get('Idempotency-Key')?.trim();
+    const [minimum, maximum] = command.kind === 'cash.movement.create' ? [1, 180] : [12, 160];
+    if (!key || key.length < minimum || key.length > maximum
       || typeof options.body !== 'string') {
       throw new ApiError(409, 'operational_command_required', 'La operación necesita su clave y cuerpo originales.');
     }

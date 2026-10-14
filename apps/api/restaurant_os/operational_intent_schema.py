@@ -17,7 +17,7 @@ def table(metadata: sa.MetaData) -> sa.Table:
         sa.Column("authorization_version", sa.Integer(), nullable=False),
         sa.Column("kind", sa.String(32), nullable=False),
         sa.Column("target_id", sa.String(36)),
-        sa.Column("idempotency_key", sa.String(160), nullable=False),
+        sa.Column("idempotency_key", sa.String(180), nullable=False),
         sa.Column("request_hash", sa.String(64), nullable=False),
         sa.Column("state", sa.String(24), nullable=False),
         sa.Column("domain_command_id", sa.String(36)),
@@ -43,7 +43,9 @@ def table(metadata: sa.MetaData) -> sa.Table:
             name="ck_operational_intent_identity",
         ),
         sa.CheckConstraint(
-            "length(idempotency_key) BETWEEN 12 AND 160", name="ck_operational_intent_key"
+            "(kind = 'cash.movement.create' AND length(idempotency_key) BETWEEN 1 AND 180) OR "
+            "(kind <> 'cash.movement.create' AND length(idempotency_key) BETWEEN 12 AND 160)",
+            name="ck_operational_intent_key",
         ),
         sa.CheckConstraint(
             "kind IN ('order.create', 'payment.confirm', 'cash.movement.create')",

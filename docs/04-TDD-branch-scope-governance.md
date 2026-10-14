@@ -166,6 +166,17 @@ con applied en la misma transacción. `test_operational_intents_postgres.py` deb
 real entre preparación/ejecución/recuperación y selección. `test_operational_intents.mjs` debe
 probar orden prepare→send→resolve, respuesta perdida, cuenta/contexto cambiado y retry original.
 0090 debe conservar intención e historial ante downgrade; ninguna tabla vacía acredita adopción.
+Compatibilidad de claves: caja conserva strip/trim y 1–180 caracteres, pedidos/pagos 12–160.
+Prueba negativa de 181 en caja y 1/161 en pedidos/pagos; columna/check migrados en PostgreSQL
+aceptan únicamente los límites propios de cada tipo. Normalizar el tipo/sucursal de caja no
+normaliza el cuerpo/hash. RED de compatibilidad: caja 2F/1P23.54s y transporte Node fallido;
+corrección dirigida completa26P139.48s y Node verde. Sol detectó NBSP válido rechazado por SDK:
+se conserva RED independiente y se normaliza antes de validar, sin modificar el envío original.
+El primer ensayo PG falló al esperar IntegrityError para 181: PostgreSQL rechazó correctamente
+el varchar180 con DataError. Se conserva operational-intents-cash-key-postgres.xml; el retry
+distingue ambas clases de rechazo sin relajar aceptación ni constraints.
+Retry PostgreSQL:1P62.36s/8 deselected; doce inserciones tras Alembic head verifican positivos y
+rechazos propios por tipo, sin skips. XML operational-intents-cash-key-postgres-current.xml.
 Evidencia incremental local (sin acreditar W04 completa ni los otros comandos): RED inicial3F
 22.64s (rutas ausentes/bypass); primer verde3P19.71s. Se conservan intentos de fixtures incompletas:
 4P7E50.92s (dueño sin selección explícita),9P2F69.48s (turno ausente) y pago/caja1P1F18.60s
