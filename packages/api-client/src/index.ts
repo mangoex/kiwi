@@ -114,7 +114,7 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}, v
   };
   if (command) {
     const key = new Headers(options.headers).get('Idempotency-Key')?.trim();
-    const [minimum, maximum] = command.kind === 'cash.movement.create' ? [1, 180] : [12, 160];
+    const [minimum, maximum] = command.kind.startsWith('cash.') ? [1, 180] : [12, 160];
     if (!key || key.length < minimum || key.length > maximum
       || typeof options.body !== 'string') {
       throw new ApiError(409, 'operational_command_required', 'La operación necesita su clave y cuerpo originales.');
@@ -165,7 +165,8 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}, v
 const resourceIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export interface OperationalIntentReceipt {
   id: string;
-  kind: 'order.create' | 'payment.confirm' | 'cash.movement.create';
+  kind: 'order.create' | 'payment.confirm' | 'cash.movement.create' | 'cash.movement.compensate'
+    | 'cash.shift.open' | 'cash.shift.close' | 'cash.shift.close.register';
   branch_id: string;
   state: 'prepared' | 'applied' | 'acknowledged' | 'no_effect';
   resource_id: string | null;
@@ -173,6 +174,12 @@ export interface OperationalIntentReceipt {
 function operationalCommandIdentity(endpoint: string): {kind: OperationalIntentReceipt['kind']; target_id: string | null} | null {
   if (endpoint === '/orders') return {kind: 'order.create', target_id: null};
   if (endpoint === '/cash/movements') return {kind: 'cash.movement.create', target_id: null};
+  if (endpoint === '/cash/shifts/open' || endpoint === '/cash-shifts/open') return {kind:'cash.shift.open', target_id:null};
+  if (endpoint === '/cash-shifts/close') return {kind:'cash.shift.close.register', target_id:null};
+  const close = /^\/cash\/shifts\/([^/]+)\/close-operationally$/.exec(endpoint);
+  if (close && resourceIdPattern.test(close[1])) return {kind:'cash.shift.close', target_id:close[1]};
+  const compensate = /^\/cash\/movements\/([^/]+)\/compensations$/.exec(endpoint);
+  if (compensate && resourceIdPattern.test(compensate[1])) return {kind:'cash.movement.compensate', target_id:compensate[1]};
   const payment = /^\/orders\/([^/]+)\/payments$/.exec(endpoint);
   return payment && resourceIdPattern.test(payment[1]) ? {kind: 'payment.confirm', target_id: payment[1]} : null;
 }

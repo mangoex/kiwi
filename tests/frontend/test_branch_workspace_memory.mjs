@@ -70,12 +70,30 @@ ticket = api.beginBranchWorkspaceRequest('credential-a');
 assert.equal(api.installBranchWorkspace(profile(1),ticket,'credential-a'),true);
 const requests = [];
 globalThis.fetch = async (url, options) => {
-  requests.push({url,headers:new Headers(options.headers)});
+  requests.push({url,headers:new Headers(options.headers),body:options.body});
+  if (url === '/api/v1/operational-intents') return new Response(JSON.stringify({
+    id:uuid(9),kind:'cash.shift.open',branch_id:uuid(3),state:'prepared',resource_id:null,
+  }),{status:200});
   return new Response('{}',{status:200});
 };
-await api.fetchApi('/cash-shifts/open',{method:'POST',headers:{'x-branch-context':'form-stale-secret','authorization':'Bearer form-stale-bearer'}});
-assert.equal(requests.at(-1).headers.get('X-Branch-Context'),profile(1).branch_workspace_context);
-assert.equal(requests.at(-1).headers.get('Authorization'),'Bearer credential-a','Caller headers cannot combine a stale bearer with the confirmed credential');
+await api.fetchApi('/cash-shifts/open',{method:'POST',body:JSON.stringify({
+  branch_id:uuid(3),register_id:'QA-TRANSPORT',opening_cash_cents:0,
+}),headers:{'Idempotency-Key':'workspace-cash-open-001',
+  'x-branch-context':'form-stale-secret','authorization':'Bearer form-stale-bearer'}});
+assert.deepEqual(requests.map(request=>request.url),[
+  '/api/v1/operational-intents','/api/v1/cash-shifts/open',
+  `/api/v1/operational-intents/${uuid(9)}/resolve`,
+]);
+const financialRequest = requests.find(request=>request.url==='/api/v1/cash-shifts/open');
+assert.equal(financialRequest.headers.get('Idempotency-Key'),'workspace-cash-open-001');
+assert.equal(requests[0].headers.get('Idempotency-Key'),'workspace-cash-open-001');
+assert.deepEqual(JSON.parse(requests[0].body),{
+  kind:'cash.shift.open',target_id:null,payload:JSON.parse(financialRequest.body),
+});
+assert.equal(financialRequest.headers.get('X-Branch-Context'),profile(1).branch_workspace_context);
+assert.equal(financialRequest.headers.get('Authorization'),'Bearer credential-a','Caller headers cannot combine a stale bearer with the confirmed credential');
+assert.equal(financialRequest.headers.get('X-Operational-Intent'),uuid(9));
+assert.equal(requests.at(-1).headers.get('X-Branch-Context'),null,'Minimum ACK never transports the opaque secret');
 await api.fetchApi('/auth/session');
 assert.equal(requests.at(-1).headers.get('X-Branch-Context'),null,'Session hydration never transports the opaque secret');
 localStorage.setItem('auth_token','credential-b');

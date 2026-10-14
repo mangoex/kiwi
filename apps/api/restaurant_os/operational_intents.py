@@ -17,9 +17,25 @@ from restaurant_os import operations as ops
 from restaurant_os.branch_workspaces import _lock_actor, _uuid, validate_branch_context
 from restaurant_os.config import get_settings
 from restaurant_os.offline_authorization import authority_now, rollback_reconciliation
+from restaurant_os.operational_intent_schema import (
+    CASH_LIFECYCLE_KINDS,
+    LEGACY_KINDS,
+    command_namespace,
+)
 from restaurant_os.order_execution import defer_authorization_audit, without_order_execution_context
 
-KINDS = ("order.create", "payment.confirm", "cash.movement.create")
+KINDS = (*LEGACY_KINDS, *CASH_LIFECYCLE_KINDS)
+TARGETED_KINDS = ("payment.confirm", "cash.shift.close", "cash.movement.compensate")
+
+
+def _require_registry(session: Session) -> None:
+    inspector = sa.inspect(session.connection())
+    if not inspector.has_table("operational_command_intents") or "command_namespace" not in {
+        column["name"] for column in inspector.get_columns("operational_command_intents")
+    }:
+        raise ops.BusinessError(
+            "operational_command_migration_required", "Command registry migration is required"
+        )
 
 
 @contextmanager
@@ -39,20 +55,14 @@ def _unit(session: Session) -> Iterator[None]:
 
 
 def _lock(session: Session, actor: str) -> None:
-    if not sa.inspect(session.connection()).has_table("operational_command_intents"):
-        raise ops.BusinessError(
-            "operational_command_migration_required", "Command registry migration is required"
-        )
+    _require_registry(session)
     ops._authority_governance_lock(session)
     _lock_actor(session, actor)
 
 
 def assert_transition_allowed(session: Session, actor: str) -> None:
     # This guard participates in the caller's already-held governance/actor fence.
-    if not sa.inspect(session.connection()).has_table("operational_command_intents"):
-        raise ops.BusinessError(
-            "operational_command_migration_required", "Command registry migration is required"
-        )
+    _require_registry(session)
     if session.scalar(
         sa.select(models.operational_command_intents.c.id)
         .where(
@@ -68,16 +78,16 @@ def assert_transition_allowed(session: Session, actor: str) -> None:
 
 
 def _identity(kind: str, target: object, body: dict[str, Any], key: str | None) -> tuple[str, str]:
-    if kind not in KINDS or (kind != "payment.confirm" and target is not None):
+    if kind not in KINDS or (kind not in TARGETED_KINDS and target is not None):
         raise ops.BusinessError(
             "operational_command_payload_invalid", "Command identity is invalid"
         )
-    if kind == "payment.confirm":
+    if kind in TARGETED_KINDS:
         _uuid(target)
     if not isinstance(key, str):
         raise ops.BusinessError("idempotency_key_invalid", "A stable command key is required")
     key = key.strip()
-    minimum, maximum = (1, 180) if kind == "cash.movement.create" else (12, 160)
+    minimum, maximum = (1, 180) if kind.startswith("cash.") else (12, 160)
     if not minimum <= len(key) <= maximum:
         raise ops.BusinessError("idempotency_key_invalid", "A stable command key is required")
     try:
@@ -115,9 +125,22 @@ def _authority(
             )
         )
         permission = "payments.confirm"
+    elif kind in ("cash.shift.close", "cash.movement.compensate"):
+        source = models.cash_shifts if kind == "cash.shift.close" else models.cash_movements
+        branch = session.scalar(
+            sa.select(source.c.branch_id).where(
+                source.c.organization_id == ops.ORGANIZATION_ID, source.c.id == target
+            )
+        )
+        permission = (
+            "cash.shift.close" if kind == "cash.shift.close" else "cash.movement.compensate"
+        )
     else:
         branch = body.get("branch_id")
         permission = "orders.create"
+        if kind in ("cash.shift.open", "cash.shift.close.register"):
+            branch = str(body.get("branch_id", "")).strip()
+            permission = "cash.shift.open" if kind == "cash.shift.open" else "cash.shift.close"
         if kind == "cash.movement.create":
             branch = str(body.get("branch_id", "")).strip()
             movement_type = str(body.get("movement_type", "")).strip().lower()
@@ -146,6 +169,8 @@ def _authority(
         )
         raise
     ops.require_permission(session, actor, permission, branch)
+    if kind == "cash.movement.compensate":
+        ops._require_cash_compensation_owner(session, actor, branch)
     return workspace
 
 
@@ -158,6 +183,10 @@ def _command(session: Session, row: Mapping[str, Any]) -> Mapping[str, Any] | No
         "order.create": models.order_create_commands,
         "payment.confirm": models.payment_commands,
         "cash.movement.create": models.cash_movement_commands,
+        "cash.movement.compensate": models.cash_movement_commands,
+        "cash.shift.open": models.cash_shift_commands,
+        "cash.shift.close": models.cash_shift_commands,
+        "cash.shift.close.register": models.cash_shift_commands,
     }[row["kind"]]
     command = (
         session.execute(
@@ -181,6 +210,32 @@ def _proof(session: Session, row: Mapping[str, Any]) -> dict[str, Any]:
             resource_id = command["target_movement_id"]
             resource = models.cash_movements
             valid = command["command_type"] == "create" and command["status"] == "completed"
+        elif row["kind"] == "cash.movement.compensate":
+            result = command.get("result")
+            movement = result.get("movement") if isinstance(result, dict) else None
+            resource_id = movement.get("id") if isinstance(movement, dict) else None
+            resource = models.cash_movements
+            valid = (
+                command["command_type"] == "compensate"
+                and command["status"] == "completed"
+                and command["target_movement_id"] == row["target_id"]
+            )
+        elif row["kind"].startswith("cash.shift."):
+            result = command.get("result")
+            result = result if isinstance(result, dict) else {}
+            if row["kind"] == "cash.shift.open":
+                resource_id = command["cash_shift_id"]
+                resource = models.cash_shifts
+                valid = (
+                    command["command_type"] == "open" and result.get("cash_shift_id") == resource_id
+                )
+            else:
+                resource_id = result.get("closure_id")
+                resource = models.cash_shift_closures
+                valid = command["command_type"] == "close" and (
+                    row["target_id"] is None or command["cash_shift_id"] == row["target_id"]
+                )
+            valid = valid and command["status"] == "completed"
         elif row["kind"] == "payment.confirm":
             resource_id = command["payment_id"]
             resource = models.payments
@@ -188,6 +243,12 @@ def _proof(session: Session, row: Mapping[str, Any]) -> dict[str, Any]:
         else:
             resource_id = command["order_id"]
             resource = models.orders
+        try:
+            _uuid(resource_id)
+        except ops.BusinessError:
+            raise ops.BusinessError(
+                "operational_command_evidence_conflict", "Command resource evidence requires review"
+            ) from None
         binding = (
             session.execute(
                 sa.select(resource).where(
@@ -200,10 +261,53 @@ def _proof(session: Session, row: Mapping[str, Any]) -> dict[str, Any]:
             .first()
         )
         valid = valid and binding is not None
-        if row["kind"] != "cash.movement.create":
+        if row["kind"] in ("order.create", "payment.confirm"):
             valid = valid and command["branch_id"] == row["branch_id"]
         if row["kind"] == "payment.confirm" and binding:
             valid = valid and binding["order_id"] == row["target_id"]
+        if row["kind"] == "cash.shift.open" and binding:
+            valid = valid and binding["cashier_user_id"] == row["actor_user_id"]
+        if row["kind"] in ("cash.shift.close", "cash.shift.close.register") and binding:
+            valid = (
+                valid
+                and binding["cash_shift_id"] == command["cash_shift_id"]
+                and (binding["closed_by_user_id"] == row["actor_user_id"])
+            )
+            shift = (
+                session.execute(
+                    sa.select(models.cash_shifts).where(
+                        models.cash_shifts.c.id == command["cash_shift_id"],
+                        models.cash_shifts.c.organization_id == row["organization_id"],
+                        models.cash_shifts.c.branch_id == row["branch_id"],
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            valid = valid and shift is not None
+        if row["kind"] == "cash.movement.compensate" and binding:
+            original = (
+                session.execute(
+                    sa.select(models.cash_movements).where(
+                        models.cash_movements.c.id == row["target_id"],
+                        models.cash_movements.c.organization_id == row["organization_id"],
+                        models.cash_movements.c.branch_id == row["branch_id"],
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            valid = valid and bool(
+                original
+                and binding["compensates_movement_id"] == original["id"]
+                and binding["reversal_of_id"] == original["id"]
+                and binding["amount_cents"] == original["amount_cents"]
+                and (original["movement_type"], binding["movement_type"])
+                in (("deposit", "withdrawal"), ("withdrawal", "deposit"))
+                and original["status"] == binding["status"] == "confirmed"
+                and binding["actor_user_id"] == row["actor_user_id"]
+                and binding["cash_shift_id"] == original["cash_shift_id"]
+            )
         if row["state"] in ("applied", "acknowledged"):
             valid = valid and (
                 command["id"] == row["domain_command_id"]
@@ -250,7 +354,7 @@ def prepare_intent(
             session.execute(
                 sa.select(table).where(
                     table.c.organization_id == ops.ORGANIZATION_ID,
-                    table.c.kind == kind,
+                    table.c.command_namespace == command_namespace(kind),
                     table.c.idempotency_key == key,
                 )
             )
@@ -279,6 +383,7 @@ def prepare_intent(
             "context_id": context["id"],
             "authorization_version": context["authorization_version"],
             "kind": kind,
+            "command_namespace": command_namespace(kind),
             "target_id": target,
             "idempotency_key": key,
             "request_hash": digest,
@@ -428,6 +533,14 @@ def _execute_intent(
             )
             _audit(session, actor, row, "applied")
         session.commit()
+        if kind.startswith("cash.shift."):
+            ops._record_pco004_metric(
+                "cash_shift_open_total"
+                if kind == "cash.shift.open"
+                else "cash_shift_operational_close_total",
+                result="success" if row["state"] == "prepared" else "replay",
+                branch_id=row["branch_id"],
+            )
         return result
 
 

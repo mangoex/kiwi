@@ -516,11 +516,26 @@ def test_direct_cash_open_cannot_bypass_blocked_branch_selection(workspace, path
     client, fixture, factory, headers = workspace
     initial = _reissue(client, headers).json()
     operational_headers = {**headers, "X-Branch-Context": initial["branch_workspace_context"]}
+    prepared = client.post(
+        "/api/v1/operational-intents",
+        headers={**operational_headers, "Idempotency-Key": "workspace-open-branch-a"},
+        json={
+            "kind": "cash.shift.open",
+            "target_id": None,
+            "payload": {
+                "branch_id": fixture["branch_id"],
+                "register_id": "QA-WORKSPACE",
+                "opening_cash_cents": 0,
+            },
+        },
+    )
+    assert prepared.status_code == 200, prepared.text
     opened = client.post(
         "/api/v1" + path,
         headers={
             **operational_headers,
             "Idempotency-Key": "workspace-open-branch-a",
+            "X-Operational-Intent": prepared.json()["id"],
         },
         json={
             "branch_id": fixture["branch_id"],
@@ -529,6 +544,10 @@ def test_direct_cash_open_cannot_bypass_blocked_branch_selection(workspace, path
         },
     )
     assert opened.status_code == 200, opened.text
+    acknowledged = client.post(
+        f"/api/v1/operational-intents/{prepared.json()['id']}/resolve", headers=headers
+    )
+    assert acknowledged.status_code == 200 and acknowledged.json()["state"] == "acknowledged"
     blocked = _select(client, headers, BRANCH_ID)
     assert blocked.status_code == 409, blocked.text
     assert blocked.json()["detail"]["code"] == "branch_switch_open_shift"
@@ -590,11 +609,22 @@ def test_cash_open_requires_current_workspace_secret(workspace, path):
     )
     assert stale.status_code == 403, stale.text
     assert stale.json()["detail"]["code"] == "branch_context_superseded"
+    prepared = client.post(
+        "/api/v1/operational-intents",
+        headers={
+            **headers,
+            "Idempotency-Key": "workspace-open-valid-context",
+            "X-Branch-Context": fresh["branch_workspace_context"],
+        },
+        json={"kind": "cash.shift.open", "target_id": None, "payload": body},
+    )
+    assert prepared.status_code == 200, prepared.text
     valid = client.post(
         "/api/v1" + path,
         headers={
             **headers,
             "Idempotency-Key": "workspace-open-valid-context",
+            "X-Operational-Intent": prepared.json()["id"],
             "X-Branch-Context": fresh["branch_workspace_context"],
         },
         json=body,

@@ -158,6 +158,62 @@ usan el mismo lock canónico: sólo una confirma y la otra reevalúa el nuevo es
 
 ## TDD-TC-354 Offline y autorización obsoleta
 
+Ciclo central de caja: `test_operational_cash_lifecycle.py` prueba apertura y ambos cierres reales,
+compensación append-only, aliases sin bypass, replay/ACK, clave compartida incompatible,
+fields extra antes del replay, métrica sin falso éxito tras rollback e IDs corruptos sin SQL inválido.
+La auditoría independiente prueba además pérdida de respuesta, revocación y errores internos.
+PostgreSQL debe probar
+unicidad del namespace entre actores y races execute/recover con cierre/compensación reales.
+0091 debe migrar filas 0090 preservando todas sus columnas originales, imponer namespace derivado
+y bloquear downgrade con nuevos tipos terminales; comprobar también SQLite y downgrade de tipos
+anteriores. Reutilizar preguntas/señales operativas de TC354: pendientes por actor, efecto vinculado
+al command log/recurso y códigos de ausencia probada/evidencia incoherente, sin exponer cuerpo/key.
+
+Evidencia del ciclo de caja0091: RED de bypass3F18.67s, verde inicial6P32.51s;
+broker/caja34P113.69s; arquitectura/migración/trazabilidad34P159.82s. La autoridad conservó
+el ensayo27P6F168.40s; fixtures positivas preparan/ACK sin relajar denegaciones, focal6P37.09s.
+Compensación legacy: RED1F15.71s de override del ID de ruta, validación anterior al hash/replay;
+ledger/caja29P248.47s. Regresiones promovidas a CI3P125.09s (rollback/métrica y dos IDs corruptos).
+PG real3P108.07s observa Lock del wrapper de apertura frente a versión y ambos ganadores
+execute/recover de cierre real; guardas anteriores0090/fiscal0087 en head0091,3P251.01s.
+Historia poblada0090→0091 y downgrade de nuevos tipos preparados/terminales: cuatro verdes;
+cutover/emisor: dos verdes. Batch6P1F277.24s conserva fixture namespace sin segundo actor;
+fixture completa (usuario sintético adicional) pasó1P46.48s, exige constraint unique y CHECK
+exactos con otra clase/actor, conserva la fila anterior. No se añaden skips/silenciamientos.
+
+Sol independiente: P1 de inversión actor/gobernanza y tresP2 de retención/métrica/prueba corrupta
+corregidos, 31 casos propios por batches más SDK/handlers/panel Node. Focal posterior2P55.22s
+canónicos y HTTP legacy1P77.08s confirma replay válido/override rechazado e historia idéntica.
+La auditoría propia de historia SQLite no sustituye PostgreSQL; el PG referido es recibido.
+Ocho handlers reales extraídos por AST quedan en `test_operational_intent_handlers.mjs`, importado
+directamente por el comando semántico de CI, sin duplicarlo desde el test SDK. Mypy85/Ruff/typecheck/buildPOS verdes; warning de bundle existente.
+Los cuatro tipos nuevos y pedido se recuperan en navegador de bundle producción1440/390 con
+workspace denegado, sin enviar dinero ni adquirir contexto; capturas en output/playwright.
+CI inicial7e95e9e/run38556274577 detectó fixture de memoria que enviaba apertura sin body/key.
+La reproducción completa de branch-scope-headers con Node22 conserva operational_command_required
+en cash-lifecycle-branch-headers-node22.log; el provider aislado sí pasaba sin cambios. Se actualiza
+sólo el positivo financiero para preparar/body/key/ACK y buscar los headers de la solicitud real;
+todas las negaciones de cuenta, memoria, auth/gateway siguen intactas, y se agrega orden/ID de
+intención/secreto ausente en ACK. No se atribuye el fallo a sleeps ni se modifica runtime.
+Python CI7e95e9e:3F2044P/8 skips existentes/7 warnings1197.75s. Apertura ocultaba la negativa
+403 del lector fiscal bajo falta de intención (REDfocal1F1P14.47s): guard permiso antes de intención,
+con gobernanza primero y revalidación de ejecución conservada. El primer focal7P2F58.06s
+mostró auditoría FK inválida por permiso antes de contexto; orden final gobernanza→contexto→
+permiso→intención conserva audit branch nullable y niega antes del broker sin ampliar el helper global. Fixture de límites PG clona tipo
+con namespace derivado (doce casos positivos/negativos intactos). Handler Node queda explícito
+en package.json para satisfacer el gate existente; se retira import duplicado, no se modifica
+el gate ni sus reglas. REDarquitectura12P1F0.45s. Focal final9P54.40s; PGbounds/wrapper2P87.29s
+y wrapper real tras orden final1P42.78s, con Lock observado. Ruff/mypy85 y trazabilidad verdes.
+CI del SHA final pendiente.
+W04 y el plan31 continúan parciales, sin ejecución productiva.
+
+| Afirmación R3 caja0091 | Evidencia e intento de refutación | Resultado y riesgo residual |
+| --- | --- | --- |
+| Efecto y applied pertenecen al mismo owner | Inyección tras efecto/commit perdido, métricas rollback y replay de cuatro comandos | Recuperación conserva resultado; métrica sólo tras commit. Otros comandos sin integrar |
+| Prueba de caja exige recurso coherente | Actor/status/tipo opuesto/ID corruptos y capacidad sin grant dueño | Rechazo evidence_conflict sin ACK; corrupción administrativa requiere investigación |
+| Fence de apertura respeta orden común | Spy RED actor→gobernanza y carrera PG real frente a mutación de versión | Gobernanza→actor, commit y ACK mínimo conservados; movilidad/recovery_only siguen pendientes |
+| Hash legacy no pierde identidad de ruta | Mismo key con movement_id extra recuperaba un resultado ajeno | Campos exactos antes de hash/replay, valid replay preservado; no cambia hash histórico |
+
 Registro central de pendientes: `test_operational_intents.py` debe cubrir preparación durable,
 selección bloqueada en otra sesión, recuperación sin nueva capacidad, no_effect con envío tardío,
 evidencia incoherente, replay/cuerpo cambiado, autoridad/contexto cambiados y fallos SQL/commit/

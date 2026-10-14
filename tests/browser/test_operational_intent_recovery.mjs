@@ -18,10 +18,14 @@ const profile = {organization_id:id(1),user:{id:id(2),email:'intent@example.inva
 mkdirSync('output/playwright/operational-intents',{recursive:true});
 const evidence = [];
 try {
-  for (const width of [1440,390]) {
+  for (const width of [1440,390]) for (const [kind,label] of [
+    ['order.create','Pedido'], ['cash.shift.open','Apertura de caja'],
+    ['cash.shift.close','Cierre de caja'], ['cash.shift.close.register','Cierre de caja'],
+    ['cash.movement.compensate','Compensación de caja'],
+  ]) {
     const page = await browser.newPage({viewport:{width,height:844}});
     await page.addInitScript(() => localStorage.setItem('auth_token','synthetic-intent-session'));
-    let pending = [{id:id(5),kind:'order.create',branch_id:id(3),state:'applied',resource_id:id(6)}];
+    let pending = [{id:id(5),kind,branch_id:id(3),state:'applied',resource_id:id(6)}];
     const reads = [], resolutions = [];
     await page.route('**/api/v1/**',async route => {
       const request = route.request(), path = new URL(request.url()).pathname.replace('/api/v1','');
@@ -34,7 +38,7 @@ try {
       if (path === `/operational-intents/${id(5)}/resolve`) {
         resolutions.push({contextPresent:Boolean(request.headers()['x-branch-context']),body:request.postData()});
         pending=[];
-        return route.fulfill({json:{id:id(5),kind:'order.create',branch_id:id(3),state:'acknowledged',resource_id:id(6)}});
+        return route.fulfill({json:{id:id(5),kind,branch_id:id(3),state:'acknowledged',resource_id:id(6)}});
       }
       throw new Error('Unexpected financial or operational request: '+path);
     });
@@ -44,14 +48,14 @@ try {
       'The minimum recovery remains available during the workspace error');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
     assert.equal(overflow,false,'Recovery panel must fit a narrow viewport');
-    await page.screenshot({path:`output/playwright/operational-intents/blocked-${width}.png`,fullPage:true});
+    await page.screenshot({path:`output/playwright/operational-intents/blocked-${kind}-${width}.png`,fullPage:true});
     await page.getByRole('button',{name:'Recuperar resultado',exact:true}).click();
-    await page.getByRole('status').filter({hasText:'Pedido confirmado'}).waitFor();
+    await page.getByRole('status').filter({hasText:`${label} confirmado`}).waitFor();
     assert.equal(resolutions.length,1);
     assert.equal(resolutions[0].contextPresent,false,'Recovery must not acquire an unavailable workspace');
     assert.equal(resolutions[0].body,null,'Client does not declare absence or supply financial data');
-    await page.screenshot({path:`output/playwright/operational-intents/recovered-${width}.png`,fullPage:true});
-    evidence.push({width,workspaceErrorRecovery:true,financialRequests:0,resolutions:resolutions.length,
+    await page.screenshot({path:`output/playwright/operational-intents/recovered-${kind}-${width}.png`,fullPage:true});
+    evidence.push({width,kind,workspaceErrorRecovery:true,financialRequests:0,resolutions:resolutions.length,
       ownBearer:reads.every(value=>value==='Bearer synthetic-intent-session'),overflow});
     await page.close();
   }

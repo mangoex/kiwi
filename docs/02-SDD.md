@@ -5208,9 +5208,38 @@ disponible también sin contexto operativo o permiso POS; liga handlers/respuest
 generación del render. Sólo acuses terminales coherentes de la misma identidad liberan la fila;
 no_effect exige intención originalmente prepared sin recurso, y no se infiere de un else genérico.
 Cambiar sucursal o reemitir un contexto distinto exige no tener prepared/applied en ninguna sucursal.
-Rotar el mismo contexto conserva la recuperación. Apertura/cierre de turnos, compensaciones,
-otros comandos operativos y pendientes offline requieren integración posterior; este incremento
-no acredita el registro completo ni habilita movilidad productiva.
+Rotar el mismo contexto conserva la recuperación. En el incremento histórico 0090, apertura/cierre
+y compensaciones requerían integración posterior; 0091 los incorpora como se detalla abajo.
+Otros comandos operativos y pendientes offline siguen pendientes. Estos incrementos no acreditan
+el registro completo ni habilitan movilidad productiva.
+
+Extensión de ciclo de caja (0091): `cash.shift.open`, `cash.shift.close`,
+`cash.shift.close.register` y `cash.movement.compensate` usan el mismo protocolo y fence.
+Apertura liga sucursal/caja del cuerpo; cierre canónico liga el turno de la ruta; el alias de
+cierre conserva su cuerpo sucursal/caja. Compensación liga el movimiento original de la ruta. Sus únicos campos permitidos se validan
+antes del hash y del replay; un campo extra no puede reemplazar ese ID. El hash de cuerpos
+válidos legacy conserva su fórmula anterior.
+Autoridad se deriva del recurso y se revalida; la capacidad de compensación no sustituye el
+grant persistido de dueño. Todas las claves de caja conservan strip y 1–180 caracteres.
+La prueba de apertura entrega ID de turno; cierre exige command log completed y cierre inmutable
+vinculado al turno/organización/sucursal/actor y devuelve ID del cierre. Compensación exige original
+y movimiento compensatorio coherentes, sin alterar el original, y devuelve ID del compensatorio.
+
+La unicidad de intención sigue el namespace del command log: open/close/alias comparten
+`cash.shift`; create/compensate comparten `cash.movement`. `command_namespace` se deriva de kind,
+su CHECK impide suplantarlo, y unique(org,namespace,key) evita dos intenciones incompatibles con
+la misma clave incluso entre actores. Pedidos/pagos conservan sus namespaces independientes.
+0091 agrega ese dato derivado a filas anteriores sin cambiar identidad/hash/evidencia ni estados;
+0090 conserva su factory histórica. Downgrade de 0091 rechaza historia de nuevos tipos, incluso
+terminal; filas de tipos anteriores conservan todas sus columnas originales al volver a 0090.
+Los comandos de dominio admiten commit=False bajo owner central; default True conserva contratos
+legacy. Errores/constraints no hacen rollback/relectura dentro del owner ni confirman efectos solos.
+La guarda de apertura conserva denegaciones históricas de permiso y contexto antes de exigir intención,
+pero toma gobernanza antes de validar/lockear actor, en la misma transacción que el owner.
+Éxito/replay de apertura/cierre se emite después del commit del owner; un rollback no publica
+éxito financiero. Prueba corrupta de recurso devuelve evidence_conflict antes de consultar SQL.
+El SDK reconoce aliases, mantiene cuerpo/clave originales y recupera sólo acuse mínimo. Un error
+incierto de apertura/cierre/compensación no borra su intento ni dispara fallback al gateway.
 
 Selección, reemisión de contexto, emisión de concesión offline y reasignación toman el mismo lock canónico del usuario. Una
 selección exitosa supersede el contexto activo y crea uno nuevo antes de confirmar el command log;

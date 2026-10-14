@@ -95,11 +95,16 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
   @BDD-SC-637
   Scenario: Estado operativo crítico bloquea el cambio de sucursal
     Given un actor con turno OPEN o CLOSING, comando incierto, grant offline o reconciliación pendiente
-    And la intención central se registró antes del envío de pedido pago o movimiento
+    And la intención central se registró antes del envío de pedido pago movimiento apertura cierre o compensación
     When la preparación o el efecto se confirma pero se pierde la respuesta
     Then prepared y applied bloquean el cambio incluso desde otra sesión o pestaña
     And el propio actor recupera un acuse mínimo desde evidencia del servidor sin ejecutar de nuevo
     And sólo ausencia probada bajo el lock permite no_effect y rechaza un envío tardío
+    And un actor sin permiso de apertura recibe permission_denied aun cuando falta la intención
+    And un replay de caja conserva el mismo cierre o compensatorio y exige autoridad vigente
+    And la misma clave no prepara open y close ni create y compensate distintos en su namespace compartido
+    And compensación rechaza campos extra antes del replay y conserva la identidad de la ruta
+    And la historia original permanece y recuperar el acuse mínimo no renueva capacidad financiera
     When solicita cambiar de sucursal
     Then recibe 409 con la razón estable correspondiente
     And no se confirma ni publica la nueva sucursal

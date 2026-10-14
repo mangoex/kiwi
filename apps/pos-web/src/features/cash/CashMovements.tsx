@@ -325,7 +325,10 @@ export default function CashMovements() {
       dispatchCompensation({ type: 'complete' });
       setStatus(refreshed ? 'Movimiento compensado.' : 'Movimiento compensado; actualiza el ledger.');
     } catch (error) {
-      if (error instanceof ApiError && error.code === 'idempotency_conflict') {
+      if (hasPendingOperationalIntent(error)) {
+        dispatchCompensation({ type: 'uncertain_failure' });
+        setStatus('Compensación pendiente. Recupera su resultado antes de crear otra intención.');
+      } else if (error instanceof ApiError && ['idempotency_conflict', 'operational_command_terminal'].includes(error.code)) {
         dispatchCompensation({ type: 'complete' });
         setStatus('La compensación cambió y fue rechazada; genera una nueva intención.');
       } else {

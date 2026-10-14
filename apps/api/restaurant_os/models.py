@@ -3949,4 +3949,4 @@ offline_authorization_cutovers = offline_cutover_table(metadata)
 sa.Index(WORKSPACE_SCOPE_INDEX, branch_workspace_sessions.c.organization_id,
          branch_workspace_sessions.c.actor_user_id, branch_workspace_sessions.c.branch_id,
          branch_workspace_sessions.c.id, unique=True)
-operational_command_intents = operational_intent_table(metadata)
+operational_command_intents = operational_intent_table(metadata, cash_lifecycle=True)

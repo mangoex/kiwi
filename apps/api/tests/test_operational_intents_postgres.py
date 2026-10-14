@@ -18,11 +18,165 @@ from sqlalchemy.orm import Session
 from test_branch_workspace_postgres import context_engine as context_engine
 from test_branch_workspace_postgres import pg_engine as pg_engine
 from test_corporate_purchases import SECOND_BRANCH_ID
-from test_platform_api import ADMIN_USER_ID, BRANCH_ID
+from test_platform_api import ADMIN_USER_ID, BRANCH_ID, _admin_headers
 
 BODY = {"branch_id": BRANCH_ID, "lines": []}
 PREPARE = {"kind": "order.create", "target_id": None, "payload": BODY}
 KEY = "pg-operational-intent-synthetic-001"
+
+
+def test_real_api_open_holds_governance_before_actor_against_version_mutation(
+    context_engine, monkeypatch
+):
+    from restaurant_os import api
+    from starlette.requests import Request
+
+    engine, profile = context_engine
+    secret = profile["branch_workspace_context"]
+    key = "pg-cash-lifecycle-open-001"
+    body = {"branch_id": BRANCH_ID, "register_id": "PG-AUDIT-OPEN", "opening_cash_cents": 5000}
+    with Session(engine) as session:
+        receipt = operational_intents.prepare_intent(
+            session,
+            ADMIN_USER_ID,
+            {"kind": "cash.shift.open", "target_id": None, "payload": body},
+            key,
+            secret,
+        )
+    held, release, entered = Event(), Event(), Event()
+    pid = []
+    original = api._require_operational_workspace
+
+    def hold_after_workspace(*args, **kwargs):
+        original(*args, **kwargs)
+        held.set()
+        assert release.wait(8), "Opening was not released"
+
+    monkeypatch.setattr(api, "_require_operational_workspace", hold_after_workspace)
+
+    def opening():
+        with Session(engine) as session:
+            request = Request(
+                {"type": "http", "headers": [(b"x-operational-intent", receipt["id"].encode())]}
+            )
+            return api.open_current_cash_shift(
+                body,
+                session,
+                request,
+                authorization=_admin_headers()["Authorization"],
+                idempotency_key=key,
+                branch_context=secret,
+            )
+
+    def mutate_version():
+        with Session(engine) as session:
+            pid.append(session.scalar(sa.text("SELECT pg_backend_pid()")))
+            entered.set()
+            ops._authority_governance_lock(session)
+            ops._bump_authority_versions(session, [ADMIN_USER_ID])
+            session.commit()
+            return session.scalar(
+                sa.select(models.users.c.authorization_version).where(
+                    models.users.c.id == ADMIN_USER_ID
+                )
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(opening)
+        try:
+            assert held.wait(6), "Real API did not reach validated workspace"
+            second = pool.submit(mutate_version)
+            _wait_for_lock(engine, pid, entered)
+        finally:
+            release.set()
+        result, version = first.result(timeout=8), second.result(timeout=8)
+    assert result["status"] == "OPEN" and version == 2
+    with Session(engine) as session:
+        assert (
+            session.scalar(sa.select(sa.func.count()).select_from(models.cash_shift_commands)) == 1
+        )
+        assert (
+            operational_intents.recover_intent(session, ADMIN_USER_ID, receipt["id"])["state"]
+            == "acknowledged"
+        )
+
+
+@pytest.mark.parametrize("winner", ["execute", "recover"])
+def test_real_cash_close_and_recovery_share_observed_fence(context_engine, monkeypatch, winner):
+    engine, profile = context_engine
+    key = "pg-cash-lifecycle-close-001"
+    with Session(engine) as session:
+        shift = ops.open_cash_shift_idempotently(
+            session, BRANCH_ID, "CAJA-01", 10000, "pg-cash-setup-001", ADMIN_USER_ID
+        )
+        receipt = operational_intents.prepare_intent(
+            session,
+            ADMIN_USER_ID,
+            {"kind": "cash.shift.close", "target_id": shift["id"], "payload": {}},
+            key,
+            profile["branch_workspace_context"],
+        )
+    held, release, entered = Event(), Event(), Event()
+    pid = []
+    original = operational_intents._audit
+    state = "applied" if winner == "execute" else "no_effect"
+
+    def hold(*args, **kwargs):
+        original(*args, **kwargs)
+        if args[-1] == state:
+            held.set()
+            assert release.wait(8)
+
+    monkeypatch.setattr(operational_intents, "_audit", hold)
+
+    def run(kind, contender=False):
+        with Session(engine) as session:
+            if contender:
+                pid.append(session.scalar(sa.text("SELECT pg_backend_pid()")))
+                entered.set()
+            try:
+                if kind == "recover":
+                    return operational_intents.recover_intent(session, ADMIN_USER_ID, receipt["id"])
+                return operational_intents.execute_intent(
+                    session,
+                    ADMIN_USER_ID,
+                    receipt["id"],
+                    "cash.shift.close",
+                    shift["id"],
+                    {},
+                    key,
+                    profile["branch_workspace_context"],
+                    lambda: ops.close_cash_shift_operationally(
+                        session, shift["id"], key, ADMIN_USER_ID, commit=False
+                    ),
+                )
+            except ops.BusinessError as error:
+                return error.code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(run, winner)
+        try:
+            assert held.wait(6)
+            second = pool.submit(run, "recover" if winner == "execute" else "execute", True)
+            _wait_for_lock(engine, pid, entered)
+        finally:
+            release.set()
+        first_result, second_result = first.result(timeout=8), second.result(timeout=8)
+    assert isinstance(first_result, dict)
+    if winner == "execute":
+        assert first_result["cash_shift"]["status"] == "OPERATIVELY_CLOSED"
+        assert second_result["state"] == "acknowledged"
+    else:
+        assert (
+            first_result["state"] == "no_effect" and second_result == "operational_command_terminal"
+        )
+    with Session(engine) as session:
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(models.cash_shift_closures)
+        ) == (1 if winner == "execute" else 0)
+        assert session.scalar(
+            sa.select(models.cash_shifts.c.status).where(models.cash_shifts.c.id == shift["id"])
+        ) == ("OPERATIVELY_CLOSED" if winner == "execute" else "OPEN")
 
 
 def test_migrated_key_constraint_matches_each_domain(context_engine):
@@ -53,6 +207,7 @@ def test_migrated_key_constraint_matches_each_domain(context_engine):
                 **template,
                 "id": str(uuid4()),
                 "kind": kind,
+                "command_namespace": operational_intents.command_namespace(kind),
                 "idempotency_key": key,
                 "target_id": BRANCH_ID if kind == "payment.confirm" else None,
             }
@@ -186,7 +341,15 @@ def test_0090_downgrade_preserves_pending_and_terminal_history(context_engine, t
     }
     env.pop("DATABASE_URL", None)
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "downgrade", "-1"],
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            "alembic.ini",
+            "downgrade",
+            "0089_offline_cutovers",
+        ],
         cwd=Path(__file__).resolve().parents[1],
         env=env,
         text=True,
@@ -198,7 +361,7 @@ def test_0090_downgrade_preserves_pending_and_terminal_history(context_engine, t
     with Session(engine) as session:
         assert (
             session.scalar(sa.text("SELECT version_num FROM alembic_version"))
-            == "0090_operational_intents"
+            == "0091_cash_lifecycle_intents"
         )
         after = {
             table.name: [
@@ -378,3 +541,131 @@ def test_recovery_and_selection_share_the_same_observed_fence(context_engine, mo
             .one()
         )
         assert context["branch_id"] == (SECOND_BRANCH_ID if winner == "recover" else BRANCH_ID)
+
+
+@pytest.mark.parametrize("terminal", [False, True])
+def test_0091_cash_history_blocks_postgres_downgrade(context_engine, terminal):
+    engine, profile = context_engine
+    body = {"branch_id": BRANCH_ID, "register_id": "PG-HISTORY", "opening_cash_cents": 0}
+    with Session(engine) as session:
+        receipt = operational_intents.prepare_intent(
+            session,
+            ADMIN_USER_ID,
+            {"kind": "cash.shift.open", "target_id": None, "payload": body},
+            "pg-new-cash-history",
+            profile["branch_workspace_context"],
+        )
+        if terminal:
+            operational_intents.recover_intent(session, ADMIN_USER_ID, receipt["id"])
+        before = dict(
+            session.execute(sa.select(models.operational_command_intents)).mappings().one()
+        )
+    result = _cash_lifecycle_alembic(engine, "downgrade", "0090_operational_intents")
+    assert result.returncode != 0
+    assert "0091 downgrade blocked: cash lifecycle command history exists" in result.stderr
+    with Session(engine) as session:
+        assert (
+            dict(session.execute(sa.select(models.operational_command_intents)).mappings().one())
+            == before
+        )
+        assert (
+            session.scalar(sa.text("SELECT version_num FROM alembic_version"))
+            == "0091_cash_lifecycle_intents"
+        )
+
+
+def _cash_lifecycle_alembic(engine, action, revision):
+    env = {
+        **os.environ,
+        "RESTAURANTOS_DATABASE_URL": engine.url.render_as_string(hide_password=False),
+    }
+    env.pop("DATABASE_URL", None)
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", "-c", "alembic.ini", action, revision],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+
+
+@pytest.mark.parametrize("terminal", [False, True])
+def test_0091_postgres_backfill_preserves_populated_legacy_history(context_engine, terminal):
+    engine, profile = context_engine
+    with Session(engine) as session:
+        receipt = operational_intents.prepare_intent(
+            session, ADMIN_USER_ID, PREPARE, KEY, profile["branch_workspace_context"]
+        )
+        if terminal:
+            operational_intents.recover_intent(session, ADMIN_USER_ID, receipt["id"])
+        before = dict(
+            session.execute(sa.select(models.operational_command_intents)).mappings().one()
+        )
+    down = _cash_lifecycle_alembic(engine, "downgrade", "0090_operational_intents")
+    assert down.returncode == 0, down.stderr
+    with engine.connect() as connection:
+        old = sa.Table("operational_command_intents", sa.MetaData(), autoload_with=connection)
+        legacy = dict(connection.execute(sa.select(old)).mappings().one())
+        assert "command_namespace" not in legacy
+        assert legacy == {key: value for key, value in before.items() if key != "command_namespace"}
+    up = _cash_lifecycle_alembic(engine, "upgrade", "head")
+    assert up.returncode == 0, up.stderr
+    with Session(engine) as session:
+        assert (
+            dict(session.execute(sa.select(models.operational_command_intents)).mappings().one())
+            == before
+        )
+        assert (
+            session.scalar(sa.text("SELECT version_num FROM alembic_version"))
+            == "0091_cash_lifecycle_intents"
+        )
+
+
+def test_0091_postgres_namespace_prevents_other_actor_incompatible_command(context_engine):
+    engine, profile = context_engine
+    body = {"branch_id": BRANCH_ID, "register_id": "PG-NAMESPACE", "opening_cash_cents": 0}
+    with Session(engine) as session:
+        operational_intents.prepare_intent(
+            session,
+            ADMIN_USER_ID,
+            {"kind": "cash.shift.open", "target_id": None, "payload": body},
+            "pg-shared-namespace",
+            profile["branch_workspace_context"],
+        )
+        before = dict(
+            session.execute(sa.select(models.operational_command_intents)).mappings().one()
+        )
+        actor = dict(
+            session.execute(sa.select(models.users).where(models.users.c.id == ADMIN_USER_ID))
+            .mappings()
+            .one()
+        )
+        other = str(uuid4())
+        session.execute(
+            models.users.insert().values(
+                **{**actor, "id": other, "email": "namespace-test@example.invalid"}
+            )
+        )
+        collision = {
+            **before,
+            "id": str(uuid4()),
+            "actor_user_id": other,
+            "kind": "cash.shift.close.register",
+        }
+        with pytest.raises(IntegrityError, match="uq_operational_intent_namespace_key"):
+            with session.begin_nested():
+                session.execute(models.operational_command_intents.insert().values(**collision))
+        spoof = {
+            **collision,
+            "id": str(uuid4()),
+            "idempotency_key": "pg-namespace-spoof",
+            "command_namespace": "payment.confirm",
+        }
+        with pytest.raises(IntegrityError, match="ck_operational_intent_namespace"):
+            with session.begin_nested():
+                session.execute(models.operational_command_intents.insert().values(**spoof))
+        assert (
+            dict(session.execute(sa.select(models.operational_command_intents)).mappings().one())
+            == before
+        )
