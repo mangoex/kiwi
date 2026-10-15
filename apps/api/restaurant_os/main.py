@@ -7,19 +7,23 @@ import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from sqlalchemy.orm import Session
 
 from restaurant_os.agent_rate_limit import RedisAgentRateLimiter
 from restaurant_os.agent_tools import router as agent_tools_router
+from restaurant_os.api import get_whatsapp_webhook, post_whatsapp_webhook
 from restaurant_os.api import reconciliation_v2_router
 from restaurant_os.api import router as platform_router
 from restaurant_os.auth import verify_session_token
 from restaurant_os.config import get_settings
+from restaurant_os.database import get_session
 from restaurant_os.health import readiness_payload
 from restaurant_os.public_order_rate_limit import (
     InMemoryPublicOrderRateLimiter,
@@ -131,6 +135,21 @@ def create_app() -> FastAPI:
             )
     app.include_router(platform_router)
     app.include_router(reconciliation_v2_router)
+
+    # WhatsApp compatibility alias for webhooks routed to /v1 without /api prefix
+    @app.get("/v1/integrations/whatsapp/webhook", include_in_schema=False)
+    def v1_whatsapp_webhook_get(
+        request: Request,
+        session: Session = Depends(get_session),
+    ) -> Response:
+        return get_whatsapp_webhook(request, session)
+
+    @app.post("/v1/integrations/whatsapp/webhook", include_in_schema=False)
+    async def v1_whatsapp_webhook_post(
+        request: Request,
+        session: Session = Depends(get_session),
+    ) -> dict[str, Any]:
+        return await post_whatsapp_webhook(request, session)
 
     @app.exception_handler(RequestValidationError)
     async def governed_validation_error(request: Request, exc: RequestValidationError) -> Response:

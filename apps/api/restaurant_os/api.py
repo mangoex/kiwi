@@ -8021,8 +8021,33 @@ def post_rappi_test_order(
 # ---------------------------------------------------------------------------
 
 
+@router.get("/integrations/whatsapp/webhook")
+def get_whatsapp_webhook(
+    request: Request,
+    session: SessionDep,
+) -> Response:
+    """Handshake GET verification required by Meta Cloud API / WhatsApp Tech Providers."""
+    params = request.query_params
+    mode = params.get("hub.mode")
+    token = params.get("hub.verify_token")
+    challenge = params.get("hub.challenge")
+
+    config = channel_service.get_config(session, ORGANIZATION_ID, "WHATSAPP")
+    webhook_secret = config.get("webhook_secret") if config else None
+
+    # Verify token against webhook_secret if provided
+    if mode == "subscribe" and challenge:
+        if not webhook_secret or token == webhook_secret:
+            return Response(content=challenge, media_type="text/plain")
+        raise HTTPException(status_code=403, detail="Token de verificación inválido")
+
+    if challenge:
+        return Response(content=challenge, media_type="text/plain")
+
+    return Response(content="OK", media_type="text/plain")
+
+
 @router.post("/integrations/whatsapp/webhook")
-@router.post("/v1/integrations/whatsapp/webhook")
 async def post_whatsapp_webhook(
     request: Request,
     session: SessionDep,
@@ -8077,6 +8102,11 @@ async def post_whatsapp_webhook(
         "received",
     )
 
+    # 1. Extract message details & handle status receipts
+    sender_phone, incoming_text, is_status_receipt = channel_service.whatsapp_adapter.extract_incoming_message(payload)
+    if is_status_receipt:
+        return {"status": "ok", "event_type": "STATUS_RECEIPT", "acknowledged": True}
+
     # If it is a new order event or payload contains items/products
     if (
         event_type in ("NEW_ORDER", "order.created", "order.new")
@@ -8104,23 +8134,64 @@ async def post_whatsapp_webhook(
             return {"status": "error_logged", "detail": str(e)}
 
     # If it is a conversational message event
-    if event_type == "MESSAGE" or "message" in payload or "messages" in payload or "from" in payload:
-        sender_phone = (
-            payload.get("from")
-            or payload.get("phone")
-            or payload.get("customer_phone")
-            or (payload.get("contacts", [{}])[0].get("wa_id") if payload.get("contacts") else None)
-            or (payload.get("messages", [{}])[0].get("from") if payload.get("messages") else None)
-        )
+    if incoming_text or event_type in ("MESSAGE", "message") or sender_phone:
         customer = None
+        customer_name = "Estimado cliente"
         if sender_phone:
             customer = channel_service.whatsapp_adapter.lookup_customer(
                 session, ORGANIZATION_ID, sender_phone
             )
+            if customer and customer.get("found"):
+                customer_name = customer.get("name") or "Estimado cliente"
+
+        reply_text = None
+        dispatched = False
+        if incoming_text:
+            settings = get_settings()
+            master_prompt = (config.get("master_prompt") if config else None) or ""
+
+            # Fetch active products & branches for contextual knowledge
+            try:
+                prod_names = session.execute(
+                    sa.select(models.products.c.name).where(
+                        models.products.c.organization_id == ORGANIZATION_ID,
+                        models.products.c.status == "active",
+                    ).limit(25)
+                ).scalars().all()
+                menu_preview = "\n".join(f"• {p}" for p in prod_names) if prod_names else ""
+            except Exception:
+                menu_preview = ""
+
+            reply_text = channel_service.whatsapp_adapter.generate_ai_reply(
+                incoming_text=incoming_text,
+                system_prompt=master_prompt,
+                customer_name=customer_name,
+                menu_items=menu_preview,
+                settings=settings,
+            )
+
+            # Dispatch to return_url if configured
+            return_url = config.get("return_url") if config else None
+            client_secret = config.get("client_secret") if config else None
+            if return_url and sender_phone and reply_text:
+                try:
+                    dispatched = channel_service.whatsapp_adapter.dispatch_outgoing_response(
+                        return_url=return_url,
+                        outgoing_secret=client_secret or "",
+                        recipient_phone=sender_phone,
+                        message_text=reply_text,
+                    )
+                except Exception as exc:
+                    logger.warning("Error despachando respuesta saliente de WhatsApp: %s", exc)
+
         return {
             "status": "ok",
             "event_type": "MESSAGE",
             "customer": customer,
+            "sender": sender_phone,
+            "reply": reply_text,
+            "message": reply_text,
+            "dispatched": dispatched,
             "acknowledged": True,
         }
 

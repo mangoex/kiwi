@@ -10,6 +10,7 @@ import hmac
 import hashlib
 import json
 import logging
+import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -77,6 +78,152 @@ class WhatsAppAdapter(IOrderChannelAdapter):
             or uuid.uuid4()
         )
         return event_type, event_id
+
+    def extract_incoming_message(
+        self, payload: dict[str, Any]
+    ) -> tuple[str | None, str | None, bool]:
+        """Extract (sender_phone, message_text, is_status_receipt) from Meta/Asistto webhook formats."""
+        # 1. Delivery/read status receipts from Meta Cloud API
+        if "statuses" in payload:
+            return None, None, True
+        entries = payload.get("entry", [])
+        if isinstance(entries, list):
+            for entry in entries:
+                for change in entry.get("changes", []):
+                    val = change.get("value", {})
+                    if "statuses" in val:
+                        return None, None, True
+
+        sender_phone = (
+            payload.get("from")
+            or payload.get("phone")
+            or payload.get("customer_phone")
+            or payload.get("wa_id")
+        )
+        incoming_text = (
+            payload.get("message")
+            or payload.get("text")
+            or payload.get("body")
+        )
+
+        # Meta Cloud API standard format
+        if isinstance(entries, list):
+            for entry in entries:
+                for change in entry.get("changes", []):
+                    val = change.get("value", {})
+                    msgs = val.get("messages", [])
+                    if msgs and isinstance(msgs, list):
+                        msg = msgs[0]
+                        if not sender_phone:
+                            sender_phone = msg.get("from")
+                        if not incoming_text:
+                            if isinstance(msg.get("text"), dict):
+                                incoming_text = msg["text"].get("body")
+                            elif "body" in msg:
+                                incoming_text = msg.get("body")
+                            elif "button" in msg and isinstance(msg["button"], dict):
+                                incoming_text = msg["button"].get("text")
+                            elif "interactive" in msg and isinstance(msg["interactive"], dict):
+                                incoming_text = (
+                                    msg["interactive"].get("button_reply", {}).get("title")
+                                    or msg["interactive"].get("list_reply", {}).get("title")
+                                )
+                    contacts = val.get("contacts", [])
+                    if contacts and not sender_phone:
+                        sender_phone = contacts[0].get("wa_id")
+
+        if not incoming_text and "messages" in payload and isinstance(payload["messages"], list):
+            m0 = payload["messages"][0]
+            if isinstance(m0, dict):
+                sender_phone = sender_phone or m0.get("from")
+                if isinstance(m0.get("text"), dict):
+                    incoming_text = m0["text"].get("body")
+                else:
+                    incoming_text = m0.get("text") or m0.get("body")
+
+        normalized_phone = normalize_mexican_phone(sender_phone) if sender_phone else None
+        clean_text = str(incoming_text).strip() if incoming_text else None
+        return normalized_phone, clean_text, False
+
+    def generate_ai_reply(
+        self,
+        incoming_text: str,
+        system_prompt: str,
+        customer_name: str,
+        menu_items: str,
+        settings: Any,
+    ) -> str:
+        """Generate conversational reply using OpenRouter/Gemini with conversational fallback."""
+        api_key = (
+            getattr(settings, "openrouter_api_key", None)
+            or os.environ.get("OPENROUTER_API_KEY")
+            or os.environ.get("RESTAURANTOS_OPENROUTER_API_KEY")
+            or os.environ.get("GEMINI_API_KEY")
+        )
+        if api_key:
+            try:
+                base_url = getattr(settings, "openrouter_base_url", "https://openrouter.ai/api/v1").rstrip("/")
+                body = {
+                    "model": getattr(settings, "openrouter_model", "google/gemini-3.1-flash-lite"),
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": incoming_text},
+                    ],
+                    "temperature": 0.3,
+                    "max_tokens": 700,
+                }
+                req = Request(
+                    f"{base_url}/chat/completions",
+                    data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                        "X-OpenRouter-Title": "Kiwi RestaurantOS WhatsApp",
+                    },
+                    method="POST",
+                )
+                with urlopen(req, timeout=10.0) as resp:
+                    envelope = json.loads(resp.read().decode("utf-8"))
+                    content = envelope["choices"][0]["message"]["content"]
+                    if content and isinstance(content, str):
+                        return content.strip()
+            except Exception as e:
+                logger.warning("Error invocando OpenRouter para WhatsApp: %s", e)
+
+        # Conversational fallback for Kiwi Healthy Food
+        text_lower = incoming_text.lower().strip()
+        greeting_name = f" {customer_name}" if customer_name and customer_name != "Estimado cliente" else ""
+
+        if any(w in text_lower for w in ("hola", "buen", "buenas", "que tal", "inicio")):
+            return (
+                f"¡Hola{greeting_name}! 🥗 Bienvenido a *Kiwi - Comida Saludable* 🥝\n\n"
+                "¿En qué podemos consentirte hoy? Tenemos deliciosos bowls, ensaladas frescas, wraps y jugos naturales prensados en frío.\n\n"
+                "¿Te gustaría conocer las opciones de hoy o hacer un pedido para recoger o entrega a domicilio?"
+            )
+        if any(w in text_lower for w in ("menu", "menú", "carta", "platillo", "que tienen", "opciones", "comida")):
+            preview = menu_items if menu_items else "• Bowls de Proteína Limpia\n• Ensaladas Frescas\n• Wraps Saludables\n• Jugos Verdes y Smoothies"
+            return (
+                f"🥑 *Menú Saludable de Kiwi:*\n\n{preview}\n\n"
+                "¿Cuál se te antoja ordenar hoy? Puedes decirme tu pedido y con gusto te confirmamos la sucursal de entrega."
+            )
+        if any(w in text_lower for w in ("sucursal", "donde", "ubicacion", "ubicación", "dirección", "direccion")):
+            return (
+                "📍 *Nuestras Sucursales Kiwi:*\n"
+                "Contamos con sucursales activas listas para preparar tus alimentos frescos al momento.\n\n"
+                "¿Te gustaría que te lo enviemos a tu domicilio o prefieres pasar a recogerlo?"
+            )
+        if any(w in text_lower for w in ("horario", "abren", "cierran", "abierto")):
+            return (
+                "⏰ *Horarios de Atención Kiwi:*\n"
+                "Nuestra cocina saludable está activa para prepararte todo súper fresco.\n\n"
+                "Tu pedido queda registrado en cocina de inmediato al confirmarlo."
+            )
+
+        return (
+            f"¡Muchas gracias por tu mensaje{greeting_name}! 🥝\n\n"
+            f"He recibido tu solicitud: *\"{incoming_text}\"*.\n\n"
+            "¿Deseas que preparemos tu pedido saludable de hoy o tienes alguna duda con el menú?"
+        )
 
     def normalize_order(
         self,

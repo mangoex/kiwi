@@ -451,7 +451,7 @@ export default function IntegrationsHub() {
       : selectedProvider === 'RAPPI'
       ? 'rappi'
       : selectedProvider.toLowerCase().replace('_', '-');
-  const webhookUrl = `${window.location.origin}/v1/integrations/${webhookPath}/webhook`;
+  const webhookUrl = `${window.location.origin}/api/v1/integrations/${webhookPath}/webhook`;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(webhookUrl);

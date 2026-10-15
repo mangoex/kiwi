@@ -485,3 +485,155 @@ def test_tc402_whatsapp_autogenerate_and_regenerate_webhook_secret(client, test_
     get_resp_after = client.get("/api/v1/integrations/whatsapp/config", headers=auth_headers)
     assert get_resp_after.status_code == 200
     assert get_resp_after.json()["webhook_secret"] == secret2
+
+
+# ---------------------------------------------------------------------------
+# TDD-TC-403: Verificación GET de Meta / Asistto y Compatibilidad Dual de Rutas
+# ---------------------------------------------------------------------------
+
+
+def test_tc403_meta_webhook_get_verification_and_dual_routing(client, test_db, auth_headers):
+    # Configure webhook secret
+    secret = "whsec_meta_handshake_secret_123"
+    client.put(
+        "/api/v1/integrations/whatsapp/config",
+        json={"is_enabled": True, "webhook_secret": secret},
+        headers=auth_headers,
+    )
+
+    challenge_val = "1158201444983271"
+
+    # 1. GET con /api/v1 y token correcto -> 200 con challenge en texto plano
+    resp_api = client.get(
+        f"/api/v1/integrations/whatsapp/webhook?hub.mode=subscribe&hub.challenge={challenge_val}&hub.verify_token={secret}"
+    )
+    assert resp_api.status_code == 200
+    assert resp_api.text == challenge_val
+
+    # 2. GET con /v1 (ruta de compatibilidad sin /api) -> 200 con challenge en texto plano
+    resp_v1 = client.get(
+        f"/v1/integrations/whatsapp/webhook?hub.mode=subscribe&hub.challenge={challenge_val}&hub.verify_token={secret}"
+    )
+    assert resp_v1.status_code == 200
+    assert resp_v1.text == challenge_val
+
+    # 3. GET con token incorrecto -> 403 Forbidden
+    resp_forbidden = client.get(
+        f"/api/v1/integrations/whatsapp/webhook?hub.mode=subscribe&hub.challenge={challenge_val}&hub.verify_token=wrong_token"
+    )
+    assert resp_forbidden.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# TDD-TC-404: Respuesta Conversacional Inteligente y Despacho Saliente
+# ---------------------------------------------------------------------------
+
+
+def test_tc404_conversational_message_reply_and_outbound_dispatch(client, test_db, auth_headers):
+    secret = "whsec_convo_secret_999"
+    client.put(
+        "/api/v1/integrations/whatsapp/config",
+        json={
+            "is_enabled": True,
+            "webhook_secret": secret,
+            "return_url": "https://mock.localhost/return-asistto",
+            "client_secret": "asistto_bearer_outbound",
+            "master_prompt": "Eres el asistente saludable de Kiwi. Saluda a Carlos y recomienda ensaladas.",
+        },
+        headers=auth_headers,
+    )
+
+    # 1. Mensaje de Carlos Mendoza pidiendo opciones
+    msg_payload = {
+        "event": "message",
+        "from": "3312345678",
+        "message": "Hola, qué opciones tienen?",
+    }
+    resp = client.post(
+        "/api/v1/integrations/whatsapp/webhook",
+        json=msg_payload,
+        headers={"Authorization": f"Bearer {secret}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["event_type"] == "MESSAGE"
+    assert data["customer"]["found"] is True
+    assert data["customer"]["name"] == "Carlos Mendoza"
+    assert data["reply"] is not None
+    assert "Carlos" in data["reply"]
+    assert "Kiwi" in data["reply"]
+    assert data["dispatched"] is True
+
+    # 2. Mensaje enviado a la ruta de compatibilidad /v1/...
+    resp_v1 = client.post(
+        "/v1/integrations/whatsapp/webhook",
+        json=msg_payload,
+        headers={"Authorization": f"Bearer {secret}"},
+    )
+    assert resp_v1.status_code == 200
+    data_v1 = resp_v1.json()
+    assert data_v1["status"] == "ok"
+    assert data_v1["customer"]["found"] is True
+
+    # 3. Formato anidado de Meta Cloud API con mensaje
+    meta_payload = {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "id": "waba_1",
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "contacts": [{"wa_id": "3312345678", "profile": {"name": "Carlos"}}],
+                            "messages": [
+                                {
+                                    "from": "3312345678",
+                                    "id": "wamid.HBgL",
+                                    "text": {"body": "Menú por favor"},
+                                    "type": "text",
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    resp_meta = client.post(
+        "/api/v1/integrations/whatsapp/webhook",
+        json=meta_payload,
+        headers={"Authorization": f"Bearer {secret}"},
+    )
+    assert resp_meta.status_code == 200
+    meta_data = resp_meta.json()
+    assert meta_data["status"] == "ok"
+    assert "Menú" in meta_data["reply"] or "Kiwi" in meta_data["reply"]
+
+    # 4. Notificación de entrega / lectura de Meta (statuses) no debe reaccionar ni fallar
+    status_payload = {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "id": "waba_1",
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "statuses": [
+                                {"id": "wamid.HBgL", "status": "delivered", "recipient_id": "3312345678"}
+                            ]
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    resp_status = client.post(
+        "/api/v1/integrations/whatsapp/webhook",
+        json=status_payload,
+        headers={"Authorization": f"Bearer {secret}"},
+    )
+    assert resp_status.status_code == 200
+    assert resp_status.json()["event_type"] == "STATUS_RECEIPT"
