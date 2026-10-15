@@ -26,8 +26,8 @@ def upgrade() -> None:
             "CHECK (cash_shift_id IS NOT NULL OR channel IN ('UBER_EATS', 'DIDI_FOOD', 'RAPPI', 'WHATSAPP') "
             "OR (channel = 'PUBLIC_INTENT' AND public_order_intent_id IS NOT NULL AND public_order_intent_status = 'ACCEPTED'))"
         )
-        op.add_column("channel_integrations", sa.Column("return_url", sa.String(500), nullable=True))
-        op.add_column("channel_integrations", sa.Column("master_prompt", sa.Text(), nullable=True))
+        op.execute("ALTER TABLE channel_integrations ADD COLUMN IF NOT EXISTS return_url VARCHAR(500)")
+        op.execute("ALTER TABLE channel_integrations ADD COLUMN IF NOT EXISTS master_prompt TEXT")
     else:
         with op.batch_alter_table("orders") as batch:
             try:

@@ -5,6 +5,7 @@ import os
 import re
 import time
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import UUID
 
@@ -82,9 +83,36 @@ def _with_device_variant_headers(response: Response) -> Response:
     return response
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Auto-apply database migrations on startup if connected to PostgreSQL
+    settings = get_settings()
+    if settings.database_url and "sqlite" not in settings.database_url:
+        try:
+            from alembic import command
+            from alembic.config import Config
+            from restaurant_os.alembic_config import set_alembic_database_url
+
+            ini_candidates = [
+                Path("/app/apps/api/alembic.ini"),
+                Path(__file__).resolve().parent.parent / "alembic.ini",
+                Path.cwd() / "alembic.ini",
+            ]
+            ini_path = next((p for p in ini_candidates if p.is_file()), None)
+            if ini_path:
+                logger.info("Auto-applying database migrations from %s...", ini_path)
+                alembic_cfg = Config(str(ini_path))
+                set_alembic_database_url(alembic_cfg, settings.database_url)
+                command.upgrade(alembic_cfg, "head")
+                logger.info("Database migrations applied successfully.")
+        except Exception as exc:
+            logger.warning("Failed to auto-apply migrations on startup: %s", exc)
+    yield
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="RestaurantOS API", version=settings.app_version)
+    app = FastAPI(title="RestaurantOS API", version=settings.app_version, lifespan=lifespan)
     app.add_middleware(WorkspaceBodyLimitMiddleware)
     app.state.public_order_intents_enabled = settings.public_order_intents_enabled
     if settings.public_order_intents_enabled:

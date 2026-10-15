@@ -36,6 +36,24 @@ class ChannelIntegrationService:
             return self.whatsapp_adapter
         raise ValueError(f"Proveedor no soportado: {provider}")
 
+    def _ensure_schema_columns(self, session: Session) -> None:
+        try:
+            bind = session.get_bind()
+            if bind.dialect.name == "postgresql":
+                session.execute(sa.text("ALTER TABLE channel_integrations ADD COLUMN IF NOT EXISTS return_url VARCHAR(500)"))
+                session.execute(sa.text("ALTER TABLE channel_integrations ADD COLUMN IF NOT EXISTS master_prompt TEXT"))
+                session.execute(sa.text(
+                    "ALTER TABLE orders DROP CONSTRAINT IF EXISTS ck_orders_cash_shift_required_except_public_intent"
+                ))
+                session.execute(sa.text(
+                    "ALTER TABLE orders ADD CONSTRAINT ck_orders_cash_shift_required_except_public_intent "
+                    "CHECK (cash_shift_id IS NOT NULL OR channel IN ('UBER_EATS', 'DIDI_FOOD', 'RAPPI', 'WHATSAPP') "
+                    "OR (channel = 'PUBLIC_INTENT' AND public_order_intent_id IS NOT NULL AND public_order_intent_status = 'ACCEPTED'))"
+                ))
+                session.commit()
+        except Exception:
+            session.rollback()
+
     def get_config(
         self, session: Session, organization_id: str, provider: str
     ) -> dict[str, Any] | None:
@@ -43,7 +61,16 @@ class ChannelIntegrationService:
             models.channel_integrations.c.organization_id == organization_id,
             models.channel_integrations.c.provider == provider,
         )
-        row = session.execute(query).mappings().first()
+        try:
+            row = session.execute(query).mappings().first()
+        except Exception as exc:
+            if "return_url" in str(exc) or "UndefinedColumn" in str(exc):
+                session.rollback()
+                self._ensure_schema_columns(session)
+                row = session.execute(query).mappings().first()
+            else:
+                raise
+
         if not row:
             return None
         res = dict(row)
@@ -68,7 +95,15 @@ class ChannelIntegrationService:
         provider: str,
         data: dict[str, Any],
     ) -> dict[str, Any]:
-        existing = self.get_config(session, organization_id, provider)
+        try:
+            existing = self.get_config(session, organization_id, provider)
+        except Exception as exc:
+            if "return_url" in str(exc) or "UndefinedColumn" in str(exc):
+                session.rollback()
+                self._ensure_schema_columns(session)
+                existing = self.get_config(session, organization_id, provider)
+            else:
+                raise
         now = datetime.now(timezone.utc)
 
         webhook_sec = str(data.get("webhook_secret", "")).strip() or None
