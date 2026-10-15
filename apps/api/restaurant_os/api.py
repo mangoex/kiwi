@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import secrets
 from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -8135,17 +8136,52 @@ def get_whatsapp_config(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     require_permission(session, actor_id, "admin.manage")
     config = channel_service.get_config(session, ORGANIZATION_ID, "WHATSAPP")
-    return config or {
+    if not config:
+        config = channel_service.save_config(
+            session,
+            ORGANIZATION_ID,
+            "WHATSAPP",
+            {
+                "is_enabled": False,
+                "environment": "production",
+                "client_id": "",
+                "client_secret": "",
+                "webhook_secret": f"whsec_{secrets.token_hex(16)}",
+                "return_url": "",
+                "master_prompt": "",
+                "auto_accept": False,
+                "default_prep_time_minutes": 25,
+            },
+        )
+    return config
+
+
+@router.post("/integrations/whatsapp/regenerate-secret")
+def post_whatsapp_regenerate_secret(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    config = channel_service.get_config(session, ORGANIZATION_ID, "WHATSAPP") or {
         "is_enabled": False,
         "environment": "production",
         "client_id": "",
         "client_secret": "",
-        "webhook_secret": "",
         "return_url": "",
         "master_prompt": "",
         "auto_accept": False,
         "default_prep_time_minutes": 25,
     }
+    new_secret = f"whsec_{secrets.token_hex(16)}"
+    updated_config = channel_service.save_config(
+        session,
+        ORGANIZATION_ID,
+        "WHATSAPP",
+        {**config, "webhook_secret": new_secret},
+    )
+    return {"webhook_secret": new_secret, "config": updated_config}
 
 
 @router.put("/integrations/whatsapp/config")

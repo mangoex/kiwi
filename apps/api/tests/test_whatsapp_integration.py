@@ -329,11 +329,12 @@ def test_tc400_whatsapp_order_persistence_with_closed_shift(client, test_db, aut
     )
 
     # Disable auto_accept so it stays PENDING
-    client.post(
+    cfg_resp = client.post(
         "/api/v1/integrations/whatsapp/config",
         json={"is_enabled": True, "auto_accept": False},
         headers=auth_headers,
     )
+    secret = cfg_resp.json().get("webhook_secret")
 
     # Simulate WhatsApp order webhook
     payload = {
@@ -359,6 +360,7 @@ def test_tc400_whatsapp_order_persistence_with_closed_shift(client, test_db, aut
     resp = client.post(
         "/api/v1/integrations/whatsapp/webhook",
         json=payload,
+        headers={"Authorization": f"Bearer {secret}"},
     )
     assert resp.status_code == 200
     res_data = resp.json()["result"]
@@ -431,3 +433,55 @@ def test_tc401_whatsapp_admin_config_and_outbound_dispatch(client, test_db, auth
         message_text="¡Hola Carlos! Tu pedido ha sido recibido.",
     )
     assert sent is True
+
+
+# ---------------------------------------------------------------------------
+# TDD-TC-402: Autogeneración, Preservación y Regeneración de Webhook Secret
+# ---------------------------------------------------------------------------
+
+
+def test_tc402_whatsapp_autogenerate_and_regenerate_webhook_secret(client, test_db, auth_headers):
+    # 1. Al consultar configuración por primera vez sin registro en base de datos,
+    # debe autogenerar un webhook_secret válido que comience con 'whsec_'
+    get_resp = client.get("/api/v1/integrations/whatsapp/config", headers=auth_headers)
+    assert get_resp.status_code == 200
+    cfg1 = get_resp.json()
+    secret1 = cfg1.get("webhook_secret")
+    assert secret1 is not None
+    assert secret1.startswith("whsec_")
+    assert len(secret1) > 10
+
+    # 2. Al guardar la configuración sin modificar el webhook_secret (o enviando string vacío),
+    # el secreto existente debe preservarse y no borrarse ni quedar en blanco.
+    put_resp = client.put(
+        "/api/v1/integrations/whatsapp/config",
+        json={
+            "is_enabled": True,
+            "environment": "production",
+            "client_id": "phone_12345",
+            "webhook_secret": "",  # Formulario enviado sin tocar secreto
+            "master_prompt": "Prompt de prueba",
+        },
+        headers=auth_headers,
+    )
+    assert put_resp.status_code == 200
+    cfg2 = put_resp.json()
+    assert cfg2.get("webhook_secret") == secret1
+    assert cfg2.get("is_enabled") is True
+
+    # 3. Al llamar al endpoint de regeneración explícita, debe generar un nuevo secreto con 'whsec_'
+    # diferente al anterior y persistirlo en la base de datos.
+    regen_resp = client.post(
+        "/api/v1/integrations/whatsapp/regenerate-secret",
+        headers=auth_headers,
+    )
+    assert regen_resp.status_code == 200
+    regen_data = regen_resp.json()
+    secret2 = regen_data["webhook_secret"]
+    assert secret2.startswith("whsec_")
+    assert secret2 != secret1
+
+    # Verificar que al volver a consultar la configuración persista el nuevo secreto
+    get_resp_after = client.get("/api/v1/integrations/whatsapp/config", headers=auth_headers)
+    assert get_resp_after.status_code == 200
+    assert get_resp_after.json()["webhook_secret"] == secret2

@@ -173,6 +173,8 @@ export default function IntegrationsHub() {
   const isDeliveryProvider = selectedProvider === 'UBER_EATS' || selectedProvider === 'DIDI_FOOD' || selectedProvider === 'RAPPI' || selectedProvider === 'WHATSAPP';
   const providerPath = selectedProvider === 'WHATSAPP' ? 'whatsapp' : selectedProvider.toLowerCase().replace('_', '-');
   const [copied, setCopied] = useState(false);
+  const [copiedSecret, setCopiedSecret] = useState(false);
+  const [showWebhookSecret, setShowWebhookSecret] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [testOrderModalOpen, setTestOrderModalOpen] = useState(false);
   const [testOrderItemsCount, setTestOrderItemsCount] = useState(2);
@@ -456,6 +458,30 @@ export default function IntegrationsHub() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
+
+  const copySecretToClipboard = (secretValue?: string) => {
+    const val = secretValue || formData.webhook_secret || '';
+    if (val) {
+      navigator.clipboard.writeText(val);
+      setCopiedSecret(true);
+      setTimeout(() => setCopiedSecret(false), 2500);
+    }
+  };
+
+  const regenerateSecretMutation = useMutation({
+    mutationFn: () =>
+      fetchApi<{ webhook_secret: string; config: ChannelConfig }>('/integrations/whatsapp/regenerate-secret', {
+        method: 'POST',
+      }),
+    onSuccess: (data) => {
+      setFormData((prev) => ({ ...prev, webhook_secret: data.webhook_secret }));
+      queryClient.invalidateQueries({ queryKey: ['integrations', 'WHATSAPP', 'config'] });
+      alert('Nuevo Webhook Secret generado con éxito. Cópialo y pégalo en Asistto.');
+    },
+    onError: (err: any) => {
+      alert('Error al regenerar secreto: ' + (err.message || 'Desconocido'));
+    },
+  });
 
   const grokBotProfileLabels: Record<GrokBotProfile, string> = {
     administrator: 'Administrador',
@@ -1545,7 +1571,7 @@ export default function IntegrationsHub() {
 
             {/* Webhook URL Box */}
             <div style={{ background: selectedProvider === 'WHATSAPP' ? '#f0fdf4' : '#f0fdf4', border: selectedProvider === 'WHATSAPP' ? '1px solid #86efac' : '1px solid #bbf7d0', borderRadius: 12, padding: '16px 20px', marginBottom: 24 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                 <div>
                   <strong style={{ color: '#166534', fontSize: '0.875rem', display: 'block', marginBottom: 4 }}>
                     {selectedProvider === 'WHATSAPP'
@@ -1563,6 +1589,27 @@ export default function IntegrationsHub() {
                   {copied ? '¡Copiado!' : 'Copiar URL'}
                 </Button>
               </div>
+
+              {selectedProvider === 'WHATSAPP' && (
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed #86efac', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                  <div>
+                    <strong style={{ color: '#166534', fontSize: '0.875rem', display: 'block', marginBottom: 4 }}>
+                      Webhook Secret de Entrada (Cópialo y pégalo en Asistto en &quot;Encabezado / Token de Salida&quot;):
+                    </strong>
+                    <code style={{ fontSize: '0.875rem', color: '#15803d', wordBreak: 'break-all', fontWeight: 700, background: '#dcfce7', padding: '3px 8px', borderRadius: 6 }}>
+                      {formData.webhook_secret || 'Generando secreto...'}
+                    </code>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => copySecretToClipboard(formData.webhook_secret)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, borderColor: '#10b981', color: '#047857', background: '#fff' }}
+                  >
+                    {copiedSecret ? <Check size={16} /> : <Copy size={16} />}
+                    {copiedSecret ? '¡Copiado!' : 'Copiar Secret'}
+                  </Button>
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
@@ -1630,17 +1677,56 @@ export default function IntegrationsHub() {
                     />
                   </div>
 
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                      Webhook Secret de Entrada (Firma HMAC / Token de Validación)
-                    </label>
+                  <div style={{ gridColumn: 'span 2', background: '#f8fafc', padding: 16, borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+                      <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#0f172a' }}>
+                        Webhook Secret de Entrada (Te lo da Kiwi · Empieza con whsec_...)
+                      </label>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Button
+                          variant="secondary"
+                          type="button"
+                          onClick={() => setShowWebhookSecret(!showWebhookSecret)}
+                          style={{ fontSize: '0.75rem', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4 }}
+                        >
+                          {showWebhookSecret ? <EyeOff size={14} /> : <Eye size={14} />}
+                          {showWebhookSecret ? 'Ocultar' : 'Revelar'}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          type="button"
+                          onClick={() => copySecretToClipboard(formData.webhook_secret)}
+                          style={{ fontSize: '0.75rem', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4, borderColor: '#10b981', color: '#047857' }}
+                        >
+                          {copiedSecret ? <Check size={14} /> : <Copy size={14} />}
+                          {copiedSecret ? 'Copiado' : 'Copiar'}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          type="button"
+                          disabled={regenerateSecretMutation.isPending}
+                          onClick={() => {
+                            if (window.confirm('¿Seguro que deseas regenerar el Webhook Secret? Deberás actualizar el nuevo valor en Asistto para que los pedidos continúen sincronizando.')) {
+                              regenerateSecretMutation.mutate();
+                            }
+                          }}
+                          style={{ fontSize: '0.75rem', padding: '4px 8px', color: '#b91c1c', borderColor: '#fca5a5' }}
+                        >
+                          {regenerateSecretMutation.isPending ? 'Regenerando...' : 'Regenerar'}
+                        </Button>
+                      </div>
+                    </div>
                     <input
-                      type="password"
+                      type={showWebhookSecret ? 'text' : 'password'}
                       className="premium-input"
+                      readOnly
                       placeholder="whsec_••••••••••••••••"
                       value={formData.webhook_secret ?? ''}
-                      onChange={(e) => setFormData({ ...formData, webhook_secret: e.target.value })}
+                      style={{ fontFamily: 'monospace', fontWeight: 600, background: '#f1f5f9' }}
                     />
+                    <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 6, display: 'block', lineHeight: 1.4 }}>
+                      Este valor criptográfico único lo genera automáticamente RestaurantOS. Cópialo y pégalo en Asistto en el campo <strong>&quot;Encabezado / Token de Salida (hacia tu Sistema)&quot;</strong> para autenticar y firmar las peticiones entrantes.
+                    </span>
                   </div>
 
                   <div>

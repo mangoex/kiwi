@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -45,7 +46,20 @@ class ChannelIntegrationService:
         row = session.execute(query).mappings().first()
         if not row:
             return None
-        return dict(row)
+        res = dict(row)
+        if provider == "WHATSAPP" and not res.get("webhook_secret"):
+            new_secret = f"whsec_{secrets.token_hex(16)}"
+            session.execute(
+                sa.update(models.channel_integrations)
+                .where(
+                    models.channel_integrations.c.organization_id == organization_id,
+                    models.channel_integrations.c.provider == provider,
+                )
+                .values(webhook_secret=new_secret)
+            )
+            session.commit()
+            res["webhook_secret"] = new_secret
+        return res
 
     def save_config(
         self,
@@ -57,12 +71,18 @@ class ChannelIntegrationService:
         existing = self.get_config(session, organization_id, provider)
         now = datetime.now(timezone.utc)
 
+        webhook_sec = str(data.get("webhook_secret", "")).strip() or None
+        if not webhook_sec and existing and existing.get("webhook_secret"):
+            webhook_sec = existing["webhook_secret"]
+        if provider == "WHATSAPP" and not webhook_sec:
+            webhook_sec = f"whsec_{secrets.token_hex(16)}"
+
         payload = {
             "is_enabled": bool(data.get("is_enabled", False)),
             "environment": str(data.get("environment", "sandbox")),
             "client_id": str(data.get("client_id", "")).strip() or None,
             "client_secret": str(data.get("client_secret", "")).strip() or None,
-            "webhook_secret": str(data.get("webhook_secret", "")).strip() or None,
+            "webhook_secret": webhook_sec,
             "return_url": str(data.get("return_url", "")).strip() or None,
             "master_prompt": str(data.get("master_prompt", "")).strip() or None,
             "auto_accept": bool(data.get("auto_accept", True)),
