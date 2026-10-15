@@ -6524,3 +6524,53 @@ Preguntas: ¿qué comando/original quedó y se repitió? IDs/resultados/replay. 
 descarga? Códigos estables de autoridad/parser/crypto/conflicto. ¿hubo efectos contables por cargar?
 Pruebas comparan ledgers intactos; métricas futuras nunca incluyen RFC/XML o dimensiones libres.
 FullXSD/SAT, conceptos/impuestos, mapping, CxP y compensaciones siguen pendientes según X01/X02.
+
+## 65. WHATSAPP-ASISTTO-001 — integración conversacional omnicanal y pedidos directos al POS
+
+### 65.1 SDD-ADR-044 Aprobada — Adaptador simétrico con Asistto Tech Provider y pedidos desacoplados de caja
+
+La integración con WhatsApp se formaliza mediante una arquitectura simétrica desacoplada con Asistto
+como Meta Tech Provider y Kiwi como motor de inteligencia de restaurante y fuente de verdad transaccional.
+
+1. **Frontera y autenticación simétrica**:
+   - Asistto gestiona el onboarding de Meta WABA, el aprovisionamiento de números y la coexistencia con
+     la app móvil de WhatsApp Business.
+   - Para mensajes entrantes, Asistto realiza un `POST /api/v1/integrations/whatsapp/webhook` enviando el payload
+     canónico del mensaje (`wa_id`, `text`, `timestamp`, `bot_id`, `message_id`) protegido mediante un token
+     Bearer secreto configurado en Kiwi.
+   - Para mensajes salientes, Kiwi despacha las respuestas conversacionales hacia la URL de retorno de Asistto
+     (`POST https://asistto.bots2.me/webhooks/kiwi/{bot_id}`) autenticándose con el secreto de validación provisto
+     por Asistto.
+   - Cada solicitud entrante se procesa de forma idempotente mediante el `message_id` de WhatsApp para evitar
+     duplicidad ante reintentos de red.
+
+2. **Agente conversacional y Prompt Maestro en Administrador**:
+   - En Kiwi Admin (`Hub de Integraciones`), se habilita la tarjeta `WhatsApp (Asistto)` donde un usuario con
+     `admin.manage` configura credenciales de webhook, URL de retorno, mapeo de sucursal (`bot_id -> branch_id`),
+     modelo LLM y el **Prompt Maestro**.
+   - El agente ejecuta un ciclo conversacional que inyecta en cada turno el catálogo activo y vendible de la sucursal
+     asignada, horarios de operación y estado de cocina, cotizando exclusivamente con precios vigentes en centavos
+     (invariante de no-alucinación monetaria).
+   - Se soportan preguntas de clarificación de modificadores obligatorios (ej: salsas, términos, tipos de pan) y
+     recomendaciones de venta cruzada (`customer_ai.py`).
+
+3. **Reconocimiento de cliente y direcciones (CRM en tiempo real)**:
+   - Al recibir el `wa_id`, Kiwi normaliza el número telefónico y realiza una búsqueda exacta en `customer_phones`.
+   - Si el cliente existe, el agente lo saluda por su nombre (`customers.name`), valida su dirección habitual
+     (`customer_addresses`) mediante confirmación rápida y consulta su historial de productos favoritos (`order_lines`).
+   - Si el cliente no existe, se registra automáticamente al confirmar su primer pedido.
+
+4. **Registro directo en POS y desacoplamiento de caja**:
+   - Todo pedido confirmado por el cliente en WhatsApp se persiste directamente en `models.orders` con
+     `channel = "WHATSAPP"`, `status = "PENDING"`, folio oficial `#KIWI-XXXX` y `cash_shift_id = None`.
+   - El pedido no requiere que exista un turno de caja abierto en el momento de la captura: los pedidos recibidos
+     fuera de horario quedan registrados como pendientes programados y el bot notifica al cliente la hora de apertura.
+   - El POS de la sucursal consulta periódicamente `/orders/pending-count` y muestra de inmediato las comandas
+     pendientes de WhatsApp con alerta sonora y visual. Al aceptar el pedido, el cajero en turno confirma comanda,
+     dispara impresión en cocina/KDS y lo vincula a la caja activa.
+
+5. **Coexistencia y pausa humana**:
+   - Si el cliente solicita atención humana mediante palabras clave configurables o el personal de la sucursal
+     interviene enviando un mensaje desde el teléfono móvil físico vinculado a la línea, el bot entra en estado
+     `PAUSED` de forma conservadora durante una ventana de tiempo configurable, preservando el estado del pedido
+     sin colisionar con la conversación humana.

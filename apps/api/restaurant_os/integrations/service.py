@@ -12,6 +12,7 @@ from .base import IOrderChannelAdapter, NormalizedOrder
 from .didi_food import DiDiFoodAdapter
 from .rappi import RappiAdapter
 from .uber_eats import UberEatsAdapter
+from .whatsapp import WhatsAppAdapter
 
 ORGANIZATION_ID = "018f6f73-2d0a-74f0-8f1c-000000000001"
 
@@ -21,6 +22,7 @@ class ChannelIntegrationService:
         self.uber_adapter = UberEatsAdapter()
         self.didi_adapter = DiDiFoodAdapter()
         self.rappi_adapter = RappiAdapter()
+        self.whatsapp_adapter = WhatsAppAdapter()
 
     def get_adapter(self, provider: str) -> IOrderChannelAdapter:
         if provider == "UBER_EATS":
@@ -29,6 +31,8 @@ class ChannelIntegrationService:
             return self.didi_adapter
         if provider == "RAPPI":
             return self.rappi_adapter
+        if provider == "WHATSAPP":
+            return self.whatsapp_adapter
         raise ValueError(f"Proveedor no soportado: {provider}")
 
     def get_config(
@@ -59,6 +63,8 @@ class ChannelIntegrationService:
             "client_id": str(data.get("client_id", "")).strip() or None,
             "client_secret": str(data.get("client_secret", "")).strip() or None,
             "webhook_secret": str(data.get("webhook_secret", "")).strip() or None,
+            "return_url": str(data.get("return_url", "")).strip() or None,
+            "master_prompt": str(data.get("master_prompt", "")).strip() or None,
             "auto_accept": bool(data.get("auto_accept", True)),
             "default_prep_time_minutes": int(data.get("default_prep_time_minutes", 20)),
             "updated_at": now,
@@ -346,7 +352,17 @@ class ChannelIntegrationService:
         now = datetime.now(timezone.utc)
         order_id = str(uuid.uuid4())
         short_suffix = uuid.uuid4().hex[:4].upper()
-        daily_folio = f"UBER-{normalized.display_code.replace('#', '')}-{short_suffix}"
+        prefix = "WA" if provider == "WHATSAPP" else (provider.split("_")[0] if "_" in provider else provider[:4])
+        daily_folio = f"{prefix}-{normalized.display_code.replace('#', '')}-{short_suffix}"
+
+        # Resolve customer if known in WhatsApp channel
+        resolved_customer_id = None
+        if provider == "WHATSAPP" and normalized.customer_phone:
+            customer_match = self.whatsapp_adapter.lookup_customer(
+                session, organization_id, normalized.customer_phone
+            )
+            if customer_match and customer_match.get("found"):
+                resolved_customer_id = customer_match.get("customer_id")
 
         # Category for line items
         cat_id = default_products[0]["category_id"] if default_products else None
@@ -371,6 +387,10 @@ class ChannelIntegrationService:
                 cat_name = "General"
 
         order_status = "ACCEPTED" if (config and config.get("auto_accept")) else "PENDING"
+        payment_intent = "whatsapp_cod" if provider == "WHATSAPP" else f"marketplace_{provider.lower()}"
+        delivery_address_str = ""
+        if isinstance(normalized.raw_payload, dict):
+            delivery_address_str = str(normalized.raw_payload.get("delivery_address") or "")
 
         session.execute(
             models.orders.insert().values(
@@ -380,12 +400,13 @@ class ChannelIntegrationService:
                 cash_shift_id=None,
                 public_order_intent_id=None,
                 public_order_intent_status=None,
-                customer_id=None,
+                customer_id=resolved_customer_id,
                 customer_snapshot={
                     "name": normalized.customer_name,
                     "phone": normalized.customer_phone or "",
                 },
                 delivery_address_snapshot={
+                    "address": delivery_address_str,
                     "notes": normalized.delivery_notes or "",
                     "channel": provider,
                 },
@@ -396,7 +417,7 @@ class ChannelIntegrationService:
                 currency=normalized.currency,
                 owner_name=normalized.customer_name,
                 order_type="delivery",
-                payment_method_intent="marketplace_uber",
+                payment_method_intent=payment_intent,
                 version=1,
                 created_at=now,
                 accepted_at=now if order_status == "ACCEPTED" else None,

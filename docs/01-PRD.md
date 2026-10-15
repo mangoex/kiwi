@@ -506,6 +506,17 @@ funcional separada.
   misma clave con otro cuerpo falla. Los callbacks se firman con key ID, se verifican contra
   timestamp/ventana de replay y sólo notifican cambios de estado redactados. Deshabilitar o rotar una
   identidad corta nuevas llamadas sin convertir operaciones inciertas en éxito.
+- `PRD-FR-277`: Kiwi debe admitir la integración bidireccional con Asistto Tech Provider para atender
+  clientes por WhatsApp en modo coexistencia con la app móvil de WhatsApp Business. El conector expone
+  un webhook entrante autenticado mediante secreto de validación, despacha respuestas hacia la URL de retorno
+  de Asistto con cabecera de autorización, e implementa un agente conversacional interno gobernado por un
+  Prompt Maestro configurable desde el Administrador corporativo. El agente debe identificar automáticamente
+  al cliente mediante su número de teléfono en la base de datos de clientes, recuperar su nombre, direcciones
+  previas y consumos habituales, cotizar exclusivamente con precios vigentes de venta al público en centavos
+  y registrar pedidos confirmados en estado PENDING con folio oficial para la sucursal mapeada, admitiendo
+  captura con turno de caja cerrado sin exigir cash_shift_id y mostrándose inmediatamente en el POS. Si el
+  cliente solicita atención humana o el personal interviene en la app de WhatsApp Business móvil, el bot debe
+  pausarse de forma conservadora sin perder la comanda.
 
 ### 4.11 Exportación y facturación
 

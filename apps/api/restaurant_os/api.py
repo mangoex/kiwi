@@ -8016,6 +8016,333 @@ def post_rappi_test_order(
 
 
 # ---------------------------------------------------------------------------
+# Channel Integrations: WhatsApp (Asistto Tech Provider)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/integrations/whatsapp/webhook")
+@router.post("/v1/integrations/whatsapp/webhook")
+async def post_whatsapp_webhook(
+    request: Request,
+    session: SessionDep,
+) -> dict[str, Any]:
+    body_bytes = await request.body()
+    signature = (
+        request.headers.get("authorization")
+        or request.headers.get("Authorization")
+        or request.headers.get("x-asistto-signature")
+        or request.headers.get("X-Asistto-Signature")
+        or request.headers.get("x-webhook-secret")
+    )
+
+    config = channel_service.get_config(session, ORGANIZATION_ID, "WHATSAPP")
+    webhook_secret = config.get("webhook_secret") if config else None
+
+    # Validate signature / bearer token if webhook_secret is configured
+    if webhook_secret:
+        is_valid = channel_service.whatsapp_adapter.verify_webhook_signature(
+            body_bytes, signature, webhook_secret
+        )
+        if not is_valid:
+            channel_service.log_webhook(
+                session,
+                ORGANIZATION_ID,
+                "WHATSAPP",
+                "unauthorized_webhook",
+                None,
+                signature,
+                {"error": "Firma o token de autorización inválido", "headers": dict(request.headers)},
+                "rejected",
+                "Firma HMAC o token Bearer inválido o ausente.",
+            )
+            raise HTTPException(status_code=401, detail="Firma o token de webhook inválido.")
+
+    try:
+        payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Cuerpo JSON inválido.") from None
+
+    event_type, event_id = channel_service.whatsapp_adapter.parse_webhook_event(payload)
+
+    # Log webhook
+    channel_service.log_webhook(
+        session,
+        ORGANIZATION_ID,
+        "WHATSAPP",
+        event_type,
+        event_id,
+        signature,
+        payload,
+        "received",
+    )
+
+    # If it is a new order event or payload contains items/products
+    if (
+        event_type in ("NEW_ORDER", "order.created", "order.new")
+        or "items" in payload
+        or "order" in payload
+    ):
+        try:
+            result = channel_service.process_webhook_order(
+                session, ORGANIZATION_ID, "WHATSAPP", payload
+            )
+            return {"status": "ok", "event_type": event_type, "result": result}
+        except Exception as e:
+            logger.exception("Error procesando orden de WhatsApp")
+            channel_service.log_webhook(
+                session,
+                ORGANIZATION_ID,
+                "WHATSAPP",
+                event_type,
+                event_id,
+                signature,
+                payload,
+                "error",
+                str(e),
+            )
+            return {"status": "error_logged", "detail": str(e)}
+
+    # If it is a conversational message event
+    if event_type == "MESSAGE" or "message" in payload or "messages" in payload or "from" in payload:
+        sender_phone = (
+            payload.get("from")
+            or payload.get("phone")
+            or payload.get("customer_phone")
+            or (payload.get("contacts", [{}])[0].get("wa_id") if payload.get("contacts") else None)
+            or (payload.get("messages", [{}])[0].get("from") if payload.get("messages") else None)
+        )
+        customer = None
+        if sender_phone:
+            customer = channel_service.whatsapp_adapter.lookup_customer(
+                session, ORGANIZATION_ID, sender_phone
+            )
+        return {
+            "status": "ok",
+            "event_type": "MESSAGE",
+            "customer": customer,
+            "acknowledged": True,
+        }
+
+    return {"status": "acknowledged", "event_type": event_type}
+
+
+@router.get("/integrations/whatsapp/config")
+def get_whatsapp_config(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    config = channel_service.get_config(session, ORGANIZATION_ID, "WHATSAPP")
+    return config or {
+        "is_enabled": False,
+        "environment": "production",
+        "client_id": "",
+        "client_secret": "",
+        "webhook_secret": "",
+        "return_url": "",
+        "master_prompt": "",
+        "auto_accept": False,
+        "default_prep_time_minutes": 25,
+    }
+
+
+@router.put("/integrations/whatsapp/config")
+@router.post("/integrations/whatsapp/config")
+def put_whatsapp_config(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return channel_service.save_config(session, ORGANIZATION_ID, "WHATSAPP", payload)
+
+
+@router.get("/integrations/whatsapp/stores")
+def get_whatsapp_store_mappings(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return channel_service.list_store_mappings(session, ORGANIZATION_ID, "WHATSAPP")
+
+
+@router.post("/integrations/whatsapp/stores")
+def post_whatsapp_store_mapping(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    branch_id = str(payload.get("branch_id", "")).strip()
+    external_store_id = str(payload.get("external_store_id", "")).strip()
+    is_active = bool(payload.get("is_active", True))
+
+    if not branch_id or not external_store_id:
+        raise HTTPException(
+            status_code=400,
+            detail="branch_id y external_store_id son requeridos.",
+        )
+
+    return channel_service.save_store_mapping(
+        session,
+        ORGANIZATION_ID,
+        "WHATSAPP",
+        branch_id,
+        external_store_id,
+        is_active,
+    )
+
+
+@router.delete("/integrations/whatsapp/stores/{mapping_id}")
+def delete_whatsapp_store_mapping(
+    mapping_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    channel_service.delete_store_mapping(session, ORGANIZATION_ID, mapping_id)
+    return {"status": "ok", "deleted": mapping_id}
+
+
+@router.get("/integrations/whatsapp/logs")
+def get_whatsapp_webhook_logs(
+    session: SessionDep,
+    limit: int = 50,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+    return channel_service.list_webhook_logs(session, ORGANIZATION_ID, "WHATSAPP", limit)
+
+
+@router.post("/integrations/whatsapp/simulate")
+@router.post("/integrations/whatsapp/test-order")
+def post_whatsapp_test_order(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    require_permission(session, actor_id, "admin.manage")
+
+    customer_name = payload.get("customer_name") or "Carlos Mendoza (WhatsApp)"
+    customer_phone = payload.get("customer_phone") or "+523312345678"
+    store_id = (
+        payload.get("store_id")
+        or payload.get("external_store_id")
+        or "wa_store_main"
+    )
+    branch_id = payload.get("branch_id")
+    raw_items = payload.get("items") or []
+
+    if branch_id and not payload.get("store_id"):
+        mappings = channel_service.list_store_mappings(session, ORGANIZATION_ID, "WHATSAPP")
+        matched = next(
+            (m for m in mappings if m["branch_id"] == branch_id and m.get("is_active")), None
+        )
+        if matched:
+            store_id = matched["external_store_id"]
+        else:
+            store_id = f"wa_store_{branch_id[:8]}"
+            channel_service.save_store_mapping(
+                session, ORGANIZATION_ID, "WHATSAPP", branch_id, store_id, True
+            )
+
+    sim_id = f"wa-test-{uuid.uuid4().hex[:8]}"
+    display_id = f"W{uuid.uuid4().hex[:4].upper()}"
+
+    if raw_items:
+        items_payload = []
+        total_cents = 0
+        for i, itm in enumerate(raw_items):
+            qty = int(itm.get("quantity") or 1)
+            price_val = itm.get("unit_price") or itm.get("price") or 120.0
+            price_cents = (
+                int(round(price_val * 100))
+                if isinstance(price_val, float)
+                else int(itm.get("unit_price_cents") or 12000)
+            )
+            items_payload.append(
+                {
+                    "item_id": itm.get("item_id") or f"item-{i}",
+                    "name": itm.get("name") or itm.get("title") or f"Producto WhatsApp #{i + 1}",
+                    "quantity": qty,
+                    "unit_price_cents": price_cents,
+                    "special_instructions": itm.get("special_instructions") or "",
+                }
+            )
+            total_cents += price_cents * qty
+        if payload.get("total"):
+            total_cents = int(round(payload["total"] * 100))
+    else:
+        items_count = int(payload.get("items_count") or 1)
+        items_payload = [
+            {
+                "item_id": f"item-{i}",
+                "name": f"Hamburguesa Doble Queso WA #{i + 1}",
+                "quantity": 1,
+                "unit_price_cents": 12500,
+                "special_instructions": "Sin cebolla" if i == 0 else "",
+            }
+            for i in range(items_count)
+        ]
+        total_cents = 12500 * items_count
+
+    simulated_order = {
+        "order_id": sim_id,
+        "display_id": display_id,
+        "event_type": "NEW_ORDER",
+        "store_id": store_id,
+        "customer": {"name": customer_name, "phone": customer_phone},
+        "delivery_address": payload.get("delivery_address") or "Av. Hidalgo 123, Col. Americana",
+        "delivery_notes": payload.get("delivery_notes")
+        or "Entregar en portón negro, timbre 2.",
+        "items": items_payload,
+        "total_cents": total_cents,
+        "currency": "MXN",
+    }
+
+    result = channel_service.process_webhook_order(
+        session, ORGANIZATION_ID, "WHATSAPP", simulated_order
+    )
+
+    channel_service.log_webhook(
+        session,
+        ORGANIZATION_ID,
+        "WHATSAPP",
+        "NEW_ORDER",
+        sim_id,
+        "simulated-asistto-signature",
+        simulated_order,
+        "processed",
+    )
+
+    return {
+        "status": "ok",
+        "simulated_order": simulated_order,
+        "result": {
+            "order_id": result.get("order_id"),
+            "external_order_id": sim_id,
+            "folio": f"WA-{display_id}",
+            "status": result.get("status", "created"),
+        },
+    }
+
+
+
+# ---------------------------------------------------------------------------
 # POS Endpoints: Uber Eats / DiDi Food / Rappi Orders Monitor
 # ---------------------------------------------------------------------------
 
@@ -8104,8 +8431,37 @@ def post_pos_rappi_order_status(
     return channel_service.update_order_status(session, order_id, new_status, actor_id)
 
 
+@router.get("/pos/whatsapp/orders")
+def get_pos_whatsapp_orders(
+    branch_id: str,
+    session: SessionDep,
+    status: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    authorize_branch_scope(session, actor_id, "orders.read", branch_id)
+    return channel_service.list_pos_orders(session, branch_id, "WHATSAPP", status)
+
+
+@router.post("/pos/whatsapp/orders/{order_id}/status")
+def post_pos_whatsapp_order_status(
+    order_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    new_status = str(payload.get("status", "")).strip().upper()
+    if not new_status:
+        raise HTTPException(status_code=400, detail="status es requerido.")
+    return channel_service.update_order_status(session, order_id, new_status, actor_id)
+
+
 # ---------------------------------------------------------------------------
 # Invoicing Endpoints: Facturapi & CFDI 4.0
+
 # ---------------------------------------------------------------------------
 
 from restaurant_os.invoicing import emitters as fiscal_emitters

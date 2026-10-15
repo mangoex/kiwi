@@ -2278,7 +2278,7 @@ orders = sa.Table(
     sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
     sa.UniqueConstraint("branch_id", "folio", name="uq_orders_branch_folio"),
     sa.CheckConstraint(
-        "cash_shift_id IS NOT NULL OR channel IN ('UBER_EATS', 'DIDI_FOOD', 'RAPPI') "
+        "cash_shift_id IS NOT NULL OR channel IN ('UBER_EATS', 'DIDI_FOOD', 'RAPPI', 'WHATSAPP') "
         "OR (channel = 'PUBLIC_INTENT' "
         "AND public_order_intent_id IS NOT NULL "
         "AND public_order_intent_status = 'ACCEPTED')",
@@ -3617,6 +3617,8 @@ channel_integrations = sa.Table(
     sa.Column("webhook_secret", sa.String(256), nullable=True),
     sa.Column("auto_accept", sa.Boolean(), nullable=False, server_default=sa.true()),
     sa.Column("default_prep_time_minutes", sa.Integer(), nullable=False, server_default="20"),
+    sa.Column("return_url", sa.String(500), nullable=True),
+    sa.Column("master_prompt", sa.Text(), nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("organization_id", "provider", name="uq_channel_integrations_org_provider"),

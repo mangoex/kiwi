@@ -30,6 +30,8 @@ interface ChannelConfig {
   client_id: string;
   client_secret: string;
   webhook_secret: string;
+  return_url?: string;
+  master_prompt?: string;
   auto_accept: boolean;
   default_prep_time_minutes: number;
 }
@@ -160,15 +162,16 @@ export default function IntegrationsHub() {
   const [fiscalSaveMessage, setFiscalSaveMessage] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const grokBotAgentToolsEnabled = import.meta.env.VITE_GROKBOT_AGENT_TOOLS_ENABLED === 'true';
-  const [selectedProvider, setSelectedProvider] = useState<'GROKBOT' | 'UBER_EATS' | 'DIDI_FOOD' | 'RAPPI' | 'FACTURAPI'>(
-    !canManageIntegrations ? 'FACTURAPI' : grokBotAgentToolsEnabled ? 'GROKBOT' : 'UBER_EATS',
+  const [selectedProvider, setSelectedProvider] = useState<'GROKBOT' | 'WHATSAPP' | 'UBER_EATS' | 'DIDI_FOOD' | 'RAPPI' | 'FACTURAPI'>(
+    !canManageIntegrations ? 'FACTURAPI' : grokBotAgentToolsEnabled ? 'GROKBOT' : 'WHATSAPP',
   );
   const [activeTab, setActiveTab] = useState<'config' | 'agents' | 'stores' | 'logs' | 'invoices'>(
     canManageIntegrations || canConfigureFiscal ? 'config' : 'invoices');
   const fiscalDraftScope = JSON.stringify([...fiscalCorporateScope, selectedEmitterId, selectedProvider]);
   const currentFiscalDraft = React.useRef(fiscalDraftScope);
   currentFiscalDraft.current = fiscalDraftScope;
-  const isDeliveryProvider = selectedProvider === 'UBER_EATS' || selectedProvider === 'DIDI_FOOD' || selectedProvider === 'RAPPI';
+  const isDeliveryProvider = selectedProvider === 'UBER_EATS' || selectedProvider === 'DIDI_FOOD' || selectedProvider === 'RAPPI' || selectedProvider === 'WHATSAPP';
+  const providerPath = selectedProvider === 'WHATSAPP' ? 'whatsapp' : selectedProvider.toLowerCase().replace('_', '-');
   const [copied, setCopied] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [testOrderModalOpen, setTestOrderModalOpen] = useState(false);
@@ -186,7 +189,7 @@ export default function IntegrationsHub() {
   // Queries for Uber/Delivery Channels
   const { data: config } = useQuery<ChannelConfig>({
     queryKey: ['integrations', selectedProvider, 'config'],
-    queryFn: () => fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/config'),
+    queryFn: () => fetchApi('/integrations/' + providerPath + '/config'),
     enabled: isDeliveryProvider && canManageIntegrations,
   });
 
@@ -198,13 +201,13 @@ export default function IntegrationsHub() {
 
   const { data: storeMappings = [] } = useQuery<StoreMapping[]>({
     queryKey: ['integrations', selectedProvider, 'stores'],
-    queryFn: () => fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/stores'),
+    queryFn: () => fetchApi('/integrations/' + providerPath + '/stores'),
     enabled: isDeliveryProvider && canManageIntegrations,
   });
 
   const { data: logs = [] } = useQuery<WebhookLog[]>({
     queryKey: ['integrations', selectedProvider, 'logs'],
-    queryFn: () => fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/logs'),
+    queryFn: () => fetchApi('/integrations/' + providerPath + '/logs'),
     refetchInterval: activeTab === 'logs' && isDeliveryProvider ? 5000 : false,
     enabled: isDeliveryProvider && canManageIntegrations,
   });
@@ -271,7 +274,7 @@ export default function IntegrationsHub() {
 
   const saveConfigMutation = useMutation({
     mutationFn: (payload: Partial<ChannelConfig>) =>
-      fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/config', {
+      fetchApi('/integrations/' + providerPath + '/config', {
         method: 'PUT',
         body: JSON.stringify(payload),
       }),
@@ -398,7 +401,7 @@ export default function IntegrationsHub() {
 
   const saveMappingMutation = useMutation({
     mutationFn: (payload: { branch_id: string; external_store_id: string }) =>
-      fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/stores', {
+      fetchApi('/integrations/' + providerPath + '/stores', {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
@@ -412,7 +415,7 @@ export default function IntegrationsHub() {
 
   const deleteMappingMutation = useMutation({
     mutationFn: (mappingId: string) =>
-      fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/stores/' + mappingId, {
+      fetchApi('/integrations/' + providerPath + '/stores/' + mappingId, {
         method: 'DELETE',
       }),
     onSuccess: () => {
@@ -422,12 +425,12 @@ export default function IntegrationsHub() {
 
   const simulateOrderMutation = useMutation({
     mutationFn: (payload: { customer_name: string; items_count: number; store_id?: string }) =>
-      fetchApi('/integrations/' + selectedProvider.toLowerCase().replace('_', '-') + '/test-order', {
+      fetchApi('/integrations/' + providerPath + '/test-order', {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
     onSuccess: (data: any) => {
-      const providerLabel = selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider === 'RAPPI' ? 'Rappi' : 'Delivery';
+      const providerLabel = selectedProvider === 'WHATSAPP' ? 'WhatsApp' : selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider === 'RAPPI' ? 'Rappi' : 'Delivery';
       setTestOrderResult(`¡Orden de prueba de ${providerLabel} generada con éxito! Folio: ` + (data.result?.folio || 'ORD-XXXX'));
       queryClient.invalidateQueries({ queryKey: ['integrations', selectedProvider, 'logs'] });
     },
@@ -437,7 +440,9 @@ export default function IntegrationsHub() {
   });
 
   const webhookPath =
-    selectedProvider === 'UBER_EATS'
+    selectedProvider === 'WHATSAPP'
+      ? 'whatsapp'
+      : selectedProvider === 'UBER_EATS'
       ? 'uber-eats'
       : selectedProvider === 'DIDI_FOOD'
       ? 'didi-food'
@@ -502,6 +507,37 @@ export default function IntegrationsHub() {
           </div>
           <Badge variant={grokBotConfig?.is_enabled ? 'success' : 'default'}>
             {grokBotConfig?.is_enabled ? 'Habilitado' : 'Configurar'}
+          </Badge>
+        </div>}
+
+        {/* WhatsApp (Asistto Tech Provider) */}
+        {canManageIntegrations && <div
+          onClick={() => { setSelectedProvider('WHATSAPP'); setActiveTab('config'); }}
+          style={{
+            background: selectedProvider === 'WHATSAPP' ? '#064e3b' : '#fff',
+            color: selectedProvider === 'WHATSAPP' ? '#fff' : '#0f172a',
+            border: selectedProvider === 'WHATSAPP' ? '2px solid #25d366' : '1px solid #e2e8f0',
+            borderRadius: 14,
+            padding: '20px 24px',
+            cursor: 'pointer',
+            boxShadow: selectedProvider === 'WHATSAPP' ? '0 10px 20px -5px rgba(37, 211, 102, 0.3)' : '0 2px 4px rgba(0,0,0,0.02)',
+            transition: 'all 0.2s',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{ fontSize: 20 }}>💬</span>
+              <strong style={{ fontSize: '1.1rem' }}>WhatsApp</strong>
+            </div>
+            <p style={{ margin: 0, fontSize: '0.8125rem', opacity: 0.85 }}>
+              Asistto Tech Provider · Coexistencia
+            </p>
+          </div>
+          <Badge variant={selectedProvider === 'WHATSAPP' && formData.is_enabled ? 'success' : 'default'}>
+            {selectedProvider === 'WHATSAPP' && formData.is_enabled ? 'Conectado' : 'Configurar'}
           </Badge>
         </div>}
 
@@ -1472,16 +1508,20 @@ export default function IntegrationsHub() {
           </div>
         )}
 
-        {/* Uber Eats / Delivery Tabs */}
+        {/* Uber Eats / DiDi / Rappi / WhatsApp Tabs */}
         {isDeliveryProvider && activeTab === 'config' && (
           <div style={{ padding: 28 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 16 }}>
               <div>
                 <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 4px', color: '#0f172a' }}>
-                  Configuración de API & Webhooks ({selectedProvider})
+                  {selectedProvider === 'WHATSAPP'
+                    ? 'Configuración de WhatsApp (Asistto Tech Provider)'
+                    : `Configuración de API & Webhooks (${selectedProvider})`}
                 </h2>
                 <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
-                  Registra estas credenciales en el Developer Portal de {selectedProvider} para recibir pedidos en vivo.
+                  {selectedProvider === 'WHATSAPP'
+                    ? 'Conecta RestaurantOS directamente con WhatsApp Business mediante Asistto en modo Coexistencia. Configura el Webhook, URL de retorno y el Prompt Maestro del agente.'
+                    : `Registra estas credenciales en el Developer Portal de ${selectedProvider} para recibir pedidos en vivo.`}
                 </p>
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
@@ -1491,7 +1531,7 @@ export default function IntegrationsHub() {
                   style={{ display: 'flex', alignItems: 'center', gap: 8 }}
                 >
                   <Play size={16} />
-                  Simular Pedido de Prueba
+                  {selectedProvider === 'WHATSAPP' ? 'Simular Pedido / Mensaje' : 'Simular Pedido de Prueba'}
                 </Button>
                 <Button
                   variant="primary"
@@ -1504,11 +1544,13 @@ export default function IntegrationsHub() {
             </div>
 
             {/* Webhook URL Box */}
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '16px 20px', marginBottom: 24 }}>
+            <div style={{ background: selectedProvider === 'WHATSAPP' ? '#f0fdf4' : '#f0fdf4', border: selectedProvider === 'WHATSAPP' ? '1px solid #86efac' : '1px solid #bbf7d0', borderRadius: 12, padding: '16px 20px', marginBottom: 24 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <strong style={{ color: '#166534', fontSize: '0.875rem', display: 'block', marginBottom: 4 }}>
-                    URL Oficial del Webhook de RestaurantOS (Para registrar en el Developer Portal de {selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider}):
+                    {selectedProvider === 'WHATSAPP'
+                      ? 'URL Oficial del Webhook de RestaurantOS (Para registrar en Asistto Tech Provider):'
+                      : `URL Oficial del Webhook de RestaurantOS (Para registrar en el Developer Portal de ${selectedProvider === 'UBER_EATS' ? 'Uber Eats' : selectedProvider === 'DIDI_FOOD' ? 'DiDi Food' : selectedProvider}):`}
                   </strong>
                   <code style={{ fontSize: '0.875rem', color: '#15803d', wordBreak: 'break-all' }}>{webhookUrl}</code>
                 </div>
@@ -1535,7 +1577,11 @@ export default function IntegrationsHub() {
                     onChange={(e) => setFormData({ ...formData, is_enabled: e.target.checked })}
                     style={{ width: 18, height: 18, accentColor: '#10b981' }}
                   />
-                  <span style={{ fontWeight: 600 }}>Activar recepción de pedidos en tiempo real</span>
+                  <span style={{ fontWeight: 600 }}>
+                    {selectedProvider === 'WHATSAPP'
+                      ? 'Activar Agente de WhatsApp en Coexistencia Meta Cloud API'
+                      : 'Activar recepción de pedidos en tiempo real'}
+                  </span>
                 </label>
               </div>
 
@@ -1545,7 +1591,7 @@ export default function IntegrationsHub() {
                 </label>
                 <select
                   className="premium-input"
-                  value={formData.environment ?? 'sandbox'}
+                  value={formData.environment ?? (selectedProvider === 'WHATSAPP' ? 'production' : 'sandbox')}
                   onChange={(e) => setFormData({ ...formData, environment: e.target.value })}
                 >
                   <option value="sandbox">Sandbox (Pruebas de desarrollo)</option>
@@ -1553,56 +1599,172 @@ export default function IntegrationsHub() {
                 </select>
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                  {selectedProvider === 'UBER_EATS' ? 'Client ID (App ID de Uber)' : selectedProvider === 'DIDI_FOOD' ? 'App ID (DiDi Food OpenPlatform)' : selectedProvider === 'RAPPI' ? 'Client ID (Rappi Partners API)' : 'Client ID'}
-                </label>
-                <input
-                  type="text"
-                  className="premium-input"
-                  placeholder={selectedProvider === 'UBER_EATS' ? 'ub_client_id_...' : selectedProvider === 'DIDI_FOOD' ? 'didi_app_...' : selectedProvider === 'RAPPI' ? 'rp_client_id_...' : 'client_id_...'}
-                  value={formData.client_id ?? ''}
-                  onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
-                />
-              </div>
+              {selectedProvider === 'WHATSAPP' ? (
+                <>
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      Return URL de Asistto (URL de Salida para Meta WhatsApp Cloud API)
+                    </label>
+                    <input
+                      type="url"
+                      className="premium-input"
+                      placeholder="https://asistto.humanio.ai/api/v1/meta/whatsapp/webhook/kiwi-return"
+                      value={formData.return_url ?? ''}
+                      onChange={(e) => setFormData({ ...formData, return_url: e.target.value })}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 4, display: 'block' }}>
+                      URL provista por Asistto donde Kiwi despacha las respuestas conversacionales y confirmaciones de pedidos.
+                    </span>
+                  </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                  {selectedProvider === 'UBER_EATS' ? 'Client Secret' : selectedProvider === 'DIDI_FOOD' ? 'App Secret' : selectedProvider === 'RAPPI' ? 'Client Secret (Rappi Partners)' : 'Client Secret'}
-                </label>
-                <input
-                  type="password"
-                  className="premium-input"
-                  placeholder="••••••••••••••••"
-                  value={formData.client_secret ?? ''}
-                  onChange={(e) => setFormData({ ...formData, client_secret: e.target.value })}
-                />
-              </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      Token de Autorización de Salida (Bearer para Asistto)
+                    </label>
+                    <input
+                      type="password"
+                      className="premium-input"
+                      placeholder="asistto_sec_••••••••••••••••"
+                      value={formData.client_secret ?? ''}
+                      onChange={(e) => setFormData({ ...formData, client_secret: e.target.value })}
+                    />
+                  </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                  Webhook Signing Secret (Firma HMAC-SHA256)
-                </label>
-                <input
-                  type="password"
-                  className="premium-input"
-                  placeholder="whsec_••••••••••••••••"
-                  value={formData.webhook_secret ?? ''}
-                  onChange={(e) => setFormData({ ...formData, webhook_secret: e.target.value })}
-                />
-              </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      Webhook Secret de Entrada (Firma HMAC / Token de Validación)
+                    </label>
+                    <input
+                      type="password"
+                      className="premium-input"
+                      placeholder="whsec_••••••••••••••••"
+                      value={formData.webhook_secret ?? ''}
+                      onChange={(e) => setFormData({ ...formData, webhook_secret: e.target.value })}
+                    />
+                  </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                  Tiempo Estimado de Preparación por Defecto
-                </label>
-                <input
-                  type="number"
-                  className="premium-input"
-                  value={formData.default_prep_time_minutes ?? 20}
-                  onChange={(e) => setFormData({ ...formData, default_prep_time_minutes: parseInt(e.target.value) || 20 })}
-                />
-              </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      WABA Phone ID / Número de WhatsApp del Negocio
+                    </label>
+                    <input
+                      type="text"
+                      className="premium-input"
+                      placeholder="+523312345678 o Phone Number ID"
+                      value={formData.client_id ?? ''}
+                      onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      Tiempo Estimado de Preparación por Defecto
+                    </label>
+                    <input
+                      type="number"
+                      className="premium-input"
+                      value={formData.default_prep_time_minutes ?? 25}
+                      onChange={(e) => setFormData({ ...formData, default_prep_time_minutes: parseInt(e.target.value) || 25 })}
+                    />
+                  </div>
+
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+                      <input
+                        type="checkbox"
+                        checked={formData.auto_accept ?? false}
+                        onChange={(e) => setFormData({ ...formData, auto_accept: e.target.checked })}
+                        style={{ width: 18, height: 18, accentColor: '#10b981' }}
+                      />
+                      <div>
+                        <span style={{ fontWeight: 600, color: '#0f172a', display: 'block' }}>
+                          Aceptación automática de pedidos
+                        </span>
+                        <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                          Si está desactivado (recomendado), los pedidos de WhatsApp entran en estado PENDIENTE incluso con la caja cerrada para ser revisados por un humano en la apertura del turno.
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+
+                  <div style={{ gridColumn: '1 / -1', marginTop: 8, borderTop: '1px solid #e2e8f0', paddingTop: 20 }}>
+                    <label style={{ display: 'block', fontSize: '0.9375rem', fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
+                      Prompt Maestro del Agente Conversacional (Kiwi en WhatsApp)
+                    </label>
+                    <p style={{ margin: '0 0 10px', fontSize: '0.8125rem', color: '#64748b', lineHeight: 1.5 }}>
+                      Instrucciones canónicas que guían las respuestas del agente, el tono de voz y las recomendaciones de platillos.
+                      Variables disponibles en tiempo de ejecución:
+                      <code style={{ background: '#f1f5f9', color: '#0f766e', padding: '2px 6px', borderRadius: 4, margin: '0 4px', fontWeight: 600 }}>{'{customer_name}'}</code>,
+                      <code style={{ background: '#f1f5f9', color: '#0f766e', padding: '2px 6px', borderRadius: 4, margin: '0 4px', fontWeight: 600 }}>{'{past_orders}'}</code>,
+                      <code style={{ background: '#f1f5f9', color: '#0f766e', padding: '2px 6px', borderRadius: 4, margin: '0 4px', fontWeight: 600 }}>{'{favorite_dishes}'}</code>,
+                      <code style={{ background: '#f1f5f9', color: '#0f766e', padding: '2px 6px', borderRadius: 4, margin: '0 4px', fontWeight: 600 }}>{'{delivery_address}'}</code>,
+                      <code style={{ background: '#f1f5f9', color: '#0f766e', padding: '2px 6px', borderRadius: 4, margin: '0 4px', fontWeight: 600 }}>{'{menu_items}'}</code>,
+                      <code style={{ background: '#f1f5f9', color: '#0f766e', padding: '2px 6px', borderRadius: 4, margin: '0 4px', fontWeight: 600 }}>{'{active_branch}'}</code>.
+                    </p>
+                    <textarea
+                      className="premium-input"
+                      rows={8}
+                      placeholder="Eres el anfitrión y sommelier virtual de Kiwi. Saluda cálidamente al cliente por su nombre {customer_name} si ya está registrado, confirma si desea recibir su pedido en su dirección habitual {delivery_address}, y recomiéndale sus favoritos como {favorite_dishes}. Cotiza únicamente con los precios oficiales vigentes en centavos sin inventar montos ni promociones no autorizadas..."
+                      value={formData.master_prompt ?? ''}
+                      onChange={(e) => setFormData({ ...formData, master_prompt: e.target.value })}
+                      style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: 1.5, resize: 'vertical' }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      {selectedProvider === 'UBER_EATS' ? 'Client ID (App ID de Uber)' : selectedProvider === 'DIDI_FOOD' ? 'App ID (DiDi Food OpenPlatform)' : selectedProvider === 'RAPPI' ? 'Client ID (Rappi Partners API)' : 'Client ID'}
+                    </label>
+                    <input
+                      type="text"
+                      className="premium-input"
+                      placeholder={selectedProvider === 'UBER_EATS' ? 'ub_client_id_...' : selectedProvider === 'DIDI_FOOD' ? 'didi_app_...' : selectedProvider === 'RAPPI' ? 'rp_client_id_...' : 'client_id_...'}
+                      value={formData.client_id ?? ''}
+                      onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      {selectedProvider === 'UBER_EATS' ? 'Client Secret' : selectedProvider === 'DIDI_FOOD' ? 'App Secret' : selectedProvider === 'RAPPI' ? 'Client Secret (Rappi Partners)' : 'Client Secret'}
+                    </label>
+                    <input
+                      type="password"
+                      className="premium-input"
+                      placeholder="••••••••••••••••"
+                      value={formData.client_secret ?? ''}
+                      onChange={(e) => setFormData({ ...formData, client_secret: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      Webhook Signing Secret (Firma HMAC-SHA256)
+                    </label>
+                    <input
+                      type="password"
+                      className="premium-input"
+                      placeholder="whsec_••••••••••••••••"
+                      value={formData.webhook_secret ?? ''}
+                      onChange={(e) => setFormData({ ...formData, webhook_secret: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                      Tiempo Estimado de Preparación por Defecto
+                    </label>
+                    <input
+                      type="number"
+                      className="premium-input"
+                      value={formData.default_prep_time_minutes ?? 20}
+                      onChange={(e) => setFormData({ ...formData, default_prep_time_minutes: parseInt(e.target.value) || 20 })}
+                    />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
