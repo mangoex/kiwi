@@ -56,6 +56,10 @@ despliegue, migración productiva y modificación de datos reales mantienen auto
 
 ## Publicación y reversión pendientes
 
+La verificación previa a publicación reprodujo una expectativa obsoleta de head 0095 en la suite
+de capacidad Alembic. Se ajustó a 0097 junto con las aserciones de conservación de revisión de
+las suites PostgreSQL fiscal, offline, intenciones y XML; no se alteraron sus guardas ni fixtures.
+
 Publicar el código y esperar CI verde antes de release. Bajo autorización productiva separada,
 respaldar la base y elegir una ventana para crear el índice: puede bloquear escrituras mientras
 se construye y su duración depende del volumen histórico. Desde `/app/apps/api`, comprobar
