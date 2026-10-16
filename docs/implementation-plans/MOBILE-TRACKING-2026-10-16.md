@@ -61,7 +61,8 @@ de capacidad Alembic. Se ajustó a 0097 junto con las aserciones de conservació
 las suites PostgreSQL fiscal, offline, intenciones y XML; no se alteraron sus guardas ni fixtures.
 CI también reprodujo un fixture de sesión administrativa sin `active_branch.timezone`, requerido
 por el contrato vigente. Se agregó sólo ese dato sintético; la prueba completa del provider pasó
-localmente conservando las validaciones de autoridad, contexto y navegación.
+localmente conservando las validaciones de autoridad, contexto y navegación. El mismo dato se
+completa en el fixture compartido de navegador, respetando zonas explícitas por sucursal.
 
 Publicar el código y esperar CI verde antes de release. Bajo autorización productiva separada,
 respaldar la base y elegir una ventana para crear el índice: puede bloquear escrituras mientras
