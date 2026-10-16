@@ -19,6 +19,14 @@ Feature: Administrar proveedores y contactos operativos
     Given existe un proveedor central
     When el administrador lo habilita para una sucursal con tiempo de entrega particular
     Then otras sucursales no heredan silenciosamente esa condición particular
+
+  @BDD-SC-704
+  Scenario: Consultar el expediente completo de un proveedor en el panel lateral
+    Given el administrador abrió el detalle de un proveedor con cartera y trazabilidad
+    When el contenido supera la altura disponible de la pantalla
+    Then puede recorrer verticalmente todo el expediente dentro del panel
+    And conserva visibles el encabezado y las acciones de cierre o guardado
+    And puede expandir o contraer la cartera y la trazabilidad aun en modo de consulta
 ```
 
 ## BDD-FEAT-037 Presentaciones y precio informativo

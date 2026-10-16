@@ -28,3 +28,14 @@ And no existe un movimiento de inventario por esa captura
 When una recepción en A confirma otro precio
 Then el historial/proyección efectivos pertenecen a A
 And B conserva su historial propio o el baseline corporativo.
+
+## TDD-TC-406 Panel lateral completo de proveedor
+
+Given el detalle de proveedor contiene datos fiscales, cartera, trazabilidad y resumen financiero
+When la suma de las secciones supera la altura disponible
+Then el cuerpo del FastTab se encoge dentro del viewport y ofrece desplazamiento vertical propio
+And el FastTab de CXP usa el ancho amplio en escritorio y ancho completo en móvil
+And sólo el formulario editable queda deshabilitado en consulta
+And los acordeones y nodos de trazabilidad conservan sus controles interactivos.
+
+Evidencia automatizada dirigida: `tests/frontend/test_supplier_fast_tab_layout.mjs`.
