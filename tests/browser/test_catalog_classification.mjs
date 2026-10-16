@@ -97,7 +97,7 @@ try {
     assert.equal(await page.getByText('No hay productos registrados.', { exact: true }).count(), 0);
     productsUnavailable = false;
     await page.getByRole('button', { name: 'Reintentar productos', exact: true }).click();
-    await page.getByRole('cell', { name: 'ALIMENTO EN BARRA', exact: true }).waitFor();
+    await page.getByLabel('Producto', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Contraer menú lateral', exact: true }).click();
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: 'Expandir menú lateral', exact: true }).press('Enter');
@@ -108,7 +108,10 @@ try {
     const inherited = page.getByLabel('Familia en POS heredada del grupo');
     await inherited.waitFor();
     console.log(`Products loaded ${label}`);
-    await page.getByRole('cell', { name: 'ALIMENTO EN BARRA', exact: true }).click();
+    const productSelector = page.getByLabel('Producto', { exact: true });
+    const foodId = await productSelector.locator('option').filter({ hasText: 'ALIMENTO EN BARRA' }).getAttribute('value');
+    assert.ok(foodId);
+    await productSelector.selectOption(foodId);
     await page.waitForFunction(() => document.querySelector('#product-inherited-classification')?.value === 'Alimentos');
     assert.equal(await inherited.inputValue(), 'Alimentos');
     assert.equal(await inherited.getAttribute('readonly'), '');

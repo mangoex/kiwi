@@ -26,3 +26,9 @@ And no antepone `alembic upgrade head` al arranque del proceso web.
 El módulo `restaurant_os.main` tampoco importa Alembic, define auto-migración ni llama promoción de
 esquema desde lifespan; `RESTAURANTOS_AUTO_MIGRATE=true` no cambia esa frontera. El comando Alembic
 separado conserva su código de salida distinto de cero ante fallo.
+
+
+Regresión runtime de TDD-TC-053: iniciar create_app mediante TestClient con URL SQLite o
+PostgreSQL sintética y RESTAURANTOS_AUTO_MIGRATE=true; interceptar command.upgrade y exigir cero
+llamadas durante startup/shutdown, con /health/live 200. No requiere una base ni ejecuta DDL.
+Conservar los controles estáticos de ambos Dockerfiles y ausencia de promoción en main/config.

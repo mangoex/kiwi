@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button, Modal } from '@restaurantos/ui';
 import {
   fetchApi,
@@ -308,6 +308,7 @@ const orderErrorMessage = (code?: string, message?: string) => {
 };
 
 const PointOfSale = () => {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { editOrderId: routeEditOrderId = '' } = useParams<{ editOrderId?: string }>();
   // Keep old bookmarked links working while the explicit route is the
@@ -317,13 +318,16 @@ const PointOfSale = () => {
   const branchId = session?.active_branch?.id || '';
   const showCatalogVisuals = session?.active_branch?.pos_catalog_visuals_enabled !== false;
   const allowedBranches = session?.allowed_branches || [];
-  const canSelectBranch = Boolean(
-    session
-    && session.scope.can_select_branch
-    && allowedBranches.length > 1
-    && navigator.onLine
-    && !loadOperationalOrderConfig()
-  );
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
   const [branchSwitching, setBranchSwitching] = useState(false);
   const [branchSwitchError, setBranchSwitchError] = useState('');
 
@@ -388,7 +392,7 @@ const PointOfSale = () => {
   const assistedTextRef = useRef('');
 
   const [ownerName, setOwnerName] = useState('');
-  const [confirmation, setConfirmation] = useState<{ folio: string; paid: boolean; change?: number; warning?: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<{ id: string; folio: string; paid: boolean; change?: number; warning?: string } | null>(null);
   const [orderType, setOrderType] = useState('takeout');
   const [lineEditor, setLineEditor] = useState<{ lineId: string; quantity: string; notes: string } | null>(null);
   const [heldOpen, setHeldOpen] = useState(false);
@@ -433,6 +437,18 @@ const PointOfSale = () => {
     operationalConfigError = error instanceof Error ? error : new Error('operational_order_config_invalid');
   }
   const localOrderConfig = operationalConfig?.branchId === branchId ? operationalConfig : null;
+  const showBranchSelector = allowedBranches.length > 1 && Boolean(
+    session?.scope.level === 'organization' || hasPermission('pos.branch.select'),
+  );
+  const canSelectBranch = Boolean(session && session.scope.can_select_branch && online
+    && !operationalConfig && !operationalConfigError);
+  const branchSelectionNotice = operationalConfigError
+    ? 'Revisa la configuración de operación local antes de cambiar de sucursal.'
+    : operationalConfig ? 'Este POS está vinculado al gateway de esta sucursal. El cambio está bloqueado.'
+    : !online ? 'Conéctate a internet para cambiar de sucursal.'
+    : session?.scope.branch_selection_block_reason === 'rollout_disabled'
+      ? 'El cambio de sucursal aún no está habilitado en el servidor.'
+    : !canSelectBranch ? 'Tu sesión no tiene habilitado el cambio de sucursal.' : '';
   const requestOrder = async <T,>(endpoint: string, options: RequestInit = {}): Promise<T> => {
     if (operationalConfigError) throw operationalConfigError;
     if (operationalConfig && !localOrderConfig) throw new Error('La configuración operacional pertenece a otra sucursal.');
@@ -616,13 +632,13 @@ const PointOfSale = () => {
               ...(pendingCheckout.receivedCash !== undefined ? { received_cash: pendingCheckout.receivedCash } : {}),
             }),
           });
-          setConfirmation({ folio: orderData.folio, paid: true, change: payment.cash_tender?.change_cents });
+          setConfirmation({ id: orderData.id, folio: orderData.folio, paid: true, change: payment.cash_tender?.change_cents });
         } else {
-          setConfirmation({ folio: orderData.folio, paid: false });
+          setConfirmation({ id: orderData.id, folio: orderData.folio, paid: false });
         }
         } catch (failure) {
           if (!paymentWasDefinitelyRejected(failure)) throw failure;
-          setConfirmation({ folio: orderData.folio, paid: false, warning: 'El cobro fue rechazado. Revisa el pago de este pedido en Pedidos; no crees otra venta.' });
+          setConfirmation({ id: orderData.id, folio: orderData.folio, paid: false, warning: 'El cobro fue rechazado. Revisa el pago de este pedido en Pedidos; no crees otra venta.' });
         }
         drafts.clearActive();
         clearPendingCheckout(pendingCheckout.orderKey);
@@ -1449,7 +1465,7 @@ const PointOfSale = () => {
         drafts.clearActive();
         clearPendingCheckout(checkoutIntent.key);
         checkoutIntentRef.current = null;
-        setConfirmation({ folio: orderData.folio, paid: false });
+        setConfirmation({ id: orderData.id, folio: orderData.folio, paid: false });
         setCart([]); setOrderType('takeout');
         setAdjustmentAuthorizationId(null);
         setCourtesyReason('');
@@ -1481,14 +1497,14 @@ const PointOfSale = () => {
         if (paymentWasDefinitelyRejected(payErr)) {
           drafts.clearActive(); clearPendingCheckout(checkoutIntent.key); checkoutIntentRef.current = null;
           setCart([]); setOrderType('takeout'); setPaymentOpen(false); setPaymentMethod(null); setReceivedCash(''); clearCustomer();
-          setConfirmation({ folio: orderData.folio, paid: false, warning: `El cobro fue rechazado: ${msg}. Abre este pedido en Pedidos para revisar su pago. No crees otra venta.` });
+          setConfirmation({ id: orderData.id, folio: orderData.folio, paid: false, warning: `El cobro fue rechazado: ${msg}. Abre este pedido en Pedidos para revisar su pago. No crees otra venta.` });
           setCheckoutState('idle'); return;
         }
         alert(`Orden creada, pero el pago falló: ${msg}`);
         setCheckoutState('idle');
         return;
       }
-      setConfirmation({ folio: orderData.folio, paid: true, change: cashChange });
+      setConfirmation({ id: orderData.id, folio: orderData.folio, paid: true, change: cashChange });
       drafts.clearActive();
       clearPendingCheckout(checkoutIntent.key);
       checkoutIntentRef.current = null;
@@ -1604,13 +1620,14 @@ const PointOfSale = () => {
         </label>
         <div className="pos-sale-branch-stack">
           <div className="pos-sale-branch">
-            {canSelectBranch ? (
+            {showBranchSelector ? (
               <label className="pos-sale-branch-selector">
                 <span aria-hidden="true">📍</span>
                 <select
                   aria-label="Sucursal de trabajo"
                   value={branchId}
-                  disabled={branchSwitching}
+                  disabled={branchSwitching || !canSelectBranch}
+                  aria-describedby={branchSelectionNotice ? 'pos-branch-selection-notice' : undefined}
                   onChange={(event) => {
                     const select = event.currentTarget;
                     const previousBranchId = branchId;
@@ -1636,6 +1653,7 @@ const PointOfSale = () => {
             </button>
           </div>
           {branchSwitching && <small role="status">Validando sucursal…</small>}
+          {showBranchSelector && branchSelectionNotice && <small id="pos-branch-selection-notice" role="status">{branchSelectionNotice}</small>}
           {branchSwitchError && <small role="alert">{branchSwitchError}</small>}
         </div>
       </header>
@@ -1957,7 +1975,9 @@ const PointOfSale = () => {
           {confirmation.warning && <p role="alert">{confirmation.warning}</p>}
           {confirmation.paid && <p>Las impresiones están en cola; no se ha confirmado impresión física.</p>}
           <Button onClick={() => setConfirmation(null)}>Nueva captura</Button>
-          <Button variant="secondary" onClick={() => { window.location.href = '/pos/history'; }}>Ver pedidos</Button>
+          <Button variant="secondary" onClick={() => {
+            if (confirmation) navigate(`/history?order_id=${encodeURIComponent(confirmation.id)}&branch_id=${encodeURIComponent(branchId)}`);
+          }}>Ver pedidos</Button>
         </section>}
       </Modal>
       <Modal isOpen={Boolean(lineEditor)} onClose={() => setLineEditor(null)} title="Editar producto">

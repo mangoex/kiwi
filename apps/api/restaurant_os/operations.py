@@ -4657,6 +4657,7 @@ def list_order_accounts(
         raise BusinessError(
             "order_accounts_query_invalid", "Search must contain 2 to 120 characters"
         )
+    q = q.casefold()
     filters = {
         "branch_id": branch_id,
         "from_utc": start.isoformat() if start else None,
@@ -4668,6 +4669,7 @@ def list_order_accounts(
     }
     cursor_created: datetime | None = None
     cursor_id: str | None = None
+    cursor_kind = "order"
     if cursor := raw.get("cursor"):
         try:
             data = json.loads(urlsafe_b64decode(str(cursor).encode()).decode())
@@ -4677,6 +4679,9 @@ def list_order_accounts(
             if cursor_created.tzinfo is None:
                 raise ValueError("cursor timestamp is naive")
             cursor_id = data["i"]
+            cursor_kind = data.get("k", "order")
+            if cursor_kind not in {"order", "intent"}:
+                raise ValueError("cursor source")
         except (
             BinasciiError,
             UnicodeDecodeError,
@@ -4711,37 +4716,58 @@ def list_order_accounts(
                 sa.func.lower(models.orders.c.customer_snapshot["name"].as_string()).contains(q),
             )
         )
+    intents = models.public_order_intents
+    intent_query = sa.select(intents).where(
+        intents.c.organization_id == ORGANIZATION_ID,
+        intents.c.branch_id == branch_id,
+        intents.c.status == "PENDING_REVIEW",
+        intents.c.accepted_order_id.is_(None),
+    )
+    # Web requests have no operational shift/register until accepted.
+    if not branch_id or raw.get("cash_shift_id") or raw.get("register_code"):
+        intent_query = intent_query.where(sa.false())
+    if start is not None and end is not None:
+        intent_query = intent_query.where(intents.c.created_at >= start, intents.c.created_at < end)
+    if service:
+        intent_query = intent_query.where(intents.c.order_type == service)
+    if q:
+        web_folio = sa.literal("WEB-") + sa.func.substr(
+            intents.c.public_reference, sa.func.length(intents.c.public_reference) - 5, 6,
+        )
+        intent_query = intent_query.where(sa.or_(
+            sa.func.lower(web_folio).contains(q),
+            sa.func.lower(intents.c.customer_snapshot["name"].as_string()).contains(q),
+        ))
+    # Apply ordering and the bound before hydrating either source; web requests must
+    # not form an unlimited prefix that hides POS orders or bypasses their filters.
+    feed = sa.union_all(
+        query.with_only_columns(
+            models.orders.c.id, models.orders.c.created_at, sa.literal("order").label("kind"),
+            maintain_column_froms=True,
+        ),
+        intent_query.with_only_columns(
+            intents.c.id, intents.c.created_at, sa.literal("intent").label("kind"),
+            maintain_column_froms=True,
+        ),
+    ).subquery("order_account_feed")
+    page_query = sa.select(feed)
     if cursor_created is not None and cursor_id is not None:
-        query = query.where(
-            sa.tuple_(models.orders.c.created_at, models.orders.c.id)
-            < sa.tuple_(sa.literal(cursor_created), sa.literal(cursor_id))
+        page_query = page_query.where(
+            sa.tuple_(feed.c.created_at, feed.c.id, feed.c.kind)
+            < sa.tuple_(sa.literal(cursor_created), sa.literal(cursor_id), sa.literal(cursor_kind))
         )
-    rows = [
-        dict(row)
-        for row in session.execute(
-            query.order_by(models.orders.c.created_at.desc(), models.orders.c.id.desc()).limit(
-                limit + 1
-            )
-        ).mappings()
-    ]
-    has_more, rows = len(rows) > limit, rows[:limit]
+    page_rows = list(session.execute(page_query.order_by(
+        feed.c.created_at.desc(), feed.c.id.desc(), feed.c.kind.desc(),
+    ).limit(limit + 1)).mappings())
+    has_more, page_rows = len(page_rows) > limit, page_rows[:limit]
+    order_ids = [row["id"] for row in page_rows if row["kind"] == "order"]
+    intent_ids = [row["id"] for row in page_rows if row["kind"] == "intent"]
+    rows = [dict(row) for row in session.execute(
+        query.where(models.orders.c.id.in_(order_ids))
+    ).mappings()] if order_ids else []
     items = []
-    if (
-        branch_id
-        and not cursor_id
-        and not raw.get("cash_shift_id")
-        and not raw.get("register_code")
-    ):
-        intent_query = (
-            sa.select(models.public_order_intents)
-            .where(
-                models.public_order_intents.c.organization_id == ORGANIZATION_ID,
-                models.public_order_intents.c.branch_id == branch_id,
-                models.public_order_intents.c.status == "PENDING_REVIEW",
-            )
-            .order_by(models.public_order_intents.c.created_at.desc())
-        )
-        intent_rows = session.execute(intent_query).mappings().all()
+    if intent_ids:
+        intent_rows = session.execute(intent_query.where(intents.c.id.in_(intent_ids))).mappings()
         for intent in intent_rows:
             cust_name = (intent.get("customer_snapshot") or {}).get("name")
             items.append(
@@ -4755,7 +4781,8 @@ def list_order_accounts(
                     "service_type": intent["order_type"],
                     "total_cents": intent["total_cents"],
                     "currency": intent["currency"],
-                    "created_at": intent["created_at"],
+                    "created_at": intent["created_at"].replace(tzinfo=UTC)
+                    if intent["created_at"].tzinfo is None else intent["created_at"],
                     "customer_label": f"🌐 {cust_name or 'Cliente Web'}",
                     "payment_status": "UNPAID",
                     "production_summary": {
@@ -4797,11 +4824,21 @@ def list_order_accounts(
             }
         )
     next_cursor = None
-    if has_more and rows:
-        last = rows[-1]
+    by_identity = {
+        (item["id"], "intent" if item.get("is_public_intent") else "order"): item
+        for item in items
+    }
+    items = [by_identity[(row["id"], row["kind"])] for row in page_rows
+             if (row["id"], row["kind"]) in by_identity]
+    if has_more and page_rows:
+        last = page_rows[-1]
+        last_created = last["created_at"]
+        if last_created.tzinfo is None:
+            last_created = last_created.replace(tzinfo=UTC)
         next_cursor = urlsafe_b64encode(
             json.dumps(
-                {"h": _pco005_hash(filters), "c": last["created_at"].isoformat(), "i": last["id"]}
+                {"h": _pco005_hash(filters), "c": last_created.isoformat(),
+                 "i": last["id"], "k": last["kind"]}
             ).encode()
         ).decode()
     return {"items": items, "next_cursor": next_cursor}
@@ -25684,6 +25721,11 @@ def build_session_profile(
         and (actor_has_organization_authority(session, actor) or has_workspace_scope)
         and len(allowed_branch_ids) > 1
     )
+    branch_selection_block_reason = (
+        None if can_select_branch else "single_branch" if len(allowed_branch_ids) < 2
+        else "rollout_disabled" if not get_settings().branch_scope_v2_enabled
+        else "permission_denied"
+    )
 
     # A projection of existing checks, never a new grant or role-name inference.
     capability_codes = (
@@ -25737,6 +25779,7 @@ def build_session_profile(
             "home_branch_id": home_branch_id,
             "allowed_branch_ids": allowed_branch_ids,
             "can_select_branch": can_select_branch,
+            "branch_selection_block_reason": branch_selection_block_reason,
             "authorization_version": authorization_version,
         },
         "active_branch": active_branch,

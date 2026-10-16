@@ -10,7 +10,10 @@ const baseUrl = manifest.admin_base_url;
 const apiBaseUrl = `${new URL(baseUrl).origin}/api/v1`;
 
 async function openFixedCombo(page, productName) {
-  await page.getByRole('cell', { name: productName, exact: true }).click();
+  const selector = page.getByLabel('Producto', { exact: true });
+  const value = await selector.locator('option').filter({ hasText: productName }).getAttribute('value');
+  assert.ok(value, 'El combo debe existir en el selector de productos');
+  await selector.selectOption(value);
   await page.getByRole('tab', { name: 'Principal / Varios', exact: true }).press('End');
   await page.getByRole('button', { name: 'Configurar combo fijo', exact: true }).click();
   await page.getByRole('heading', { name: /Combo fijo:/ }).waitFor();

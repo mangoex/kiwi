@@ -1,6 +1,8 @@
 import ast
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -59,6 +61,23 @@ def test_web_process_has_no_runtime_migration_path() -> None:
     assert "command.upgrade" not in main
     assert "auto_migrate" not in main
     assert "auto_migrate" not in config
+
+
+@pytest.mark.parametrize("database_url", ["sqlite://", "postgresql+psycopg://127.0.0.1/startup_probe"])
+def test_web_startup_does_not_promote_schema(monkeypatch, database_url: str) -> None:
+    from alembic import command
+    from fastapi.testclient import TestClient
+    from restaurant_os import main
+
+    settings = main.get_settings().model_copy(update={"database_url": database_url})
+    migrations: list[str] = []
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+    monkeypatch.setattr(command, "upgrade", lambda *_args, **_kwargs: migrations.append("upgrade"))
+    monkeypatch.setenv("RESTAURANTOS_AUTO_MIGRATE", "true")
+
+    with TestClient(main.create_app()) as client:
+        assert client.get("/health/live").status_code == 200
+    assert migrations == [], "Starting the web process must not promote the database schema"
 
 
 def test_legacy_operational_platform_shell_is_absent() -> None:

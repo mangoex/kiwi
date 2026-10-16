@@ -60,7 +60,10 @@ try {
     assert.deepEqual(labels.slice(-3), ['Administración', 'Agentes', 'Volver a caja']);
     assert.equal(labels.includes('Panel Principal'), false);
     await page.goto(baseUrl + '/products');
-    await page.getByText('PRODUCTO RECUPERADO', { exact: true }).first().waitFor();
+    const productSelector = page.getByLabel('Producto', { exact: true });
+    await productSelector.selectOption('session-product');
+    assert.equal(await productSelector.inputValue(), 'session-product');
+    assert.ok((await productSelector.locator('option:checked').innerText()).includes('PRODUCTO RECUPERADO'));
     await page.getByRole('button', { name: 'Contraer menú lateral' }).click();
     assert.equal(await page.locator('.admin-nav-item[aria-label="Agentes"]').count(), 1);
     if (width < 768) await page.getByRole('button', { name: 'Expandir menú lateral' }).click();
@@ -96,7 +99,10 @@ try {
     const products = await (await productsResponse).json();
     const product = products.find(item => manifest.product_ids.includes(item.id));
     assert.ok(product, 'Real authenticated catalog must contain the seeded product');
-    await page.getByText(product.name, { exact: true }).first().waitFor();
+    const recoveredSelector = page.getByLabel('Producto', { exact: true });
+    await recoveredSelector.selectOption(product.id);
+    assert.equal(await recoveredSelector.inputValue(), product.id);
+    assert.ok((await recoveredSelector.locator('option:checked').innerText()).includes(product.name));
     await page.close();
     console.log('Real API: invalid credential, reauthentication and products 200 passed');
   }

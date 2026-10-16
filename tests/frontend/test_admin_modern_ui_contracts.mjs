@@ -39,8 +39,10 @@ assert.match(copilotContent, /violet|purple|#7c3aed|#6b21a8/, 'Debe usar el acen
 const productsPath = 'apps/admin-web/src/features/catalog/ProductsList.tsx';
 const productsContent = readFileSync(productsPath, 'utf8');
 assert.match(productsContent, /FastTabDrawer|FastTab/, 'ProductsList debe integrar el panel FastTab');
-assert.match(productsContent, /selectedProduct|selectedRowId|selectedItem/, 'ProductsList debe manejar selección contextual de fila');
-assert.match(productsContent, /bg-violet-50|bg-purple-50|border-violet|border-purple/, 'Fila seleccionada debe tener resaltado lavanda');
+assert.match(productsContent, /selectedProduct/, 'ProductsList debe conservar el producto seleccionado');
+assert.match(productsContent, /htmlFor="product-selection"/, 'El selector superior debe tener etiqueta accesible');
+assert.match(productsContent, /value=\{isNew \? '' : selectedProduct\?\.id \|\| ''\}/, 'El selector debe reflejar el producto o borrador activo');
+assert.match(productsContent, /productos-workspace-layout/, 'El detalle debe usar el espacio bajo el selector');
 
 // 6. Verificar integración en SuppliersList (Proveedores y CXP)
 const suppliersPath = 'apps/admin-web/src/features/purchasing/SuppliersList.tsx';

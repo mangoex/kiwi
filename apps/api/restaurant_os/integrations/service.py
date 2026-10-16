@@ -40,16 +40,34 @@ class ChannelIntegrationService:
         try:
             bind = session.get_bind()
             if bind.dialect.name == "postgresql":
-                session.execute(sa.text("ALTER TABLE channel_integrations ADD COLUMN IF NOT EXISTS return_url VARCHAR(500)"))
-                session.execute(sa.text("ALTER TABLE channel_integrations ADD COLUMN IF NOT EXISTS master_prompt TEXT"))
-                session.execute(sa.text(
-                    "ALTER TABLE orders DROP CONSTRAINT IF EXISTS ck_orders_cash_shift_required_except_public_intent"
-                ))
-                session.execute(sa.text(
-                    "ALTER TABLE orders ADD CONSTRAINT ck_orders_cash_shift_required_except_public_intent "
-                    "CHECK (cash_shift_id IS NOT NULL OR channel IN ('UBER_EATS', 'DIDI_FOOD', 'RAPPI', 'WHATSAPP') "
-                    "OR (channel = 'PUBLIC_INTENT' AND public_order_intent_id IS NOT NULL AND public_order_intent_status = 'ACCEPTED'))"
-                ))
+                session.execute(
+                    sa.text(
+                        'ALTER TABLE channel_integrations ADD COLUMN IF NOT EXISTS '
+                        'return_url VARCHAR(500)'
+                    )
+                )
+                session.execute(
+                    sa.text(
+                        'ALTER TABLE channel_integrations ADD COLUMN IF NOT EXISTS '
+                        'master_prompt TEXT'
+                    )
+                )
+                session.execute(
+                    sa.text(
+                        'ALTER TABLE orders DROP CONSTRAINT IF EXISTS '
+                        'ck_orders_cash_shift_required_except_public_intent'
+                    )
+                )
+                session.execute(
+                    sa.text(
+                        'ALTER TABLE orders ADD CONSTRAINT '
+                        'ck_orders_cash_shift_required_except_public_intent '
+                        'CHECK (cash_shift_id IS NOT NULL OR channel IN '
+                        "('UBER_EATS', 'DIDI_FOOD', 'RAPPI', 'WHATSAPP') "
+                        "OR (channel = 'PUBLIC_INTENT' AND public_order_intent_id IS "
+                        "NOT NULL AND public_order_intent_status = 'ACCEPTED'))"
+                    )
+                )
                 session.commit()
         except Exception:
             session.rollback()
@@ -407,7 +425,11 @@ class ChannelIntegrationService:
         now = datetime.now(timezone.utc)
         order_id = str(uuid.uuid4())
         short_suffix = uuid.uuid4().hex[:4].upper()
-        prefix = "WA" if provider == "WHATSAPP" else (provider.split("_")[0] if "_" in provider else provider[:4])
+        prefix = (
+            "WA"
+            if provider == "WHATSAPP"
+            else (provider.split("_")[0] if "_" in provider else provider[:4])
+        )
         daily_folio = f"{prefix}-{normalized.display_code.replace('#', '')}-{short_suffix}"
 
         # Resolve customer if known in WhatsApp channel
@@ -442,7 +464,9 @@ class ChannelIntegrationService:
                 cat_name = "General"
 
         order_status = "ACCEPTED" if (config and config.get("auto_accept")) else "PENDING"
-        payment_intent = "whatsapp_cod" if provider == "WHATSAPP" else f"marketplace_{provider.lower()}"
+        payment_intent = (
+            "whatsapp_cod" if provider == "WHATSAPP" else f"marketplace_{provider.lower()}"
+        )
         delivery_address_str = ""
         if isinstance(normalized.raw_payload, dict):
             delivery_address_str = str(normalized.raw_payload.get("delivery_address") or "")

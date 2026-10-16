@@ -66,7 +66,7 @@ try {
 
   await page.goto(`${baseUrl}/products`, { waitUntil: 'domcontentloaded' });
   await page.locator('.productos-window-container').waitFor();
-  await page.getByRole('cell', { name: product.name, exact: true }).waitFor();
+  await page.getByLabel('Producto', { exact: true }).selectOption(product.id);
   assert.equal(await page.getByRole('tab', { name: 'Modificadores / Producto compuesto' }).count(), 0);
   assert.equal(await page.getByText('Grupos y productos seleccionables', { exact: true }).count(), 0);
   await page.getByRole('tab', { name: 'Principal / Varios' }).press('End');

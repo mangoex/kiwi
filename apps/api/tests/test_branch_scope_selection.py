@@ -22,6 +22,28 @@ from test_platform_api import (
 SELECT_PERMISSION_ID = str(uuid5(NAMESPACE_URL, "restaurantos:permission:pos.branch.select"))
 
 
+def test_disabled_rollout_explains_selection_without_granting_it(monkeypatch) -> None:
+    monkeypatch.setenv("RESTAURANTOS_BRANCH_SCOPE_V2_ENABLED", "false")
+    get_settings.cache_clear()
+    client = _client_with_seeded_database()
+    fixture = _branch_admin_fixture(client)
+    with _test_session_factory(client)() as session:
+        _grant_selection(session, ADMIN_ROLE_ID, workspace=False)
+    profile = client.get("/api/v1/auth/session", headers=_admin_headers()).json()
+    assert profile["scope"]["can_select_branch"] is False
+    assert profile["scope"]["branch_selection_block_reason"] == "rollout_disabled"
+    assert len(profile["allowed_branches"]) == 2
+    denied = client.post(
+        "/api/v1/auth/branch-selections",
+        headers={
+            **_admin_headers(),
+            "Idempotency-Key": "pilot-rollout-disabled",
+        },
+        json={"target_branch_id": fixture["branch_id"], "expected_authorization_version": 1},
+    )
+    assert denied.status_code != 200
+
+
 @pytest.fixture(autouse=True)
 def enabled_workspace_rollout(monkeypatch):
     monkeypatch.setenv("RESTAURANTOS_BRANCH_SCOPE_V2_ENABLED", "true")
@@ -168,6 +190,7 @@ def test_fixed_branch_profile_cannot_select_another_branch() -> None:
 
     profile = client.get("/api/v1/auth/session", headers=headers).json()
     assert profile["scope"]["can_select_branch"] is False
+    assert profile["scope"]["branch_selection_block_reason"] == "single_branch"
     assert profile["scope"]["allowed_branch_ids"] == [fixture["branch_id"]]
     denied = client.post(
         "/api/v1/auth/branch-selections",

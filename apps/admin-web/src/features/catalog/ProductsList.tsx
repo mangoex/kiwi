@@ -656,9 +656,15 @@ export const ProductsList: React.FC = () => {
           </div>
         </div>
 
-        {/* Main Split Layout: 44% Left Master Panel, 56% Right Detail Panel */}
-        <div className="productos-split-layout">
-          {/* Left Column: Master Table */}
+        <table className="productos-print-catalog" aria-label="Catálogo de productos para impresión">
+          <thead><tr><th>Clave</th><th>Grupo</th><th>Descripción</th><th>Precio</th></tr></thead>
+          <tbody>{filteredProducts.map((p) => <tr key={p.id}>
+            <td>{p.sku || '—'}</td><td>{p.category_name}</td><td>{p.name}</td><td>{formatMoney(p.price_cents)}</td>
+          </tr>)}</tbody>
+        </table>
+        {/* Selector superior y detalle a todo el ancho */}
+        <div className="productos-workspace-layout">
+          {/* Selección de producto */}
           <div className="productos-master-panel">
             {/* Search and Filter Row */}
             <div className="productos-master-controls">
@@ -715,89 +721,46 @@ export const ProductsList: React.FC = () => {
                 <button type="button" onClick={() => void refetchCategories()}>Reintentar grupos</button>
               </div>
             )}
-            {/* Master Table */}
-            <div className="productos-master-table-wrap">
-              {isLoading ? (
-                <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Cargando catálogo...</div>
-              ) : error ? (
-                <div role="alert" style={{ padding: 24, textAlign: 'center', color: '#b91c1c' }}>
+            <div className="productos-selector-field">
+              <label htmlFor="product-selection">Producto</label>
+              {isLoading ? <p role="status">Cargando catálogo…</p> : error ? (
+                <div role="alert">
                   <p>No se pudo cargar el catálogo. Esto no significa que no haya productos registrados.</p>
                   <button type="button" onClick={() => void refetch()} disabled={isFetching}>
                     {isFetching ? 'Reintentando…' : 'Reintentar productos'}
                   </button>
                 </div>
-              ) : filteredProducts.length === 0 && !isNew ? (
-                <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>{products.length ? 'No hay productos que coincidan con los filtros.' : 'No hay productos registrados.'}</div>
-              ) : (
-                <table className="productos-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '70px' }}>Clave</th>
-                      <th style={{ width: '90px' }}>Grupo</th>
-                      <th>Descripción</th>
-                      <th style={{ width: '85px', textAlign: 'right' }}>Precio</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/* Real-time row preview when creating a new product */}
-                    {isNew && (
-                      <tr
-                        className="preview-row"
-                        style={{
-                          background: '#f8fafc',
-                          color: '#334155',
-                          fontWeight: 'bold',
-                          borderLeft: '4px solid #94a3b8',
-                        }}
-                      >
-                        <td style={{ fontFamily: 'monospace' }}>{formData.sku.trim() || '—'}</td>
-                        <td>{formData.category_name || '—'}</td>
-                        <td>
-                          Borrador sin guardar · {formData.name.trim() || 'captura los datos obligatorios'}
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          ${formData.price_with_tax || '0.00'}
-                        </td>
-                      </tr>
-                    )}
-
-                    {filteredProducts.map((p) => {
-                      const isSelected = !isNew && selectedProduct?.id === p.id;
-                      return (
-                        <tr
-                          key={p.id}
-                          className={isSelected ? 'active bg-violet-50/70 border-violet-500' : ''}
-                          onClick={() => {
-                            if (isEditing && !window.confirm('Hay cambios sin guardar. ¿Deseas descartarlos?')) return;
-                            if (isEditing || isNew) {
-                              setIsNew(false);
-                              setIsEditing(false);
-                            }
-                            setSaveError('');
-                            setActiveTab('Principal / Varios');
-                            setSelectedProductId(p.id);
-                          }}
-                        >
-                          <td style={{ fontFamily: 'monospace' }}>{p.sku || '—'}</td>
-                          <td style={{ fontSize: '0.75rem', color: isSelected ? '#ffffff' : '#64748b' }}>
-                            {p.category_name || 'GENERAL'}
-                          </td>
-                          <td style={{ fontWeight: isSelected ? 600 : 500 }}>
-                            {p.name || 'Sin nombre'}
-                          </td>
-                          <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>
-                            {formatMoney(p.price_cents)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
+              ) : <>
+                <select id="product-selection" className="productos-product-select"
+                  value={isNew ? '' : selectedProduct?.id || ''}
+                  onChange={(event) => {
+                    const nextId = event.currentTarget.value;
+                    if (!nextId || nextId === selectedProduct?.id) return;
+                    if ((isEditing || isNew) && !window.confirm('Hay cambios sin guardar. ¿Deseas descartarlos?')) {
+                      event.currentTarget.value = isNew ? '' : selectedProduct?.id || '';
+                      return;
+                    }
+                    setIsNew(false);
+                    setIsEditing(false);
+                    setSaveError('');
+                    setActiveTab('Principal / Varios');
+                    setSelectedProductId(nextId);
+                  }}>
+                  <option value="" disabled>{isNew ? 'Nuevo producto · borrador sin guardar' : 'Selecciona un producto'}</option>
+                  {selectedProduct && !filteredProducts.some((p) => p.id === selectedProduct.id) && (
+                    <option value={selectedProduct.id} hidden>{selectedProduct.sku} · {selectedProduct.name}</option>
+                  )}
+                  {filteredProducts.map((p) => <option key={p.id} value={p.id}>
+                    {p.sku || '—'} · {p.name || 'Sin nombre'} · {formatMoney(p.price_cents)}
+                  </option>)}
+                </select>
+                <small role="status">{filteredProducts.length} producto(s){search || selectedGroup !== '(TODOS)' ? ' coinciden con los filtros' : ' disponibles'}{isNew ? ' · Borrador sin guardar' : ''}</small>
+                {filteredProducts.length === 0 && !isNew && <p role="status">{products.length ? 'No hay productos que coincidan con los filtros.' : 'No hay productos registrados.'}</p>}
+              </>}
             </div>
           </div>
 
-          {/* Right Column: Detail Panel */}
+          {/* Detalle del producto seleccionado */}
           <div className="productos-detail-panel">
             {/* Toolbar */}
             <div className="productos-toolbar">

@@ -1034,3 +1034,62 @@ def test_document_confirmation_race_has_one_receipt_set_and_audit(pg_engine, sam
             )
             == 1
         )
+
+
+def test_pilot_feed_pages_pos_and_web_with_same_filters(pg_engine):
+    from datetime import timedelta
+
+    from test_cash_ledger import NOW
+    from test_pilot_order_feed import _intent
+
+    open_shift(pg_engine)
+    with Session(pg_engine) as session:
+        pos = operations.create_local_order(
+            session,
+            [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 1}],
+            branch_id=BRANCH_ID,
+            register_id="CAJA-01",
+            actor_user_id=ADMIN_USER_ID,
+            order_type="takeout",
+            payment_method_intent="cash",
+            idempotency_key="pilot-feed-postgres-order",
+        )
+        web_ids = {_intent(session, minutes=-i - 1) for i in range(27)}
+        matched = _intent(session, minutes=-30, name="CLIENTE MARCADOR", service="delivery")
+        first = operations.list_order_accounts(
+            session, {"branch_id": BRANCH_ID, "limit": 5}, ADMIN_USER_ID
+        )
+        assert len(first["items"]) == 5
+        assert first["items"][0]["id"] == pos["id"]
+        seen = [item["id"] for item in first["items"]]
+        cursor = first["next_cursor"]
+        while cursor:
+            page = operations.list_order_accounts(
+                session,
+                {
+                    "branch_id": BRANCH_ID,
+                    "limit": 5,
+                    "cursor": cursor,
+                },
+                ADMIN_USER_ID,
+            )
+            assert len(page["items"]) <= 5
+            seen.extend(item["id"] for item in page["items"])
+            cursor = page["next_cursor"]
+        assert len(seen) == len(set(seen)) == 29
+        assert set(seen) == web_ids | {matched, pos["id"]}
+        for search in ("MARCADOR", f"WEB-{matched[-6:]}"):
+            page = operations.list_order_accounts(
+                session,
+                {
+                    "branch_id": BRANCH_ID,
+                    "q": search,
+                    "service_type": "delivery",
+                    "from_utc": (NOW - timedelta(hours=1)).isoformat(),
+                    "to_utc": NOW.isoformat(),
+                    "limit": 1,
+                },
+                ADMIN_USER_ID,
+            )
+            assert [item["id"] for item in page["items"]] == [matched]
+            assert page["next_cursor"] is None
