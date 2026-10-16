@@ -26141,6 +26141,9 @@ def list_branch_admin_catalog_products(
             models.product_categories.c.name.label("category_name"),
             models.price_versions.c.price_cents,
             models.branch_product_availability.c.is_available,
+            models.branch_product_digital_visibility.c.is_visible.label(
+                "digital_menu_is_visible"
+            ),
             sa.exists(
                 sa.select(models.product_compositions.c.id).where(
                     models.product_compositions.c.organization_id == ORGANIZATION_ID,
@@ -26170,6 +26173,14 @@ def list_branch_admin_catalog_products(
                 sa.and_(
                     models.branch_product_availability.c.product_id == models.products.c.id,
                     models.branch_product_availability.c.branch_id == authorized_branch,
+                ),
+            )
+            .outerjoin(
+                models.branch_product_digital_visibility,
+                sa.and_(
+                    models.branch_product_digital_visibility.c.product_id
+                    == models.products.c.id,
+                    models.branch_product_digital_visibility.c.branch_id == authorized_branch,
                 ),
             )
         )
@@ -26205,6 +26216,8 @@ def list_branch_admin_catalog_products(
                 "effective_availability": effective,
                 "has_local_override": has_override,
                 "availability_source": "branch_override" if has_override else "central",
+                "show_in_digital_menu": row["digital_menu_is_visible"] is not False,
+                "has_digital_menu_override": row["digital_menu_is_visible"] is False,
                 "catalog_scope": row.get("catalog_scope", "organization"),
                 "source_branch_id": row.get("source_branch_id"),
                 "is_combo": bool(row["is_combo"]),
@@ -26323,6 +26336,112 @@ def set_branch_product_availability(
     }
 
 
+def _branch_product_is_visible_in_digital_menu(
+    session: Session, branch_id: str, product_id: str
+) -> bool:
+    exclusion = session.scalar(
+        sa.select(models.branch_product_digital_visibility.c.is_visible).where(
+            models.branch_product_digital_visibility.c.branch_id == branch_id,
+            models.branch_product_digital_visibility.c.product_id == product_id,
+        )
+    )
+    return exclusion is not False
+
+
+def set_branch_product_digital_visibility(
+    session: Session,
+    actor_id: str,
+    product_id: str,
+    visible: Any,
+    branch_id: str | None = None,
+) -> dict[str, Any]:
+    """Hide a product only from the public menu of one authorized branch."""
+    if type(visible) is not bool:
+        raise BusinessError(
+            "invalid_digital_menu_visibility",
+            "visible must be a boolean",
+        )
+    authorized_branch = _branch_administration_target(
+        session, actor_id, "catalog.branch.manage", branch_id
+    )
+    product = (
+        session.execute(
+            sa.select(models.products.c.id, models.products.c.name).where(
+                models.products.c.id == product_id,
+                models.products.c.organization_id == ORGANIZATION_ID,
+                sa.or_(
+                    models.products.c.catalog_scope == "organization",
+                    models.products.c.source_branch_id == authorized_branch,
+                ),
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not product:
+        raise NotFoundError("product_not_found", "Product not found")
+
+    previous = _branch_product_is_visible_in_digital_menu(
+        session, authorized_branch, product_id
+    )
+    now = _now()
+    if visible:
+        session.execute(
+            models.branch_product_digital_visibility.delete().where(
+                models.branch_product_digital_visibility.c.branch_id == authorized_branch,
+                models.branch_product_digital_visibility.c.product_id == product_id,
+            )
+        )
+    else:
+        existing = session.execute(
+            sa.select(models.branch_product_digital_visibility.c.product_id).where(
+                models.branch_product_digital_visibility.c.branch_id == authorized_branch,
+                models.branch_product_digital_visibility.c.product_id == product_id,
+            )
+        ).first()
+        if existing:
+            session.execute(
+                models.branch_product_digital_visibility.update()
+                .where(
+                    models.branch_product_digital_visibility.c.branch_id == authorized_branch,
+                    models.branch_product_digital_visibility.c.product_id == product_id,
+                )
+                .values(is_visible=False, updated_at=now)
+            )
+        else:
+            session.execute(
+                models.branch_product_digital_visibility.insert().values(
+                    branch_id=authorized_branch,
+                    product_id=product_id,
+                    is_visible=False,
+                    updated_at=now,
+                )
+            )
+
+    _audit(
+        session,
+        action="branch_product_digital_visibility.updated",
+        entity_type="product",
+        entity_id=product_id,
+        payload={
+            "branch_id": authorized_branch,
+            "product_name": product["name"],
+            "previous": previous,
+            "new": visible,
+        },
+        branch_id=authorized_branch,
+        actor_user_id=_actor_user_id(actor_id),
+    )
+    session.commit()
+    return {
+        "product_id": product_id,
+        "branch_id": authorized_branch,
+        "show_in_digital_menu": visible,
+        "has_digital_menu_override": not visible,
+        "previous": previous,
+    }
+
+
 def get_public_catalog(session: Session, branch_id: str | None = None) -> dict[str, Any]:
     from restaurant_os.platform_data import _project_pos_catalog
 
@@ -26362,6 +26481,15 @@ def get_public_catalog(session: Session, branch_id: str | None = None) -> dict[s
     )
 
     categories, products = _project_pos_catalog(session, active_branch_id)
+    hidden_product_ids = set(
+        session.scalars(
+            sa.select(models.branch_product_digital_visibility.c.product_id).where(
+                models.branch_product_digital_visibility.c.branch_id == active_branch_id,
+                models.branch_product_digital_visibility.c.is_visible.is_(False),
+            )
+        ).all()
+    )
+    products = [product for product in products if product["id"] not in hidden_product_ids]
 
     items = []
     for p in products:
@@ -26526,6 +26654,20 @@ def create_public_order_intent(
     now, intent_id = _now(), _id()
     total_cents = 0
     snapshots: list[dict[str, Any]] = []
+    requested_product_ids = [
+        item.get("product_id")
+        for item in normalized["lines"]
+        if isinstance(item, dict) and isinstance(item.get("product_id"), str)
+    ]
+    hidden_public_product_ids = set(
+        session.scalars(
+            sa.select(models.branch_product_digital_visibility.c.product_id).where(
+                models.branch_product_digital_visibility.c.branch_id == branch_id,
+                models.branch_product_digital_visibility.c.product_id.in_(requested_product_ids),
+                models.branch_product_digital_visibility.c.is_visible.is_(False),
+            )
+        ).all()
+    )
     for item in normalized["lines"]:
         if not isinstance(item, dict) or set(item) - {
             "product_id",
@@ -26538,6 +26680,9 @@ def create_public_order_intent(
             raise BusinessError("public_order_schema_invalid", "Order line is invalid")
         if not isinstance(item.get("quantity"), int) or not 1 <= item["quantity"] <= 99:
             raise BusinessError("public_order_schema_invalid", "Order quantity is invalid")
+        product_id = item.get("product_id")
+        if not isinstance(product_id, str) or product_id in hidden_public_product_ids:
+            raise BusinessError("product_unavailable", "Product is unavailable")
         line_id = _id()
         priced = _price_order_line(session, item, branch_id, intent_id, line_id, now)
         # A fixed combo has no recipe of its own.  Its component snapshot is

@@ -274,6 +274,7 @@ from restaurant_os.operations import (
     set_branch_ingredient_variation_option,
     set_branch_modifier_option,
     set_branch_product_availability,
+    set_branch_product_digital_visibility,
     set_branch_variation_note,
     set_supplier_branch_terms,
     save_product_configuration,
@@ -4236,6 +4237,7 @@ def _business_response(operation: Callable[[], ResponseT]) -> ResponseT:
             "public_order_unavailable": 503,
             "public_order_rate_limited": 429,
             "public_order_schema_invalid": 422,
+            "invalid_digital_menu_visibility": 422,
             "offline_reconciliation_persistence_unavailable": 503,
             "operational_command_persistence_unavailable": 503,
         }.get(exc.code, 409)
@@ -7064,6 +7066,36 @@ def put_branch_admin_availability(
     return _business_response(
         lambda: set_branch_product_availability(session, actor_id, product_id, action, branch_id)
     )
+
+
+@router.put(
+    "/branch-administration/catalog/products/{product_id}/digital-menu-visibility"
+)
+def put_branch_admin_digital_menu_visibility(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    branch_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def update_visibility() -> dict[str, Any]:
+        if set(payload) != {"visible"}:
+            raise BusinessError(
+                "invalid_digital_menu_visibility",
+                "Body must contain only visible",
+            )
+        return set_branch_product_digital_visibility(
+            session,
+            actor_id,
+            product_id,
+            payload["visible"],
+            branch_id,
+        )
+
+    return _business_response(update_visibility)
 
 
 @router.put("/branch-administration/catalog/variation-notes/{option_id}")

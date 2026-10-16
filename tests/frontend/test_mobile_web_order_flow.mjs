@@ -269,6 +269,16 @@ test('Mobile catalog uses the selected public key rather than the legacy branch 
   global.fetch = originalFetch;
 });
 
+test('Mobile catalog fails closed instead of inventing products when its authority is unavailable', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 503 });
+
+  const catalog = await fetchMobileMenu('public-key-unavailable');
+
+  assert.deepEqual(catalog.products, []);
+  global.fetch = originalFetch;
+});
+
 test('Mobile upsell request is branch scoped and preserves an empty fallback', async () => {
   const originalFetch = global.fetch;
   let requestBody;

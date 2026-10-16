@@ -132,6 +132,17 @@ hereda disponibilidad central y un registro `false` la deshabilita. La consulta 
 unión exterior con el precio vigente para no perder productos incompletos; POS sólo presenta productos
 activos, disponibles y con precio vigente positivo.
 
+`branch_product_digital_visibility` conserva, de forma separada, las exclusiones del menú digital
+público por sucursal y producto. La ausencia de fila significa `show_in_digital_menu=true`; sólo una
+exclusión explícita persiste `is_visible=false`. Esta tabla no modifica vendibilidad, disponibilidad,
+precio ni la proyección POS. `GET /branch-administration/catalog/products` expone el valor efectivo y
+`PUT /branch-administration/catalog/products/{product_id}/digital-menu-visibility` acepta
+exclusivamente `{"visible": boolean}` con `catalog.branch.manage`, alcance de sucursal y auditoría.
+Marcarlo visible elimina la excepción y restablece el default. El catálogo público excluye esos IDs y
+la captura pública vuelve a validarlos para impedir pedidos desde cachés obsoletos; el POS continúa
+usando la proyección vendible canónica. Si el catálogo público no puede cargarse, el cliente móvil no
+inventa un catálogo de respaldo que pudiera reexponer productos ocultos.
+
 El contexto operativo de sucursal se persiste con una selección canónica compartida por Admin y POS.
 Una cuenta sin `pos.branch.select` no puede sustituir su asignación localmente. Una cuenta con esa
 capacidad puede elegir entre sucursales autorizadas; todos los módulos que consultan compras,

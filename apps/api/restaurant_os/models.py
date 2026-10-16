@@ -972,6 +972,19 @@ branch_product_availability = sa.Table(
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
 )
 
+branch_product_digital_visibility = sa.Table(
+    "branch_product_digital_visibility",
+    metadata,
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), primary_key=True),
+    sa.Column("product_id", sa.String(36), sa.ForeignKey("products.id"), primary_key=True),
+    sa.Column("is_visible", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "is_visible = false",
+        name="ck_branch_product_digital_visibility_exclusion",
+    ),
+)
+
 inventory_units = sa.Table(
     "inventory_units",
     metadata,

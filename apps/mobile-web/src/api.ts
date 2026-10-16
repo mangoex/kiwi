@@ -21,82 +21,6 @@ export async function fetchPublicBranches(lat?: number, lng?: number): Promise<B
   }
 }
 
-// Seed catalog fallback to guarantee 100% fail-safe display if API server is not running
-const BACKUP_CATALOG: Product[] = [
-  {
-    id: 'prod-jug-ver',
-    name: 'Jugo Verde',
-    sku: 'JUG-VER',
-    category_name: 'Jugos y Extractos',
-    price_cents: 6500,
-    description: 'Naranja, piña, pepino, apio y nopal recién extraídos.',
-    station: 'barra',
-  },
-  {
-    id: 'prod-ext-roj',
-    name: 'Extracto Rojo',
-    sku: 'EXT-ROJ',
-    category_name: 'Jugos y Extractos',
-    price_cents: 6300,
-    description: 'Fresco sabor de pepino con apio, betabel, limón y dulce de manzana roja.',
-    station: 'barra',
-  },
-  {
-    id: 'prod-smo-ros',
-    name: 'Smoothie Rosa',
-    sku: 'SMO-ROS',
-    category_name: 'Smoothies y Licuados',
-    price_cents: 9000,
-    description: 'Fresa con leche de almendra, miel de abeja, dátil, chía y espinaca.',
-    station: 'barra',
-  },
-  {
-    id: 'prod-mat-pin',
-    name: 'Maccha Pinku (con fresa)',
-    sku: 'MAT-PIN',
-    category_name: 'Café y Matcha',
-    price_cents: 13000,
-    description: 'Matcha ceremonial japonés en capas sobre leche de avena y puré natural de fresa.',
-    station: 'barra',
-  },
-  {
-    id: 'prod-ens-fru',
-    name: 'Ensalada Frutos Rojos',
-    sku: 'ENS-FRU',
-    category_name: 'Ensaladas',
-    price_cents: 12500,
-    description: 'Lechuga orgánica, fresa, arándanos, queso panela, cacahuates garapiñados y aderezo balsámico.',
-    station: 'cocina',
-  },
-  {
-    id: 'prod-san-kyo',
-    name: 'Sando Kyoto Pollo BBQ',
-    sku: 'SAN-KYO-BBQ',
-    category_name: 'Emparedados y Sandos',
-    price_cents: 12000,
-    description: 'Sándwich estilo japonés en pan brioche grueso, pollo crujiente con glaseado BBQ y col fresca.',
-    station: 'cocina',
-  },
-  {
-    id: 'prod-pan-cue',
-    name: 'Cuernito Jamón/Phila',
-    sku: 'PAN-CUE',
-    category_name: 'Panadería',
-    price_cents: 3800,
-    description: 'Croissant artesanal dorado horneado relleno de jamón ahumado y queso Philadelphia.',
-    station: 'barra',
-  },
-  {
-    id: 'prod-com-lig',
-    name: 'Combo Ligero',
-    sku: 'COM-LIG',
-    category_name: 'Combos',
-    price_cents: 10500,
-    description: 'Sándwich básico artesanal + fresco jugo de naranja del día + dulce galleta con chispas.',
-    station: 'barra',
-  }
-];
-
 const DEFAULT_CATEGORIES: Category[] = [
   { id: 'all', name: 'Todos' },
   { id: 'c1', name: 'Jugos y Extractos' },
@@ -134,7 +58,7 @@ export async function fetchMobileMenu(publicKey?: string | null): Promise<{ prod
         typeof (item as { price_cents?: unknown }).price_cents === 'number'
         && Number.isInteger((item as { price_cents: number }).price_cents)
       ))
-      : BACKUP_CATALOG;
+      : [];
     const categories: Category[] = [{ id: 'all', name: 'Todos' }];
     const seenCatNames = new Set<string>(['Todos']);
 
@@ -195,19 +119,8 @@ export async function fetchMobileMenu(publicKey?: string | null): Promise<{ prod
 
     return { products, categories };
   } catch (err) {
-    console.warn('Loading fallback catalog:', err);
-    const products: Product[] = BACKUP_CATALOG.map(p => {
-      const meta = getProductNutritionMeta(p.name);
-      return {
-        ...p,
-        image_url: getProductImage(p),
-        calories: meta.calories,
-        prep_time: meta.prep_time,
-        tags: [meta.tag],
-        is_available: true,
-      };
-    });
-    return { products, categories: DEFAULT_CATEGORIES };
+    console.warn('Public catalog unavailable:', err);
+    return { products: [], categories: DEFAULT_CATEGORIES };
   }
 }
 
