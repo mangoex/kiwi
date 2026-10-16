@@ -44,7 +44,7 @@ localStorage.setItem('pos_operational_orders_branch_id',branch);
 localStorage.setItem('pos_operational_orders_device_id',device);
 localStorage.setItem('pos_operational_orders_gateway_url',config.gatewayUrl);
 api.storeOfflineOrderGrant({grant:'qa-independent-gateway-grant',expires_at:new Date(Date.now()+60000).toISOString()},config);
-const profile={organization_id:'qa-organization',user:{id:'qa-actor'},active_branch:{id:branch},
+const profile={organization_id:'qa-organization',user:{id:'qa-actor'},active_branch:{id:branch,timezone:'America/Mazatlan'},
   scope:{allowed_branch_ids:[branch],authorization_version:1},permissions:['pos.operate']};
 const seen=[];
 globalThis.fetch=async (url,options)=>{

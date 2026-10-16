@@ -59,6 +59,9 @@ despliegue, migración productiva y modificación de datos reales mantienen auto
 La verificación previa a publicación reprodujo una expectativa obsoleta de head 0095 en la suite
 de capacidad Alembic. Se ajustó a 0097 junto con las aserciones de conservación de revisión de
 las suites PostgreSQL fiscal, offline, intenciones y XML; no se alteraron sus guardas ni fixtures.
+CI también reprodujo un fixture de sesión administrativa sin `active_branch.timezone`, requerido
+por el contrato vigente. Se agregó sólo ese dato sintético; la prueba completa del provider pasó
+localmente conservando las validaciones de autoridad, contexto y navegación.
 
 Publicar el código y esperar CI verde antes de release. Bajo autorización productiva separada,
 respaldar la base y elegir una ventana para crear el índice: puede bloquear escrituras mientras
