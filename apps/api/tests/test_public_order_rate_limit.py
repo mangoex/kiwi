@@ -166,9 +166,16 @@ def test_app_only_installs_limiter_with_redis_and_hmac_secret(
     assert calls == [
         (
             "redis://example",
+            settings.public_tracking_global_rate_limit_per_minute,
+            settings.public_tracking_client_rate_limit_per_minute,
+            settings.public_order_rate_limit_hmac_secret,
+        ),
+        (
+            "redis://example",
             settings.public_order_global_rate_limit_per_minute,
             settings.public_order_client_rate_limit_per_minute,
             settings.public_order_rate_limit_hmac_secret,
         )
     ]
     assert app.state.public_order_intents_enabled is True
+    assert app.state.public_order_tracking_rate_limiter is not app.state.public_order_rate_limiter

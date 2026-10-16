@@ -241,7 +241,8 @@ test('Pending public-intent modal is semantically distinct from an operational o
   const resultTypes = readFileSync(join(root, 'apps/mobile-web/src/types.ts'), 'utf8');
   assert.match(resultTypes, /kind: 'public_order_intent'/);
   assert.match(resultTypes, /kind: 'operational_order'/);
-  assert.match(source, /pendingReview \? 'Referencia' : 'Folio de Orden'/);
+  assert.match(source, /pendingReview && !liveOrder\?\.folio \? 'Referencia' : 'Folio de Orden'/);
+  assert.match(source, /!\(pendingReview && tracking\)/);
   assert.match(source, /pendingReview \? 'Pendiente de revisión' : 'Enviado al Punto de Venta y Cocina'/);
   assert.match(source, /Aún no es un pedido operativo/);
   assert.match(source, /pendingReview \? '¡Solicitud recibida!' : '¡Pedido Registrado y Enviado!'/);

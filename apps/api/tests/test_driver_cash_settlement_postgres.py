@@ -69,6 +69,13 @@ def _session_factory() -> tuple[sa.Engine, sessionmaker[Session]]:
         connect_args={"options": "-cstatement_timeout=15000 -clock_timeout=5000"},
     )
     factory = sessionmaker(bind=engine, expire_on_commit=False)
+    # The full migration chain seeds canonical identities; replace only this isolated fixture.
+    with engine.begin() as connection:
+        names = [
+            name for name in sa.inspect(connection).get_table_names() if name != "alembic_version"
+        ]
+        quoted = ", ".join(connection.dialect.identifier_preparer.quote(name) for name in names)
+        connection.execute(sa.text("TRUNCATE TABLE " + quoted + " RESTART IDENTITY CASCADE"))
     with factory() as session:
         _seed(session)
     return engine, factory

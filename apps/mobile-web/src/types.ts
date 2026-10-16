@@ -119,3 +119,22 @@ export interface PublicOrderIntentResult extends PersistedOrderResultBase {
 }
 
 export type CreatedOrderResult = OperationalOrderResult | PublicOrderIntentResult;
+
+export interface TrackedOrderReference {
+  public_reference: string;
+  branch_id: string;
+}
+
+export interface PublicOrderTracking extends TrackedOrderReference {
+  branch_name: string;
+  status: string;
+  operational_status: string | null;
+  display_status: string;
+  version: number;
+  total_cents: number;
+  service_type: 'delivery' | 'takeout' | 'dine-in';
+  created_at: string;
+  updated_at: string;
+  folio: string | null;
+  terminal: boolean;
+}

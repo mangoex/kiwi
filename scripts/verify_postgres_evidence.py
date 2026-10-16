@@ -21,6 +21,7 @@ MODULES = (
     "operational_intents",
     "supplier_xml",
     "driver_cash_settlement",
+    "public_tracking_index",
 )
 PATHS = tuple(f"apps/api/tests/test_{name}_postgres.py" for name in MODULES)
 

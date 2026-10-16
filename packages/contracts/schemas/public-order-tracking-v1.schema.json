@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/contracts/public-order-tracking-v1",
+  "title": "Public order tracking v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["public_reference", "status", "version", "total_cents", "branch_id", "branch_name", "service_type", "created_at", "updated_at", "operational_status", "display_status", "folio", "terminal"],
+  "properties": {
+    "public_reference": { "type": "string", "pattern": "^PI-[0-9A-F]{32}$" },
+    "status": { "enum": ["PENDING_REVIEW", "ACCEPTED", "REJECTED", "EXPIRED"] },
+    "version": { "type": "integer", "minimum": 1 },
+    "total_cents": { "type": "integer", "minimum": 0 },
+    "branch_id": { "type": "string", "format": "uuid" },
+    "branch_name": { "type": "string", "maxLength": 160 },
+    "service_type": { "enum": ["takeout", "delivery", "dine-in"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "operational_status": { "type": ["string", "null"] },
+    "display_status": { "enum": ["PENDING_REVIEW", "ACCEPTED", "DRAFT", "SENT_TO_PRODUCTION", "IN_PRODUCTION", "READY", "IN_DELIVERY", "DELIVERED", "CLOSED", "CANCELLED", "REJECTED", "EXPIRED", "FAILED", "RETURNED"] },
+    "folio": { "type": ["string", "null"], "maxLength": 64 },
+    "terminal": { "type": "boolean" }
+  }
+}

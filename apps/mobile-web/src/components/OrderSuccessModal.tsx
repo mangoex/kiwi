@@ -2,12 +2,16 @@ import React, { useState } from 'react';
 import { CheckCircle2, X, ShoppingBag, ArrowLeft, Clock, ChefHat, Star, Send, ExternalLink } from 'lucide-react';
 import { CreatedOrderResult, BranchInfo } from '../types';
 import { formatMoney, submitCustomerFeedback } from '../api';
+import { ActiveOrderTracker } from './ActiveOrderTracker';
+import type { OrderTrackingState } from '../hooks/usePublicOrderTracking';
+import { getTrackingPresentation } from '../orderTracking';
 
 interface OrderSuccessModalProps {
   orderResult: CreatedOrderResult;
   branch?: BranchInfo | null;
   onClose: () => void;
   onNewOrder: () => void;
+  tracking?: OrderTrackingState;
 }
 
 export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
@@ -15,9 +19,11 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
   branch,
   onClose,
   onNewOrder,
+  tracking,
 }) => {
   const pendingReview = orderResult.kind === 'public_order_intent';
-  const orderFolio = pendingReview ? orderResult.public_reference : orderResult.folio;
+  const liveOrder = pendingReview ? tracking?.states[orderResult.public_reference] : undefined;
+  const orderFolio = liveOrder?.folio || (pendingReview ? orderResult.public_reference : orderResult.folio);
 
   // Smart Rating State
   const [rating, setRating] = useState<number | null>(null);
@@ -122,15 +128,15 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
           </div>
 
           <h2 style={{ fontSize: '22px', fontWeight: 800, color: '#0f172a', margin: '8px 0 4px' }}>
-            {pendingReview ? '¡Solicitud recibida!' : '¡Pedido Registrado y Enviado!'}
+            {liveOrder ? getTrackingPresentation(liveOrder).title : pendingReview ? '¡Solicitud recibida!' : '¡Pedido Registrado y Enviado!'}
           </h2>
 
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', margin: '4px 0 8px' }}>
-            <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 600 }}>{pendingReview ? 'Referencia' : 'Folio de Orden'}</span>
+            <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 600 }}>{pendingReview && !liveOrder?.folio ? 'Referencia' : 'Folio de Orden'}</span>
             <span className="folio-chip">#{orderFolio}</span>
           </div>
 
-          <div
+          {!(pendingReview && tracking) && <><div
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -151,7 +157,12 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
 
           <p style={{ fontSize: '14px', color: '#64748b', lineHeight: 1.5, maxWidth: '340px', margin: '0 auto 16px' }}>
             {pendingReview ? 'Tu solicitud ha quedado registrada (Aún no es un pedido operativo) y será revisada de inmediato en el mostrador del restaurante.' : 'Tu pedido ha quedado registrado en el sistema y enviado a la sucursal. ¡Estamos preparando tu orden!'}
-          </p>
+          </p></>}
+
+          {pendingReview && tracking && <div style={{ margin: '0 0 16px' }}>
+            <ActiveOrderTracker tracking={tracking} branchPhone={branch?.phone}
+              onlyReference={orderResult.public_reference} />
+          </div>}
 
           {/* Order Details Card */}
           <div style={{ width: '100%', background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px', boxSizing: 'border-box' }}>
@@ -167,7 +178,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
               <strong style={{ fontSize: '13px', color: '#64748b' }}>Total a Pagar:</strong>
-              <span style={{ fontSize: '14px', fontWeight: 800, color: '#10b981' }}>{formatMoney(orderResult.total_cents)}</span>
+              <span style={{ fontSize: '14px', fontWeight: 800, color: '#10b981' }}>{formatMoney(liveOrder?.total_cents ?? orderResult.total_cents)}</span>
             </div>
           </div>
 

@@ -948,6 +948,11 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   dirección de entrega o retiro. Conforme a ADR-031, la captura pública persiste una intención
   idempotente y no crea, selecciona ni reutiliza turnos de caja; sólo una aceptación autenticada puede
   crear el pedido operativo.
+  El cliente debe poder seguir su solicitud persistida y, después de la aceptación, su pedido
+  operativo desde el menú móvil. El seguimiento distingue confirmación, preparación, listo,
+  salida y entrega según modalidad; conserva estados de rechazo, cancelación, fallo y devolución.
+  Consultar o esconder la tarjeta no cambia el pedido. La consulta pública usa exclusivamente la
+  referencia opaca y no revela datos personales, motivos internos ni datos del repartidor.
 - `PRD-FR-228`: El Cajero con `orders.create` debe poder abrir **Captura asistida** desde el encabezado
   del POS, escribir o dictar una solicitud en español de México y obtener un borrador revisable que
   proponga cliente, teléfono, tipo de servicio y líneas del pedido usando exclusivamente el catálogo

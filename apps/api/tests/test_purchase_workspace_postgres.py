@@ -6,8 +6,10 @@ import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Barrier
+from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
@@ -24,7 +26,7 @@ from restaurant_os.operations import (
 )
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
-from test_platform_api import ADMIN_USER_ID, _seed
+from test_platform_api import ADMIN_USER_ID, BRANCH_ID, ORGANIZATION_ID, _seed
 from test_purchase_workspace import _presentation, _purchase_payload
 from test_workspace_compound_copy import SOURCE, TARGET
 
@@ -366,14 +368,42 @@ def test_postgres_migration_history_guard_and_empty_roundtrip(pg_engine):
     assert migrate("downgrade", "0071_classification_rollout").returncode == 0
     assert migrate("upgrade", "0072_purchase_create_commands").returncode == 0
     payload = _purchase_seed(pg_engine)
-    with Session(pg_engine) as session:
-        create_purchase_document(session, payload, ADMIN_USER_ID, "sr-pg-migration-history")
+    # Exercise the 0072 guard with records valid for that revision, rather than a newer service
+    # that writes columns introduced after 0072 (for example delivered_by_name in 0094).
+    historical = sa.MetaData()
+    document = sa.Table("purchase_documents", historical, autoload_with=pg_engine)
+    command = sa.Table("purchase_create_commands", historical, autoload_with=pg_engine)
+    purchase_id, command_id, now = str(uuid4()), str(uuid4()), datetime.now(timezone.utc)
+    with pg_engine.begin() as connection:
+        connection.execute(document.insert().values(
+            id=purchase_id, organization_id=ORGANIZATION_ID, branch_id=BRANCH_ID,
+            supplier_id=payload["supplier_id"], document_type="note", folio="SR-HISTORY-0072",
+            document_date=now, subtotal=100, discount_total=0, tax_total=0, freight_total=0,
+            total=100, payment_method="other", paid_from_cash=False, status="draft",
+            created_by=ADMIN_USER_ID, created_at=now,
+        ))
+        connection.execute(command.insert().values(
+            id=command_id, organization_id=ORGANIZATION_ID, branch_id=BRANCH_ID,
+            actor_user_id=ADMIN_USER_ID, idempotency_key="sr-pg-migration-history",
+            request_hash="7" * 64, purchase_id=purchase_id,
+            result={"id": purchase_id}, created_at=now,
+        ))
+        before = {
+            table.name: list(connection.execute(sa.select(table)).mappings())
+            for table in (document, command)
+        }
     blocked = migrate("downgrade", "0071_classification_rollout")
     assert blocked.returncode != 0
     assert (
         "Cannot downgrade 0072 while purchase creation history exists"
         in blocked.stdout + blocked.stderr
     )
+    with pg_engine.connect() as connection:
+        assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == (
+            "0072_purchase_create_commands"
+        )
+        for table in (document, command):
+            assert list(connection.execute(sa.select(table)).mappings()) == before[table.name]
 
 
 def test_reviewed_creation_serializes_with_catalog_writer(pg_engine):

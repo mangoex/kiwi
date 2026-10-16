@@ -109,21 +109,29 @@ def _snapshot(connection, tables):
 
 
 def test_real_0091_roundtrip_preserves_ledgers(pg):
-    ledgers = (
-        models.branches,
-        models.purchase_documents,
-        models.inventory_movements,
-        models.cash_movements,
-    )
-    with pg.connect() as connection:
-        before = _snapshot(connection, ledgers)
     result = _migrate(_url(), "downgrade", "0091_cash_lifecycle_intents")
     assert result.returncode == 0, result.stderr
-    with pg.connect() as connection:
-        assert all(not sa.inspect(connection).has_table(t.name) for t in TABLES)
-        assert _snapshot(connection, ledgers) == before
-    result = _migrate(_url(), "upgrade", "head")
-    assert result.returncode == 0, result.stderr
+    try:
+        # Reflect the historical schema once: later columns do not exist at revision 0091.
+        with pg.connect() as connection:
+            historical = sa.MetaData()
+            ledgers = tuple(sa.Table(name, historical, autoload_with=connection) for name in (
+                "branches", "purchase_documents", "inventory_movements", "cash_movements",
+            ))
+            before = _snapshot(connection, ledgers)
+            assert all(not sa.inspect(connection).has_table(t.name) for t in TABLES)
+        result = _migrate(_url(), "upgrade", "head")
+        assert result.returncode == 0, result.stderr
+        with pg.connect() as connection:
+            assert _snapshot(connection, ledgers) == before
+        result = _migrate(_url(), "downgrade", "0091_cash_lifecycle_intents")
+        assert result.returncode == 0, result.stderr
+        with pg.connect() as connection:
+            assert all(not sa.inspect(connection).has_table(t.name) for t in TABLES)
+            assert _snapshot(connection, ledgers) == before
+    finally:
+        result = _migrate(_url(), "upgrade", "head")
+        assert result.returncode == 0, result.stderr
     with pg.connect() as connection:
         assert _snapshot(connection, ledgers) == before
 
@@ -141,7 +149,7 @@ def test_real_downgrade_blocks_history_and_keeps_all_rows(pg):
         assert _snapshot(connection, TABLES) == before
         assert (
             connection.scalar(sa.text("SELECT version_num FROM alembic_version"))
-            == "0095_branch_product_digital_visibility"
+            == "0097_public_tracking_event_index"
         )
 
 
