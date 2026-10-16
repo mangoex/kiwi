@@ -3,6 +3,7 @@ import { Modal } from './Modal';
 import { Button } from './Button';
 export interface PurchaseDocumentView {
   id: string; folio: string; document_type: string; status: string; total: string | number;
+  delivered_by_name?: string | null;
   document_date?: string; subtotal?: string | number; discount_total?: string | number; tax_total?: string | number;
   lines?: { id: string; presentation_snapshot?: { name?: string; base_unit_code?: string }; presentation_quantity?: string | number; base_quantity?: string | number; unit_price?: string | number; discount?: string | number; tax?: string | number; line_total?: string | number }[];
 }
@@ -37,6 +38,7 @@ export function PurchaseDocumentReview({ purchase, paymentContext, onClose, onCo
   }, [purchase?.id]);
   return <Modal isOpen={Boolean(purchase)} onClose={() => { if (!pending && !paymentContext?.recovering) onClose(); }} title="Revisar nota registrada" maxWidth="1000px">
     {purchase && <div ref={content}><p>{purchase.document_type} · {purchase.folio} · fecha: {purchase.document_date?.slice(0, 10)} · {purchase.status}</p>
+      {purchase.delivered_by_name && <p>Entregó: {purchase.delivered_by_name}</p>}
       {paymentContext && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}><span>Sucursal: {paymentContext.branchName}</span><span>Pago: {paymentContext.method}</span>{paymentContext.cashShiftId && <><span>Caja: {paymentContext.registerId}</span><span>Turno revisado: {paymentContext.cashShiftId.slice(-8)}</span></>}</div>}
       {(paymentContext?.message || failure) && <p role="alert">{paymentContext?.message || failure}</p>}
       {paymentContext?.recovering && <p role="status">Hay una confirmación pendiente de respuesta. Recupera el mismo intento antes de continuar.</p>}

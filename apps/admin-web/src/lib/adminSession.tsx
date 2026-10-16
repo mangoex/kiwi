@@ -12,7 +12,7 @@ export interface AdminSession extends AdministrativeSession, Omit<BranchWorkspac
   roles: { id: string; name: string; scope: string; branch_id: string | null }[];
   permissions: string[];
   scope: { level: 'branch' | 'organization'; allowed_branch_ids: string[]; assigned_branch_id: string | null; authorization_version?:number };
-  active_branch: { id: string; name: string; code: string };
+  active_branch: { id: string; name: string; code: string; timezone: string };
   admin_capabilities: Record<string, boolean>;
   allowed_branches: {id:string;name:string;code:string;status:string}[];
 }
@@ -84,7 +84,7 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
       if (!credential) throw new ApiError(401, 'actor_required', 'Inicia sesión para continuar.');
       let session = await fetchApi<AdminSession>('/auth/session', {signal:controller.signal});
       if (controller.signal.aborted || credential !== token() || routeKey !== route.current) return;
-      if (!session.admin_capabilities || !Array.isArray(session.allowed_branches) || !session.active_branch || !session.scope.allowed_branch_ids.includes(session.active_branch.id)
+      if (!session.admin_capabilities || !Array.isArray(session.allowed_branches) || !session.active_branch || typeof session.active_branch.timezone !== 'string' || !session.active_branch.timezone.trim() || !session.scope.allowed_branch_ids.includes(session.active_branch.id)
         || (requested && session.active_branch.id !== requested)) {
         throw new Error('El servidor no confirmó la sucursal y las capacidades de esta sesión.');
       }

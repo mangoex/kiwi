@@ -21,6 +21,12 @@ try {
   await page.evaluate(branch => { localStorage.setItem('admin_branch_id', branch); localStorage.setItem('pos_branch_id', branch); localStorage.setItem('pos_register_id', 'CAJA-01'); }, manifest.branch_id);
   const token = await page.evaluate(() => localStorage.getItem('auth_token'));
   const headers = { Authorization: 'Bearer ' + token };
+  const sessionProfile = await (await page.request.get(origin + '/api/v1/auth/session', { headers })).json();
+  const localDateParts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: sessionProfile.active_branch.timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date()).map(part => [part.type, part.value]));
+  const expectedLocalDate = `${localDateParts.year}-${localDateParts.month}-${localDateParts.day}`;
   async function post(path, data, extra = {}) {
     const response = await page.request.post(origin + '/api/v1' + path, { headers: { ...headers, ...extra }, data });
     assert.equal(response.ok(), true, await response.text());
@@ -43,10 +49,17 @@ try {
     const workspace = page.locator('.purchase-workspace');
     await workspace.getByLabel(/^Proveedor/).selectOption(supplier.id);
     await workspace.getByLabel('Folio', { exact: true }).fill('SR-' + surface + '-' + suffix);
-    await workspace.getByLabel('Fecha del comprobante').fill('2026-09-30');
+    assert.equal(await workspace.getByLabel('Fecha del comprobante').inputValue(), expectedLocalDate);
+    await workspace.getByLabel('Nombre de quien entrega').fill('Ana López');
     assert.equal(await workspace.getByLabel('Forma de pago').inputValue(), 'cash');
-    await workspace.getByRole('button', { name: 'Agregar renglón' }).click();
-    await workspace.getByRole('button', { name: 'Agregar renglón' }).click();
+    assert.equal(await workspace.getByRole('button', { name: 'Eliminar renglón 1', exact: true }).isDisabled(), true);
+    await workspace.getByRole('button', { name: 'Agregar renglón después del 1', exact: true }).click();
+    await workspace.getByRole('button', { name: 'Agregar renglón después del 2', exact: true }).click();
+    await workspace.getByRole('button', { name: 'Eliminar renglón 3', exact: true }).click();
+    assert.equal(await workspace.locator('.purchase-line').count(), 2);
+    assert.equal(await workspace.locator('.purchase-line').nth(1).locator('select').evaluate(element => element === document.activeElement), true);
+    await workspace.getByRole('button', { name: 'Agregar renglón después del 2', exact: true }).click();
+    assert.equal(await workspace.locator('.purchase-line').nth(2).locator('select').evaluate(element => element === document.activeElement), true);
     const amounts = [['2', '250', '1', '40'], ['1', '19.99', '0.29', '3.15'], ['0.5', '0.29', '0', '0.02']];
     for (let index = 0; index < 3; index++) {
       const row = workspace.locator('.purchase-line').nth(index);
@@ -147,12 +160,14 @@ try {
     const purchase = purchases.find(row => row.folio === 'SR-' + surface + '-' + suffix);
     assert.equal(purchases.filter(row => row.folio === purchase.folio).length, 1);
     assert.equal(purchase.lines.length, 3);
+    assert.equal(purchase.delivered_by_name, 'Ana López');
     assert.equal(String(purchase.total), '562.015000');
     const tableRow = page.locator('tr').filter({ hasText: purchase.folio });
     await tableRow.getByRole('button', { name: 'Confirmar', exact: true }).click();
     const review = page.getByRole('heading', { name: 'Revisar nota registrada' });
     await review.waitFor();
     const dialog = page.getByRole('dialog');
+    await dialog.getByText('Entregó: Ana López', { exact: true }).waitFor();
     assert.equal(await dialog.evaluate(element => element.contains(document.activeElement)), true, 'Opening review must move keyboard focus into its dialog');
     for (let tab = 0; tab < 6; tab++) {
       await page.keyboard.press('Tab');

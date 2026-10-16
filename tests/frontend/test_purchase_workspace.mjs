@@ -4,7 +4,10 @@ import ts from 'typescript';
 
 const source = readFileSync('packages/ui/src/components/purchaseDraft.ts', 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { initialPurchaseDraft, purchaseDraftReducer, purchasePayload } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const { branchLocalDate, initialPurchaseDraft, purchaseDraftReducer, purchasePayload } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+assert.equal(branchLocalDate('America/Mazatlan', new Date('2026-10-16T05:30:00Z')), '2026-10-15');
+assert.equal(branchLocalDate('America/Mazatlan', new Date('2026-10-16T07:30:00Z')), '2026-10-16');
+assert.equal(branchLocalDate('Invalid/Zone', new Date('2026-10-16T07:30:00Z')), '');
 let draft = initialPurchaseDraft('branch-1:user-1', 'branch-1', '2026-09-30', 'key-1', 'line-1');
 assert.equal(draft.payment_method, 'cash', 'New purchase defaults to cash');
 assert.equal(draft.paid_from_cash, true);
@@ -14,13 +17,16 @@ for (const method of ['transfer', 'card', 'other', 'cash']) {
 }
 draft = purchaseDraftReducer(draft, { type: 'header', key: 'supplier_id', value: 'supplier-1' });
 draft = purchaseDraftReducer(draft, { type: 'header', key: 'folio', value: 'NOTE-1' });
+draft = purchaseDraftReducer(draft, { type: 'header', key: 'delivered_by_name', value: '  Ana López  ' });
 draft = purchaseDraftReducer(draft, { type: 'line', id: 'line-1', key: 'presentation_id', value: 'presentation-1' });
 draft = purchaseDraftReducer(draft, { type: 'line', id: 'line-1', key: 'unit_price', value: '0' });
-draft = purchaseDraftReducer(draft, { type: 'add', id: 'line-2' });
 draft = purchaseDraftReducer(draft, { type: 'add', id: 'line-3' });
+draft = purchaseDraftReducer(draft, { type: 'add', id: 'line-2', afterId: 'line-1' });
 assert.equal(draft.lines.length, 3);
+assert.deepEqual(draft.lines.map(line => line.id), ['line-1', 'line-2', 'line-3'], 'Plus inserts immediately after the selected row');
 assert.equal(purchasePayload(draft).lines[0].unit_price, '0', 'Explicit zero must survive');
 assert.equal(purchasePayload(draft).document_date, '2026-09-30', 'Calendar date must survive');
+assert.equal(purchasePayload(draft).delivered_by_name, '  Ana López  ', 'Python owns canonical trimming');
 assert.ok(!('id' in purchasePayload(draft).lines[0]), 'Local row IDs must not reach Python');
 draft = purchaseDraftReducer(draft, { type: 'header', key: 'supplier_id', value: 'supplier-2' });
 assert.equal(draft.lines[0].presentation_id, 'presentation-1', 'Changing supplier must preserve capture for review');
@@ -51,6 +57,17 @@ assert.match(editor, /groupKey = item\.item_id/,
   'Los productos homónimos se agrupan por identidad canónica, no sólo por nombre');
 assert.match(editor, /<optgroup key=\{itemId\} label=\{group\.label\}>/,
   'Las presentaciones muestran producto y SKU relacionados');
+assert.match(editor, /aria-label=\{`Agregar renglón después del \$\{index \+ 1\}`\}/);
+assert.match(editor, /aria-label=\{`Eliminar renglón \$\{index \+ 1\}`\}/);
+assert.match(editor, /<Plus[^>]*aria-hidden="true"/);
+assert.match(editor, /<Trash2[^>]*aria-hidden="true"/);
+assert.doesNotMatch(editor, />Agregar renglón</);
+assert.match(editor, /contentClassName="purchase-document-modal"/);
+const editorCss = readFileSync('packages/ui/src/components/PurchaseDocumentEditor.css', 'utf8');
+assert.match(editorCss, /\.purchase-line-actions/);
+assert.match(editorCss, /position:\s*sticky/);
+const modalCss = readFileSync('packages/ui/src/components/Modal.css', 'utf8');
+assert.match(modalCss, /\.ui-modal-body\s*\{[\s\S]*min-height:\s*0/);
 for (const path of ['apps/admin-web/src/features/purchasing/PurchasesList.tsx']) {
   assert.match(readFileSync(path, 'utf8'), /<PurchaseDocumentEditor/, `${path} must use the shared editor`);
 }
@@ -106,6 +123,10 @@ assert.equal(isWorkspaceRejection(409, 'modifier_copy_source_version_conflict', 
 assert.equal(isWorkspaceRejection(409, 'product_not_found', true, 'copy'), false);
 let blank = initialPurchaseDraft('scope', 'branch', '', 'key', 'row');
 assert.equal(blank.dirty, false);
+blank = purchaseDraftReducer(blank, {type:'defaultDate', value:'2026-10-15'});
+assert.equal(blank.document_date, '2026-10-15');
+assert.equal(blank.dirty, false, 'A branch-local default is not a user edit');
+assert.equal(purchaseDraftReducer(blank, {type:'defaultDate', value:'2026-10-16'}).document_date, '2026-10-15', 'Reopening never replaces an existing date');
 for (const action of [{type:'header', key:'notes', value:'Only notes'}, {type:'header', key:'document_date', value:'2026-09-30'}, {type:'line',id:'row',key:'tax',value:'3'}]) assert.equal(purchaseDraftReducer(blank, action).dirty, true);
 const { registerWorkspaceNavigationGuard, confirmWorkspaceNavigation } = await loadTs('packages/ui/src/components/workspaceNavigation.ts');
 const unregister = registerWorkspaceNavigationGuard(() => false);

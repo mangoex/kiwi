@@ -1,7 +1,8 @@
 import React, { useEffect, useReducer, useRef, useState } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
 import { Button } from './Button';
 import { Modal } from './Modal';
-import { initialPurchaseDraft, purchaseDraftReducer, purchasePayload, restorePurchaseDraft, type PurchaseDraft } from './purchaseDraft';
+import { branchLocalDate, initialPurchaseDraft, purchaseDraftReducer, purchasePayload, restorePurchaseDraft, type PurchaseDraft } from './purchaseDraft';
 import { usePythonPreview, type WorkspaceRequest } from './usePythonPreview';
 import './PurchaseDocumentEditor.css';
 import { registerWorkspaceNavigationGuard, confirmWorkspaceNavigation } from './workspaceNavigation';
@@ -16,13 +17,13 @@ export interface PurchasePreview {
   lines: { presentation_snapshot: { name: string; base_unit_code?: string; base_unit_yield: string }; base_quantity: string; inventory_cost: string; cost_per_base_unit: string; line_total: string }[];
 }
 export interface PurchaseDocumentEditorProps {
-  scope: string; branchId: string; isOpen: boolean; onClose: () => void;
+  scope: string; branchId: string; branchTimeZone: string; isOpen: boolean; onClose: () => void;
   suppliers: WorkspaceSupplier[]; presentations: WorkspacePresentation[];
   request: WorkspaceRequest; onCreated: () => void | Promise<void>; initialSupplierId?: string;
   catalogTools?: (supplierId: string, done: () => void) => React.ReactNode;
 }
 export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
-  const { scope, branchId, isOpen, onClose, suppliers, presentations, request, onCreated, initialSupplierId = '', catalogTools } = props;
+  const { scope, branchId, branchTimeZone, isOpen, onClose, suppliers, presentations, request, onCreated, initialSupplierId = '', catalogTools } = props;
   const recoveryKey = 'purchase:' + scope;
   const [draft, dispatch] = useReducer(purchaseDraftReducer, null, () => {
     const saved = readWorkspaceSnapshot<PurchaseDraft>(recoveryKey);
@@ -32,6 +33,16 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
   });
   const recoveryDraft = useRef(draft);
   recoveryDraft.current = draft;
+  const presentationRefs = useRef(new Map<string, HTMLSelectElement>());
+  const pendingLineFocus = useRef<string | null>(null);
+  useEffect(() => {
+    if (isOpen) dispatch({ type: 'defaultDate', value: branchLocalDate(branchTimeZone) });
+  }, [isOpen, branchTimeZone]);
+  useEffect(() => {
+    const id = pendingLineFocus.current;
+    const target = id ? presentationRefs.current.get(id) : undefined;
+    if (target) { target.focus(); pendingLineFocus.current = null; }
+  }, [draft.lines]);
   useEffect(() => {
     discardWorkspaceSnapshot(recoveryKey);
     return registerWorkspaceSnapshot(recoveryKey, () => recoveryDraft.current.dirty || recoveryDraft.current.phase !== 'editing' ? recoveryDraft.current : null);
@@ -42,7 +53,7 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { if (initialSupplierId) dispatch({ type: 'header', key: 'supplier_id', value: initialSupplierId }); }, [initialSupplierId]);
   const payload = purchasePayload(draft);
-  const preview = usePythonPreview<PurchasePreview>(request, '/purchases/preview', payload, isOpen && draft.phase === 'editing');
+  const preview = usePythonPreview<PurchasePreview>(request, '/purchases/preview', payload, isOpen && draft.phase === 'editing' && Boolean(draft.document_date));
   const locked = draft.phase !== 'editing';
   const hasCapture = draft.dirty || Boolean(draft.supplier_id);
   useEffect(() => {
@@ -87,7 +98,7 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
       dispatch({ type: rejected ? 'resolved' : 'uncertain', message: cause instanceof Error ? cause.message : 'No se pudo recuperar el resultado.' });
     } finally { submitting.current = false; }
   };
-  return <Modal isOpen={isOpen} onClose={close} title="Registrar nota de compra" maxWidth="1120px">
+  return <Modal isOpen={isOpen} onClose={close} title="Registrar nota de compra" maxWidth="1120px" contentClassName="purchase-document-modal">
     <div className="purchase-workspace">
       {draft.message && <p role="alert">{draft.message}</p>}
       {draft.phase === 'uncertain' && <p role="status">La respuesta no se confirmó. Recupera la misma nota antes de continuar; conserva esta ventana abierta.</p>}
@@ -96,6 +107,7 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
         <label>Tipo de documento<select value={draft.document_type} onChange={e => dispatch({ type: 'header', key: 'document_type', value: e.target.value })}>{[['invoice', 'Factura'], ['ticket', 'Ticket'], ['note', 'Nota'], ['receipt', 'Recibo']].map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
         <label>Folio<input maxLength={80} value={draft.folio} onChange={e => dispatch({ type: 'header', key: 'folio', value: e.target.value })} /></label>
         <label>Fecha del comprobante<input type="date" value={draft.document_date} onChange={e => dispatch({ type: 'header', key: 'document_date', value: e.target.value })} /></label>
+        <label>Nombre de quien entrega<input maxLength={160} autoComplete="off" value={draft.delivered_by_name} onChange={e => dispatch({ type: 'header', key: 'delivered_by_name', value: e.target.value })} /></label>
         <label>Forma de pago<select value={draft.payment_method} onChange={e => dispatch({ type: 'header', key: 'payment_method', value: e.target.value })}><option value="cash">Efectivo de caja</option><option value="transfer">Transferencia</option><option value="card">Tarjeta</option><option value="other">Otro</option></select></label>
         <label>Notas<input maxLength={600} value={draft.notes} onChange={e => dispatch({ type: 'header', key: 'notes', value: e.target.value })} /></label>
         <label>Referencia de evidencia<input maxLength={600} value={draft.evidence_url} onChange={e => dispatch({ type: 'header', key: 'evidence_url', value: e.target.value })} /></label>
@@ -120,19 +132,27 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
           const mismatch = Boolean(line.presentation_id && !supplierChoices.some(item => item.id === line.presentation_id));
           const calc = preview.data?.lines[index];
           return <div key={line.id} className="purchase-line">
-            <label>Presentación · renglón {index + 1}<select value={line.presentation_id} onChange={e => {
+            <label>Presentación · renglón {index + 1}<select ref={element => { if (element) presentationRefs.current.set(line.id, element); else presentationRefs.current.delete(line.id); }} value={line.presentation_id} onChange={e => {
               dispatch({ type: 'line', id: line.id, key: 'presentation_id', value: e.target.value });
               const selected = presentations.find(item => item.id === e.target.value);
               dispatch({ type: 'line', id: line.id, key: 'unit_price', value: selected ? String(selected.last_net_price) : '' });
             }}><option value="">Selecciona producto y presentación</option>{mismatch && !draft.supplier_catalog_exception && <option value={line.presentation_id}>Revisar: presentación de otro proveedor</option>}{Array.from(groupedChoices.entries()).map(([itemId, group]) => <optgroup key={itemId} label={group.label}>{group.presentations.map(item => <option key={item.id} value={item.id}>{item.name} · {item.base_unit_yield} {item.base_unit_code}{draft.supplier_catalog_exception ? ` · ${item.supplier_name}` : ''}</option>)}</optgroup>)}</select></label>
             {(['quantity', 'unit_price', 'discount', 'tax'] as const).map((key, i) => <label key={key}>{['Cantidad', 'Precio por presentación antes de descuento ($)', 'Descuento ($)', 'Impuesto ($)'][i]}<input inputMode="decimal" value={line[key]} onChange={e => dispatch({ type: 'line', id: line.id, key, value: e.target.value })} /></label>)}
-            <Button variant="secondary" disabled={draft.lines.length === 1} onClick={() => dispatch({ type: 'remove', id: line.id })}>Eliminar renglón {index + 1}</Button>
+            <div className="purchase-line-actions" role="group" aria-label={`Acciones del renglón ${index + 1}`}>
+              <Button type="button" size="sm" variant="secondary" className="purchase-line-action" aria-label={`Agregar renglón después del ${index + 1}`} title="Agregar renglón" disabled={draft.lines.length >= 200} onClick={() => {
+                const id = crypto.randomUUID(); pendingLineFocus.current = id;
+                dispatch({ type: 'add', id, afterId: line.id });
+              }}><Plus size={17} aria-hidden="true" /></Button>
+              <Button type="button" size="sm" variant="ghost" className="purchase-line-action purchase-line-action--danger" aria-label={`Eliminar renglón ${index + 1}`} title="Eliminar renglón" disabled={draft.lines.length === 1} onClick={() => {
+                pendingLineFocus.current = draft.lines[index + 1]?.id || draft.lines[index - 1]?.id || null;
+                dispatch({ type: 'remove', id: line.id });
+              }}><Trash2 size={17} aria-hidden="true" /></Button>
+            </div>
             {mismatch && !draft.supplier_catalog_exception && <p role="alert">La presentación no pertenece al proveedor elegido. Selecciona una presentación compatible o activa la excepción.</p>}
             {mismatch && draft.supplier_catalog_exception && <p role="status">Esta partida se registrará como excepción con la presentación del proveedor de catálogo.</p>}
             {calc && <p className="purchase-conversion">Entrada: {calc.base_quantity} {calc.presentation_snapshot.base_unit_code} · costo de inventario: ${calc.inventory_cost} · costo base: ${calc.cost_per_base_unit} · importe: ${calc.line_total}</p>}
           </div>;
         })}
-        <Button variant="secondary" disabled={draft.lines.length >= 200} onClick={() => dispatch({ type: 'add', id: crypto.randomUUID() })}>Agregar renglón</Button>
         {catalogTools && <Button variant="secondary" disabled={!draft.supplier_id} onClick={() => setCatalogOpen(true)}>Registrar presentación sin perder la nota</Button>}
       </fieldset>
       {catalogOpen && catalogTools?.(draft.supplier_id, () => setCatalogOpen(false))}

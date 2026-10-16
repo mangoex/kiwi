@@ -327,6 +327,58 @@ def test_purchase_preview_is_pure_and_matches_document_calculations():
     assert len(data["lines"]) == len(persisted.json()["lines"]) == 3
 
 
+def test_purchase_delivery_name_is_optional_trimmed_persisted_and_replayed():
+    client, headers, suppliers = _workspace()
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=headers, json=_presentation(suppliers[0])
+    ).json()
+    payload = {
+        **_purchase_payload(suppliers[0], presentation["id"]),
+        "delivered_by_name": "  Ana López  ",
+    }
+    preview = client.post("/api/v1/purchases/preview", headers=headers, json=payload)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["delivered_by_name"] == "Ana López"
+    command_headers = {
+        **headers,
+        "Idempotency-Key": "sr-delivery-name-001",
+        "If-Purchase-Preview": preview.json()["context_fingerprint"],
+    }
+    created = client.post("/api/v1/purchases", headers=command_headers, json=payload)
+    assert created.status_code == 200, created.text
+    assert created.json()["delivered_by_name"] == "Ana López"
+    replay = client.post("/api/v1/purchases", headers=command_headers, json=payload)
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == created.json()
+    listed = client.get(f"/api/v1/purchases?branch_id={BRANCH_ID}", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert next(row for row in listed.json() if row["id"] == created.json()["id"])[
+        "delivered_by_name"
+    ] == "Ana López"
+
+
+@pytest.mark.parametrize("value", [123, "x" * 161])
+def test_purchase_delivery_name_rejects_invalid_value_without_effects(value):
+    client, headers, suppliers = _workspace()
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=headers, json=_presentation(suppliers[0])
+    ).json()
+    payload = {
+        **_purchase_payload(suppliers[0], presentation["id"]),
+        "delivered_by_name": value,
+    }
+    before = _effects(client)
+    for endpoint in ("/api/v1/purchases/preview", "/api/v1/purchases"):
+        response = client.post(
+            endpoint,
+            headers={**headers, "Idempotency-Key": "sr-invalid-delivery-name"},
+            json=payload,
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "workspace_payload_invalid"
+    assert _effects(client) == before
+
+
 def test_presentation_preview_does_not_create_catalog():
     client, headers, suppliers = _workspace()
     before = _effects(client)

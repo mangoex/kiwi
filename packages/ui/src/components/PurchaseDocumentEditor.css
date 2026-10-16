@@ -4,9 +4,14 @@
 .purchase-workspace label { display: grid; gap: 6px; font-size: 13px; }
 .purchase-workspace input:not([type=checkbox]), .purchase-workspace select { width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid #cbd5e1; border-radius: 8px; background: var(--color-bg, white); color: inherit; }
 .purchase-lines { display: grid; gap: 12px; }
-.purchase-line { display: grid; grid-template-columns: 2fr repeat(4, 1fr); gap: 10px; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; }
+.purchase-line { display: grid; grid-template-columns: minmax(250px, 2fr) repeat(4, minmax(118px, 1fr)) auto; gap: 10px; padding: 14px; border: 1px solid #cbd5e1; border-radius: 10px; align-items: end; }
 .purchase-line > p, .purchase-conversion { grid-column: 1 / -1; margin: 0; }
+.purchase-line-actions { display: inline-flex; gap: 6px; align-items: center; padding-bottom: 1px; }
+.purchase-line-action { width: 44px; height: 44px; padding: 0; flex: 0 0 44px; }
+.purchase-line-action--danger { color: #b91c1c; }
+.purchase-line-action--danger:hover:not(:disabled) { background: #fef2f2; color: #991b1b; }
 .purchase-summary { padding: 14px; border: 1px solid #94a3b8; border-radius: 8px; }
-.purchase-actions { display: flex; gap: 12px; justify-content: flex-end; flex-wrap: wrap; }
-@media(max-width: 720px) { .purchase-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } .purchase-line > label:first-child { grid-column: 1 / -1; } }
+.purchase-actions { position: sticky; bottom: -24px; z-index: 2; display: flex; gap: 12px; justify-content: flex-end; flex-wrap: wrap; padding: 12px 0 4px; background: var(--color-surface, white); border-top: 1px solid var(--color-border, #e2e8f0); }
+.purchase-document-modal { min-height: 0; }
+@media(max-width: 900px) { .purchase-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } .purchase-line > label:first-child { grid-column: 1 / -1; } .purchase-line-actions { grid-column: 1 / -1; justify-self: end; } }
 @media(max-width: 400px) { .purchase-line { grid-template-columns: minmax(0, 1fr); } }

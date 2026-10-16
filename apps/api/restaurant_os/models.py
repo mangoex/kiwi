@@ -1763,6 +1763,7 @@ purchase_documents = sa.Table(
     sa.Column("document_type", sa.String(32), nullable=False),
     sa.Column("folio", sa.String(80), nullable=False),
     sa.Column("document_date", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("delivered_by_name", sa.String(160), nullable=True),
     sa.Column("subtotal", sa.Numeric(18, 6), nullable=False),
     sa.Column("discount_total", sa.Numeric(18, 6), nullable=False),
     sa.Column("tax_total", sa.Numeric(18, 6), nullable=False),

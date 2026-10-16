@@ -98,6 +98,10 @@
     "paid_from_cash": {
       "type": "boolean"
     },
+    "delivered_by_name": {
+      "type": "string",
+      "maxLength": 160
+    },
     "supplier_catalog_exception": {
       "type": "boolean"
     },

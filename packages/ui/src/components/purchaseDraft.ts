@@ -17,6 +17,7 @@ export interface PurchaseDraft {
   document_date: string;
   payment_method: string;
   paid_from_cash: boolean;
+  delivered_by_name: string;
   supplier_catalog_exception: boolean;
   supplier_catalog_exception_reason: string;
   notes: string;
@@ -29,21 +30,35 @@ export interface PurchaseDraft {
   reviewFingerprint?: string;
 }
 export type PurchaseDraftAction =
-  | { type: 'header'; key: 'supplier_id' | 'folio' | 'document_type' | 'document_date' | 'notes' | 'evidence_url' | 'payment_method' | 'supplier_catalog_exception_reason'; value: string }
+  | { type: 'header'; key: 'supplier_id' | 'folio' | 'document_type' | 'document_date' | 'delivered_by_name' | 'notes' | 'evidence_url' | 'payment_method' | 'supplier_catalog_exception_reason'; value: string }
+  | { type: 'defaultDate'; value: string }
   | { type: 'cash'; value: boolean }
   | { type: 'supplierException'; value: boolean }
   | { type: 'line'; id: string; key: Exclude<keyof PurchaseDraftLine, 'id'>; value: string }
-  | { type: 'add'; id: string }
+  | { type: 'add'; id: string; afterId?: string }
   | { type: 'remove'; id: string }
   | { type: 'submit'; fingerprint?: string }
   | { type: 'uncertain' | 'resolved'; message: string };
 const emptyLine = (id: string): PurchaseDraftLine => ({ id, presentation_id: '', quantity: '1', unit_price: '', discount: '0', tax: '0' });
+export function branchLocalDate(timeZone: string, now = new Date()): string {
+  try {
+    const values = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+      timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(now).map(part => [part.type, part.value]));
+    return values.year && values.month && values.day
+      ? `${values.year}-${values.month}-${values.day}`
+      : '';
+  } catch {
+    return '';
+  }
+}
 export function initialPurchaseDraft(scope: string, branchId: string, date: string, key: string, lineId: string): PurchaseDraft {
-  return { scope, branch_id: branchId, supplier_id: '', folio: '', document_type: 'invoice', document_date: date, payment_method: 'cash', paid_from_cash: true, supplier_catalog_exception: false, supplier_catalog_exception_reason: '', notes: '', evidence_url: '', lines: [emptyLine(lineId)], creationKey: key, phase: 'editing', message: '', dirty: false };
+  return { scope, branch_id: branchId, supplier_id: '', folio: '', document_type: 'invoice', document_date: date, payment_method: 'cash', paid_from_cash: true, delivered_by_name: '', supplier_catalog_exception: false, supplier_catalog_exception_reason: '', notes: '', evidence_url: '', lines: [emptyLine(lineId)], creationKey: key, phase: 'editing', message: '', dirty: false };
 }
 export function restorePurchaseDraft(draft: PurchaseDraft): PurchaseDraft {
   const compatibleDraft = {
     ...draft,
+    delivered_by_name: draft.delivered_by_name || '',
     supplier_catalog_exception: Boolean(draft.supplier_catalog_exception),
     supplier_catalog_exception_reason: draft.supplier_catalog_exception_reason || '',
   };
@@ -55,6 +70,9 @@ export function purchaseDraftReducer(state: PurchaseDraft, action: PurchaseDraft
   if (action.type === 'submit') return { ...state, phase: 'submitting', message: '', reviewFingerprint: action.fingerprint ?? state.reviewFingerprint };
   if (action.type === 'uncertain' || action.type === 'resolved') return { ...state, phase: action.type === 'uncertain' ? 'uncertain' : 'editing', message: action.message };
   if (state.phase !== 'editing') return state;
+  if (action.type === 'defaultDate') return !state.dirty && !state.document_date
+    ? { ...state, document_date: action.value }
+    : state;
   state = { ...state, dirty: true };
   if (action.type === 'header') return { ...state, [action.key]: action.value, ...(action.key === 'payment_method' ? { paid_from_cash: action.value === 'cash' } : {}), message: '' };
   if (action.type === 'cash') return { ...state, paid_from_cash: action.value, payment_method: action.value ? 'cash' : 'other' };
@@ -65,7 +83,12 @@ export function purchaseDraftReducer(state: PurchaseDraft, action: PurchaseDraft
     message: '',
   };
   if (action.type === 'line') return { ...state, lines: state.lines.map(line => line.id === action.id ? { ...line, [action.key]: action.value } : line) };
-  if (action.type === 'add' && state.lines.length < 200) return { ...state, lines: [...state.lines, emptyLine(action.id)] };
+  if (action.type === 'add' && state.lines.length < 200) {
+    const index = action.afterId ? state.lines.findIndex(line => line.id === action.afterId) : -1;
+    const lines = [...state.lines];
+    lines.splice(index >= 0 ? index + 1 : lines.length, 0, emptyLine(action.id));
+    return { ...state, lines };
+  }
   if (action.type === 'remove' && state.lines.length > 1) return { ...state, lines: state.lines.filter(line => line.id !== action.id) };
   return state;
 }
@@ -74,6 +97,7 @@ export function purchasePayload(draft: PurchaseDraft): PurchaseCreateInputV1 {
     branch_id: draft.branch_id, supplier_id: draft.supplier_id, folio: draft.folio,
     document_type: draft.document_type as PurchaseDocumentType, document_date: draft.document_date,
     payment_method: draft.payment_method as PurchasePaymentMethod, paid_from_cash: draft.paid_from_cash,
+    delivered_by_name: draft.delivered_by_name,
     supplier_catalog_exception: Boolean(draft.supplier_catalog_exception),
     supplier_catalog_exception_reason: draft.supplier_catalog_exception_reason || '',
     notes: draft.notes, evidence_url: draft.evidence_url,
