@@ -8135,32 +8135,23 @@ async def post_whatsapp_webhook(
 
     # If it is a conversational message event
     if incoming_text or event_type in ("MESSAGE", "message") or sender_phone:
-        customer = None
-        customer_name = "Estimado cliente"
-        if sender_phone:
-            customer = channel_service.whatsapp_adapter.lookup_customer(
-                session, ORGANIZATION_ID, sender_phone
-            )
-            if customer and customer.get("found"):
-                customer_name = customer.get("name") or "Estimado cliente"
+        default_prep_time = int((config.get("default_prep_time_minutes") if config else None) or 25)
+        runtime_ctx = channel_service.whatsapp_adapter.build_runtime_context(
+            session=session,
+            organization_id=ORGANIZATION_ID,
+            sender_phone=sender_phone,
+            payload=payload,
+            default_prep_time_minutes=default_prep_time,
+        )
+        customer = runtime_ctx.get("customer")
+        customer_name = str(runtime_ctx.get("customer_name") or "Estimado cliente")
 
         reply_text = None
         dispatched = False
         if incoming_text:
             settings = get_settings()
             master_prompt = (config.get("master_prompt") if config else None) or ""
-
-            # Fetch active products & branches for contextual knowledge
-            try:
-                prod_names = session.execute(
-                    sa.select(models.products.c.name).where(
-                        models.products.c.organization_id == ORGANIZATION_ID,
-                        models.products.c.status == "active",
-                    ).limit(25)
-                ).scalars().all()
-                menu_preview = "\n".join(f"• {p}" for p in prod_names) if prod_names else ""
-            except Exception:
-                menu_preview = ""
+            menu_preview = str(runtime_ctx.get("menu_items") or "")
 
             reply_text = channel_service.whatsapp_adapter.generate_ai_reply(
                 incoming_text=incoming_text,
@@ -8168,7 +8159,24 @@ async def post_whatsapp_webhook(
                 customer_name=customer_name,
                 menu_items=menu_preview,
                 settings=settings,
+                context=runtime_ctx,
+                conversation_history=runtime_ctx.get("conversation_history"),
             )
+
+            if reply_text and sender_phone:
+                try:
+                    channel_service.log_webhook(
+                        session,
+                        ORGANIZATION_ID,
+                        "WHATSAPP",
+                        "assistant_reply",
+                        f"reply_{event_id}",
+                        None,
+                        {"to": sender_phone, "reply": reply_text},
+                        "processed",
+                    )
+                except Exception as exc:
+                    logger.warning("Error registrando respuesta de asistente en logs: %s", exc)
 
             # Dispatch to return_url if configured
             return_url = config.get("return_url") if config else None

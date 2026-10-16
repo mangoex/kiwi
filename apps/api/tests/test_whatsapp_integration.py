@@ -637,3 +637,64 @@ def test_tc404_conversational_message_reply_and_outbound_dispatch(client, test_d
     )
     assert resp_status.status_code == 200
     assert resp_status.json()["event_type"] == "STATUS_RECEIPT"
+
+
+# ---------------------------------------------------------------------------
+# TDD-TC-405: Interpolación de Variables en Tiempo de Ejecución (Menú con Precios, Sucursales y Cliente)
+# ---------------------------------------------------------------------------
+
+
+def test_tc405_master_prompt_interpolation_and_live_db_context(client, test_db, auth_headers):
+    now = datetime.now(timezone.utc)
+    # Seed official price for Hamburguesa Clásica ($145.00 MXN = 14500 cents)
+    test_db.execute(
+        models.price_versions.insert().values(
+            id=str(uuid.uuid4()),
+            organization_id=ORGANIZATION_ID,
+            product_id=PRODUCT_ID,
+            price_cents=14500,
+            currency="MXN",
+            valid_from=now,
+            valid_to=None,
+            created_at=now,
+        )
+    )
+    test_db.commit()
+
+    adapter = WhatsAppAdapter()
+    ctx = adapter.build_runtime_context(
+        session=test_db,
+        organization_id=ORGANIZATION_ID,
+        sender_phone="5213312345678",
+        payload={"from": "5213312345678", "message": "Qué tienen en el menú?"},
+        default_prep_time_minutes=25,
+    )
+
+    assert ctx["customer_found"] is True
+    assert ctx["customer_name"] == "Carlos Mendoza"
+    assert "Av. Hidalgo #123" in ctx["delivery_address"]
+    assert "Hamburguesa Clásica — $145.00 MXN" in ctx["menu_items"]
+    assert "Sucursal Principal (SUC01)" in ctx["branches"]
+
+    raw_prompt = (
+        "Hola {customer_name}, tu dirección es {delivery_address}. "
+        "Menú: {menu_items}. Favoritos: {favorite_dishes}. "
+        "Sucursales: {active_branch}. Tiempo: {default_prep_time_minutes} min."
+    )
+    rendered = adapter.render_system_prompt(
+        system_prompt=raw_prompt,
+        customer_name=ctx["customer_name"],
+        menu_items=ctx["menu_items"],
+        context=ctx,
+    )
+
+    assert "{customer_name}" not in rendered
+    assert "{menu_items}" not in rendered
+    assert "{delivery_address}" not in rendered
+    assert "{favorite_dishes}" not in rendered
+    assert "{active_branch}" not in rendered
+    assert "{default_prep_time_minutes}" not in rendered
+    assert "Carlos Mendoza" in rendered
+    assert "$145.00 MXN" in rendered
+    assert "Sucursal Principal" in rendered
+
