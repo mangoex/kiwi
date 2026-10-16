@@ -1,6 +1,6 @@
 // SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-corporate-remediation-v1
 export default async (page, { latestFailure = false, seedStorage = true } = {}) => {
-  const branch = { id: 'branch-qa', name: 'Centro QA', code: 'QA', status: 'active' };
+  const branch = { id: 'branch-qa', name: 'Centro QA', code: 'QA', status: 'active', timezone: 'America/Mazatlan' };
   const permissions = ['branch.admin.access', 'admin.manage', 'purchases.read', 'purchases.manage',
     'purchases.corporate.read', 'purchases.corporate.manage', 'inventory.read'];
   const session = { organization_id: 'org-qa',
