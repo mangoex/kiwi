@@ -49,8 +49,10 @@ dirección, nombre, teléfono ni IP en las métricas del flujo.
 | El historial permite proyectar el estado sin explorar toda la tabla de eventos. | Auditoría reprodujo el scan y verificó el índice con EXPLAIN; roundtrips reales en ambos dialectos. | Aprobado en fixtures; capacidad y bloqueo durante creación del índice requieren validación productiva. |
 | La tarjeta conserva contexto sin depender de almacenamiento disponible. | Checkout real, recarga, storage bloqueado, cambio de sucursal y modal compartiendo el mismo estado. | Aprobado; al fallar storage sólo se conserva durante la sesión. DELIVERED detiene consultas: una devolución posterior se descubre al recargar. |
 
-CI incluye los nuevos gates PostgreSQL y navegador, pero no se ejecutó CI remoto ni la suite
-completa local. Tampoco se verificó comportamiento productivo. Al cierre de la implementación
+CI incluye los nuevos gates PostgreSQL y navegador. La suite completa se ejecuta en el
+[PR 79](https://github.com/mangoex/kiwi/pull/79); su estado remoto es autoritativo y no se sustituye
+por estas pruebas locales. No se ejecutó la suite completa local ni se verificó comportamiento
+productivo. Al cierre de la implementación
 todavía no se había hecho commit ni push. La autorización posterior cubre su publicación y merge;
 despliegue, migración productiva y modificación de datos reales mantienen autorización separada.
 
@@ -65,6 +67,19 @@ localmente conservando las validaciones de autoridad, contexto y navegación. El
 completa en los fixtures de navegador compartido y de compras corporativas, respetando zonas
 explícitas por sucursal. El recorrido corporativo conserva recuperación idempotente, bloqueo
 entre pestañas y confirmación con fallo de refresco; pasó localmente.
+
+La primera ejecución Python completa de publicación (38970942851) tuvo 2239 casos aprobados,
+17 fallos y 8 skips; no se considera verde. Se corrigieron dos expectativas activadas por este
+paquete (dos limiters y nuevo módulo del verificador PG), la conexión de una regresión frontend
+existente y fixtures de esquema históricos: siembra duplicada tras migraciones de driver cash,
+creación 0072 con tabla reflejada y roundtrip XML 0091 sin consultar columnas futuras. La
+restauración de head evita que un fallo deje sin esquema a casos posteriores. Las guardas de
+concurrencia, bloqueo de downgrade y conservación de filas permanecen y fueron revisadas en la
+misma auditoría independiente, sin hallazgos bloqueantes. Validación focal de estas correcciones:
+52 casos de contrato/gates, 14 PostgreSQL en tres bases locales propias desechables y la regresión
+frontend de proveedores aprobados; Ruff completo y mypy de 94 archivos del backend aprobados.
+Frontend completo, Docker, dependencias y políticas aprobaron en CI 38972618394 antes de este
+último ajuste exclusivamente de pruebas/gates. El resultado final debe consultarse en el PR.
 
 Publicar el código y esperar CI verde antes de release. Bajo autorización productiva separada,
 respaldar la base y elegir una ventana para crear el índice: puede bloquear escrituras mientras
