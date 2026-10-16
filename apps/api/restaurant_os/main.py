@@ -4,10 +4,10 @@ import logging
 import os
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request
@@ -18,8 +18,7 @@ from sqlalchemy.orm import Session
 
 from restaurant_os.agent_rate_limit import RedisAgentRateLimiter
 from restaurant_os.agent_tools import router as agent_tools_router
-from restaurant_os.api import get_whatsapp_webhook, post_whatsapp_webhook
-from restaurant_os.api import reconciliation_v2_router
+from restaurant_os.api import get_whatsapp_webhook, post_whatsapp_webhook, reconciliation_v2_router
 from restaurant_os.api import router as platform_router
 from restaurant_os.auth import verify_session_token
 from restaurant_os.config import get_settings
@@ -88,13 +87,14 @@ def _with_device_variant_headers(response: Response) -> Response:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Auto-apply database migrations on startup if connected to PostgreSQL
     settings = get_settings()
     if settings.database_url and "sqlite" not in settings.database_url:
         try:
             from alembic import command
             from alembic.config import Config
+
             from restaurant_os.alembic_config import set_alembic_database_url
 
             ini_candidates = [
@@ -140,32 +140,42 @@ def create_app() -> FastAPI:
     @app.get("/v1/integrations/whatsapp/webhook", include_in_schema=False)
     def v1_whatsapp_webhook_get(
         request: Request,
-        session: Session = Depends(get_session),
+        session: Annotated[Session, Depends(get_session)],
     ) -> Response:
         return get_whatsapp_webhook(request, session)
 
     @app.post("/v1/integrations/whatsapp/webhook", include_in_schema=False)
     async def v1_whatsapp_webhook_post(
         request: Request,
-        session: Session = Depends(get_session),
+        session: Annotated[Session, Depends(get_session)],
     ) -> dict[str, Any]:
         return await post_whatsapp_webhook(request, session)
 
     @app.exception_handler(RequestValidationError)
     async def governed_validation_error(request: Request, exc: RequestValidationError) -> Response:
         if request.url.path.startswith("/api/v1/purchases/xml-imports/"):
-            return JSONResponse(status_code=422, content={"detail": {
-                "code": "supplier_xml_schema_invalid",
-                "message": "Request does not match the XML contract",
-            }})
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": {
+                        "code": "supplier_xml_schema_invalid",
+                        "message": "Request does not match the XML contract",
+                    }
+                },
+            )
         if request.url.path.startswith(
             ("/api/v1/agent-auth", "/api/v1/agent-tools", "/api/v1/integrations/grokbot")
         ):
-            return JSONResponse(status_code=400, content={"detail": {
-                "code": "agent_schema_invalid",
-                "message": "Request does not match the Agent Tools contract",
-                "correlation_id": None,
-            }})
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": {
+                        "code": "agent_schema_invalid",
+                        "message": "Request does not match the Agent Tools contract",
+                        "correlation_id": None,
+                    }
+                },
+            )
         return await request_validation_exception_handler(request, exc)
 
     app.state.grokbot_agent_tools_enabled = settings.grokbot_agent_tools_enabled

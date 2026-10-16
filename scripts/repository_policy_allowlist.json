@@ -137,7 +137,7 @@
     },
     {
       "path": "tests/browser/test_admin_session_recovery.mjs",
-      "sha256": "468bdf64897c901a4538bad1c6d39c4af9d7183326760058cd508a09356c8761",
+      "sha256": "b51a1785ac9bd45c7bfd33ac11ee3a15fc4dd6aac7ca6b135c320f79ef9bd0e8",
       "provenance": "restaurantos-admin-session-browser-v1"
     },
     {
@@ -207,7 +207,7 @@
     },
     {
       "path": "apps/api/tests/test_whatsapp_integration.py",
-      "sha256": "f89c27759e4b2167c38ef2078e83431c68db42ac2d7d14521a28ba0e51c7f953",
+      "sha256": "06880a75d99ce24b3f9e730c5bdb0d0f5025811e2761a3679d0bc4fb2e3338b6",
       "provenance": "restaurantos-whatsapp-asistto-fixtures-v1"
     }
   ]
