@@ -1116,6 +1116,12 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   salvo una excepción urgente explícita conforme a FR-251; cambiar sucursal no reutiliza captura
   ni datos ajenos. Se conservan cancelaciones compensatorias. No se amplía edición de
   borradores persistidos, modalidades de pago, almacenes, fletes, crédito ni importaciones.
+  Una nota nueva propone como fecha documental el día vigente de la zona horaria de la sucursal,
+  sin sustituir una fecha ya capturada o recuperada. Puede registrar de forma opcional y separada
+  el nombre de la persona externa que entrega; ese texto no sustituye al actor interno que crea,
+  recibe o confirma. Cada partida ofrece agregar inmediatamente después y quitar mediante controles
+  accesibles en el mismo renglón; el último renglón no puede eliminarse. El editor conserva acceso
+  por desplazamiento a toda la captura y sus acciones en alturas reducidas.
 
 - `PRD-FR-250`: Las vistas previas de cantidades, conversiones, merma, importes y costos de compras,
   presentaciones, insumos y recetas deben proceder de Python con `Decimal` y fórmulas canónicas.

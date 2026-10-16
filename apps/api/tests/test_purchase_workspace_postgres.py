@@ -177,6 +177,44 @@ def test_concurrent_creation_has_one_document_and_no_duplicate_audit(pg_engine, 
         )
 
 
+def test_purchase_delivery_name_persists_and_blocks_postgres_data_loss(pg_engine):
+    payload = {**_purchase_seed(pg_engine), "delivered_by_name": "  Ana López  "}
+    with Session(pg_engine) as session:
+        created = create_purchase_document(
+            session, payload, ADMIN_USER_ID, "sr-pg-delivery-name"
+        )
+        assert created["delivered_by_name"] == "Ana López"
+        assert session.scalar(
+            sa.select(models.purchase_documents.c.delivered_by_name).where(
+                models.purchase_documents.c.id == created["id"]
+            )
+        ) == "Ana López"
+
+    url = os.environ["SR_WORKSPACE_TEST_POSTGRES_URL"]
+    env = {**os.environ, "RESTAURANTOS_DATABASE_URL": url}
+    env.pop("DATABASE_URL", None)
+    blocked = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            "alembic.ini",
+            "downgrade",
+            "0093_whatsapp_order_channel",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert blocked.returncode != 0
+    assert "0094 downgrade blocked: purchase delivery names exist" in (
+        blocked.stdout + blocked.stderr
+    )
+
+
 def _copy_seed(engine):
     with Session(engine) as session:
         source = dict(

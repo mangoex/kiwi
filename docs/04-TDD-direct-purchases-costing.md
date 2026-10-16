@@ -116,3 +116,20 @@ selector, contexto, errores en español, teclado/foco y nombres sin recorte. No 
 Gate: typecheck/build de frontends afectados, lint/mypy focal backend, contratos, E2E,
 PostgreSQL/SQLite focales, CI aplicable y auditoría Sol independiente. Canary productivo R3 queda
 pendiente de autorización separada y no se acredita con pruebas locales.
+
+## TDD-TC-407 Fecha local, entrega y controles compactos
+
+BDD-SC-705. Extender `tests/frontend/test_purchase_workspace.mjs` para probar el día de sucursal
+en ambos lados de medianoche UTC, default sin marcar captura como editada, conservación de snapshot,
+`delivered_by_name`, inserción inmediatamente después, límite/remoción y contratos accesibles de
+`+`/papelera. Verificar por semántica CSS que el cuerpo puede encogerse y desplazarse.
+
+Extender `tests/contract/test_purchase_workspace_contract.py` y
+`apps/api/tests/test_purchase_workspace.py` con campo opcional acotado a 160, recorte canónico,
+rechazo de tipo/longitud sin efectos, persistencia, lectura y replay idempotente. La migración
+SQLite sube desde 0093, conserva documentos antiguos con `NULL`, permite downgrade sin datos y lo
+bloquea cuando eliminaría un nombre; PostgreSQL focal confirma el mismo DDL/roundtrip cuando exista
+la base aislada. QA visual: 1440x900, 1024x768 y ancho reducido, con teclado, foco, iconos, scroll y
+acciones finales visibles. Gates: prueba semántica, contrato, pytest/ruff focal, typecheck, migración,
+`git diff --check`, CI aplicable y auditoría independiente R3; despliegue y migración productiva
+conservan autorización separada.

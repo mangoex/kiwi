@@ -20609,6 +20609,7 @@ def _create_purchase_document(
         "document_type": document_type,
         "folio": folio,
         "document_date": document_date,
+        "delivered_by_name": prepared["delivered_by_name"],
         "subtotal": _money(subtotal),
         "discount_total": _money(discount_total),
         "tax_total": _money(tax_total),

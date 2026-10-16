@@ -44,6 +44,7 @@ PURCHASE_KEYS = {
     "document_type",
     "folio",
     "document_date",
+    "delivered_by_name",
     "payment_method",
     "paid_from_cash",
     "supplier_catalog_exception",
@@ -231,6 +232,12 @@ def prepare_purchase(
             not isinstance(payload[field], str) or len(payload[field]) > 600
         ):
             raise BusinessError("workspace_payload_invalid", f"Invalid field: {field}")
+    raw_delivered_by_name = payload.get("delivered_by_name")
+    if raw_delivered_by_name is not None and not isinstance(raw_delivered_by_name, str):
+        raise BusinessError("workspace_payload_invalid", "Invalid field: delivered_by_name")
+    delivered_by_name = (raw_delivered_by_name or "").strip() or None
+    if delivered_by_name is not None and len(delivered_by_name) > 160:
+        raise BusinessError("workspace_payload_invalid", "Invalid field: delivered_by_name")
 
     lines = []
     subtotal = Decimal("0")
@@ -309,6 +316,7 @@ def prepare_purchase(
         "document_type": document_type,
         "folio": folio,
         "document_date": document_date,
+        "delivered_by_name": delivered_by_name,
         "subtotal": purchase_decimal(subtotal, "subtotal"),
         "discount_total": purchase_decimal(discount, "discount_total"),
         "tax_total": purchase_decimal(tax, "tax_total"),
@@ -370,6 +378,7 @@ def create_agent_purchase_draft(
         "document_type": prepared["document_type"],
         "folio": prepared["folio"],
         "document_date": prepared["document_date"],
+        "delivered_by_name": prepared["delivered_by_name"],
         "subtotal": prepared["subtotal"],
         "discount_total": prepared["discount_total"],
         "tax_total": prepared["tax_total"],

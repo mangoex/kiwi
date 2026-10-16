@@ -21,6 +21,8 @@ def test_online_capture_contract_is_separate_from_offline_envelope() -> None:
         "date-time",
     }
     assert http["properties"]["notes"]["maxLength"] == 600
+    assert http["properties"]["delivered_by_name"]["maxLength"] == 160
+    assert "delivered_by_name" not in http["required"]
     assert http["properties"]["supplier_catalog_exception"]["type"] == "boolean"
     assert http["properties"]["supplier_catalog_exception_reason"]["maxLength"] == 240
     assert "supplier_catalog_exception" not in http["required"]
@@ -62,6 +64,29 @@ def test_capture_schema_closes_payment_methods_and_derives_cash(method, paid, va
     }
     validator = Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
     assert validator.is_valid(payload) is valid
+
+
+def test_optional_delivery_name_is_bounded_text():
+    root = Path(__file__).resolve().parents[2] / "packages/contracts/schemas"
+    schema = json.loads((root / "purchase-create-http-v1.schema.json").read_text())
+    validator = Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
+    payload = {
+        "branch_id": "018f6f73-2d0a-74f0-8f1c-000000000003",
+        "supplier_id": "018f6f73-2d0a-74f0-8f1c-000000000003",
+        "document_type": "note",
+        "folio": "Contract",
+        "document_date": "2026-10-09",
+        "payment_method": "other",
+        "paid_from_cash": False,
+        "lines": [{
+            "presentation_id": "018f6f73-2d0a-74f0-8f1c-000000000003",
+            "quantity": "1", "unit_price": "0", "discount": "0", "tax": "0",
+        }],
+    }
+    assert validator.is_valid({**payload, "delivered_by_name": "Ana López"})
+    assert validator.is_valid(payload)
+    assert not validator.is_valid({**payload, "delivered_by_name": "x" * 161})
+    assert not validator.is_valid({**payload, "delivered_by_name": 123})
 
 
 @pytest.mark.parametrize(

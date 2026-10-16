@@ -14,7 +14,7 @@ import { CorporatePurchaseWorkspace } from './CorporatePurchaseWorkspace';
 interface Supplier { id: string; commercial_name: string; }
 interface Presentation { id: string; supplier_id: string; supplier_name: string; item_id: string; item_name: string; item_sku: string; name: string; last_net_price: number; base_unit_yield: number; base_unit_code: string; }
 interface PurchaseLine { id: string; presentation_snapshot: { name: string }; presentation_quantity: number; base_quantity: number; }
-interface Purchase { id: string; organization_id: string; branch_id: string; payment_method: string; folio: string; supplier_id: string; document_type: string; total: number; status: string; paid_from_cash: boolean; cash_movement_id?: string; confirmation_idempotency_key?: string; confirmed_by?: string; confirmed_at?: string; lines: PurchaseLine[]; }
+interface Purchase { id: string; organization_id: string; branch_id: string; payment_method: string; folio: string; supplier_id: string; document_type: string; delivered_by_name?: string | null; total: number; status: string; paid_from_cash: boolean; cash_movement_id?: string; confirmation_idempotency_key?: string; confirmed_by?: string; confirmed_at?: string; lines: PurchaseLine[]; }
 interface InventoryCost { item_id: string; item_name: string; item_sku: string; quantity_on_hand: number; average_unit_cost: number; unit_code: string; }
 
 const PurchasesList = () => {
@@ -298,7 +298,7 @@ const BranchPurchaseWorkspace = () => {
       <PurchaseDocumentReview purchase={review} paymentContext={{ branchName: canonicalSession.active_branch.name, method: purchaseMethodLabels[review?.payment_method || ''] || review?.payment_method || '', registerId: uncertain ? attempt.current?.body.register_id || '' : registerId, cashShiftId: uncertain ? attempt.current?.body.expected_cash_shift_id || '' : cash.data?.open_registers.find(box => box.register_id === registerId)?.cash_shift_id || '', message: error, recovering: uncertain, canConfirm: Boolean(authority.organization_id) && canWrite && (!uncertain || Boolean(attempt.current)) && (!review?.paid_from_cash || (canWithdraw && (uncertain || Boolean(cash.data?.open_registers.some(box => box.register_id === registerId))))) }} onClose={() => { if (!uncertain) setReview(null); }} onConfirm={async () => { if (review && await confirmPurchase(review)) setReview(null); }} />
       {canWrite && canonicalSession && <PurchaseDocumentEditor
         key={scope + ':' + captureVersion}
-        scope={scope} branchId={branchId} isOpen={open} onClose={() => setOpen(false)}
+        scope={scope} branchId={branchId} branchTimeZone={canonicalSession.active_branch.timezone} isOpen={open} onClose={() => setOpen(false)}
         suppliers={suppliers} presentations={presentations} request={fetchApi}
         initialSupplierId={initialSupplierId}
         onCreated={async () => { await refresh(); setCaptureVersion(value => value + 1); }}

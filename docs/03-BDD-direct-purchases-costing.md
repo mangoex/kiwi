@@ -101,6 +101,19 @@ Feature: Comprar con efectivo de la sucursal activa
     Then se conservan retiro y recepción originales con sus contramovimientos vinculados
     And el efectivo esperado se recupera por la compensación una sola vez
     But con el turno original cerrado se conserva el rechazo vigente sin escribir parcialmente
+
+  @BDD-SC-705
+  Scenario: Capturar fecha local entrega y partidas desde un modal completo
+    Given una cuenta autorizada abre una nota nueva en la sucursal activa
+    When la sucursal tiene una zona horaria IANA vigente
+    Then la fecha propone el día local de esa sucursal y sigue siendo editable
+    And una nota recuperada conserva la fecha que ya tenía
+    And puede guardar un nombre opcional de quien entrega sin cambiar el actor interno
+    And cada partida muestra más y papelera accesibles en el mismo renglón
+    And más inserta después y enfoca la nueva presentación
+    And papelera conserva al menos una partida y enfoca una partida vecina
+    And el contenido y las acciones del modal son alcanzables mediante desplazamiento
+    But no existe carga de archivo ni extracción por IA en este incremento
 ```
 
 ## BDD-FEAT-039 Costo promedio por recepción

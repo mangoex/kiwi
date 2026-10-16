@@ -4049,23 +4049,40 @@ Queries incluyen organización/sucursal; cambiar contexto cancela lecturas y des
 previas. Se avisa antes de abandonar captura; no se añade persistencia sensible en almacenamiento
 local por este incremento.
 
-Cabecera: sucursal, proveedor, tipo, folio, fecha documental y modalidad ya soportada. Incluye
-`supplier_catalog_exception` y un motivo acotado; el motivo es obligatorio sólo cuando la excepción
-está activa. Partida:
+Cabecera: sucursal, proveedor, tipo, folio, fecha documental, modalidad ya soportada y
+`delivered_by_name` opcional de hasta 160 caracteres. El nombre se recorta en la frontera de dominio,
+se conserva como snapshot descriptivo del documento y no reemplaza `created_by`, `confirmed_by` ni
+otro actor interno. Incluye `supplier_catalog_exception` y un motivo acotado; el motivo es obligatorio
+sólo cuando la excepción está activa. Partida:
 `presentation_id`, cantidad comercial, precio antes de descuento, descuento monetario e impuesto
 monetario. Equivalencias e importes proceden de Python. No se deduce IVA, merma ni unidad del texto.
-Agregar/quitar/editar filas sólo modifica captura anterior al guardado. Cambiar proveedor conserva
+Agregar/quitar/editar filas sólo modifica captura anterior al guardado. Cada fila presenta controles
+iconográficos accesibles para insertar inmediatamente después y eliminar; la eliminación se bloquea
+cuando queda una sola fila, el límite permanece en 200 y el foco pasa a una fila válida después de
+cada acción. Cambiar proveedor conserva
 filas como pendientes de resolver y bloquea guardar hasta sustituir/retirar incompatibles
 explícitamente. En modo normal el selector agrupa por insumo y sólo ofrece presentaciones activas
 del proveedor elegido. La agrupación usa `item_id` y etiqueta nombre más SKU para no mezclar
 insumos homónimos. En modo excepcional ofrece el catálogo activo autorizado y muestra también su
 proveedor de catálogo. Cambiar presentación no arrastra el precio anterior sin revisión humana.
 
-Fecha documental conserva su día; timestamps de operación son UTC. El editor exige fecha explícita,
-sin inicializarla con una zona supuesta. `purchase-create-http-v1.schema.json` y el DTO compartido
+Fecha documental conserva su día; timestamps de operación son UTC. Al abrir una captura nueva y
+limpia, el editor propone el día calculado con la zona IANA de la sucursal devuelta por la sesión
+canónica. No usa el día UTC, no reemplaza una fecha recuperada y una zona inválida no fabrica fecha.
+El editor sigue exigiendo fecha explícita antes de guardar. `purchase-create-http-v1.schema.json` y el DTO compartido
 definen la captura online con día o timestamp, notas/evidencia y decimales textuales; el envelope
 offline de `purchase-command.schema.json` permanece compatible y separado. `payment_method=other` no representa cuenta por pagar ni
 acredita métodos de §34.7 todavía no soportados por el recorrido actual.
+
+La migración aditiva incorpora `purchase_documents.delivered_by_name VARCHAR(160) NULL`; documentos
+anteriores conservan `NULL`. El downgrade se permite sólo cuando no existe un nombre persistido,
+para no borrar evidencia descriptiva. Creación, recibo idempotente, detalle y listado devuelven el
+campo sin incluirlo en logs ni auditoría. No se agregan carga de archivos, OCR ni proveedor de IA.
+
+El modal mantiene altura máxima respecto del viewport, `min-height: 0` en su cuerpo flex y
+desplazamiento vertical. Las acciones finales permanecen alcanzables por teclado y scroll; a ancho
+de escritorio los controles `+` y papelera comparten el renglón de partida, y en ancho reducido
+pueden reacomodarse sin recortar campos ni foco.
 
 `POST /api/v1/purchases` recibe el documento entero y devuelve ID, estado `draft`, todas las líneas
 y cálculos persistidos. Detalle relee el documento autorizado. Confirmación reutiliza transacción
