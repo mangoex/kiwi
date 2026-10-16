@@ -217,6 +217,7 @@ from restaurant_os.operations import (
     list_attendance_checks,
     list_available_delivery_drivers,
     list_available_ingredient_extras,
+    list_all_active_branch_admin_catalog_products,
     list_branch_admin_catalog_products,
     list_branch_ingredient_variations,
     list_branch_staff,
@@ -275,6 +276,8 @@ from restaurant_os.operations import (
     set_branch_modifier_option,
     set_branch_product_availability,
     set_branch_product_digital_visibility,
+    set_all_active_branch_product_availability,
+    set_all_active_branch_product_digital_visibility,
     set_branch_variation_note,
     set_supplier_branch_terms,
     save_product_configuration,
@@ -7028,6 +7031,18 @@ def get_branch_admin_catalog_products(
     )
 
 
+@router.get("/branch-administration/catalog/products/all-active-summary")
+def get_all_active_branch_admin_catalog_products(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: list_all_active_branch_admin_catalog_products(session, actor_id)
+    )
+
+
 @router.get("/branch-administration/catalog/variation-notes")
 def get_branch_admin_variation_notes(
     session: SessionDep,
@@ -7069,6 +7084,31 @@ def put_branch_admin_availability(
 
 
 @router.put(
+    "/branch-administration/catalog/products/{product_id}/availability/all-active"
+)
+def put_all_active_branch_admin_availability(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def update_availability() -> dict[str, Any]:
+        if set(payload) != {"action"}:
+            raise BusinessError(
+                "invalid_availability_action",
+                "Body must contain only action",
+            )
+        return set_all_active_branch_product_availability(
+            session, actor_id, product_id, str(payload["action"])
+        )
+
+    return _business_response(update_availability)
+
+
+@router.put(
     "/branch-administration/catalog/products/{product_id}/digital-menu-visibility"
 )
 def put_branch_admin_digital_menu_visibility(
@@ -7093,6 +7133,32 @@ def put_branch_admin_digital_menu_visibility(
             product_id,
             payload["visible"],
             branch_id,
+        )
+
+    return _business_response(update_visibility)
+
+
+@router.put(
+    "/branch-administration/catalog/products/{product_id}"
+    "/digital-menu-visibility/all-active"
+)
+def put_all_active_branch_admin_digital_menu_visibility(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+
+    def update_visibility() -> dict[str, Any]:
+        if set(payload) != {"visible"}:
+            raise BusinessError(
+                "invalid_digital_menu_visibility",
+                "Body must contain only visible",
+            )
+        return set_all_active_branch_product_digital_visibility(
+            session, actor_id, product_id, payload["visible"]
         )
 
     return _business_response(update_visibility)

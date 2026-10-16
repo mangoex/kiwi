@@ -26071,6 +26071,64 @@ def _branch_administration_target(
     return str(profile["active_branch"]["id"])
 
 
+def _all_active_branch_administration_targets(
+    session: Session,
+    actor_id: str,
+    permission_code: str,
+) -> list[dict[str, str]]:
+    """Return every active branch only for persisted organization authority."""
+    normalized_actor = _actor_user_id(actor_id)
+    if not _actor_has_organization_scope(session, normalized_actor, permission_code):
+        _record_authorization_denied(
+            session,
+            actor_user_id=normalized_actor or None,
+            permission_code=permission_code,
+            branch_id=None,
+            reason="organization_scope_required",
+        )
+        raise AuthorizationError(
+            "permission_denied",
+            "Organization scope is required for all active branches",
+        )
+    rows = [
+        {"id": str(row["id"]), "name": str(row["name"]), "code": str(row["code"])}
+        for row in session.execute(
+            sa.select(models.branches.c.id, models.branches.c.name, models.branches.c.code)
+            .where(
+                models.branches.c.organization_id == ORGANIZATION_ID,
+                models.branches.c.status == "active",
+            )
+            .order_by(models.branches.c.code, models.branches.c.id)
+        ).mappings()
+    ]
+    if not rows:
+        raise BusinessError("active_branches_required", "No active branches are available")
+    for row in rows:
+        require_permission(session, normalized_actor, permission_code, row["id"])
+    return rows
+
+
+def _lock_branch_catalog_scopes(session: Session, branch_ids: list[str]) -> None:
+    """Serialize single and bulk branch-catalog changes in a stable order."""
+    locked = set(
+        session.execute(
+            sa.select(models.branches.c.id)
+            .where(
+                models.branches.c.organization_id == ORGANIZATION_ID,
+                models.branches.c.status == "active",
+                models.branches.c.id.in_(branch_ids),
+            )
+            .order_by(models.branches.c.id)
+            .with_for_update()
+        ).scalars()
+    )
+    if locked != set(branch_ids):
+        raise BusinessError(
+            "branch_scope_changed",
+            "An active branch changed while the catalog command was being prepared",
+        )
+
+
 def list_branch_staff(
     session: Session, actor_id: str, branch_id: str | None = None
 ) -> list[dict[str, Any]]:
@@ -26226,34 +26284,76 @@ def list_branch_admin_catalog_products(
     return result
 
 
-def set_branch_product_availability(
+def _aggregate_state(enabled_count: int, applicable_count: int) -> str:
+    if enabled_count == 0:
+        return "none"
+    if enabled_count == applicable_count:
+        return "all"
+    return "mixed"
+
+
+def list_all_active_branch_admin_catalog_products(
     session: Session,
     actor_id: str,
-    product_id: str,
-    action: str,
-    branch_id: str | None = None,
 ) -> dict[str, Any]:
-    """Set per-branch product availability (available / unavailable / inherit).
-
-    ``inherit`` removes the local override so the central availability applies.
-    Only modifies ``branch_product_availability``; never touches products,
-    categories or price_versions. Records an audit event with old/new values.
-    """
-    authorized_branch = _branch_administration_target(
-        session, actor_id, "catalog.branch.manage", branch_id
+    """Summarize product settings across currently active authorized branches."""
+    branches = _all_active_branch_administration_targets(
+        session, actor_id, "branch.admin.access"
     )
-    if action not in ("available", "unavailable", "inherit"):
-        raise BusinessError(
-            "invalid_availability_action",
-            "Action must be available, unavailable or inherit",
-        )
+    aggregate: dict[str, dict[str, Any]] = {}
+    for branch in branches:
+        for row in list_branch_admin_catalog_products(session, actor_id, branch["id"]):
+            product_id = str(row["id"])
+            item = aggregate.setdefault(
+                product_id,
+                {
+                    **row,
+                    "applicable_branch_count": 0,
+                    "available_branch_count": 0,
+                    "digital_menu_visible_branch_count": 0,
+                    "local_availability_override_count": 0,
+                    "digital_menu_override_count": 0,
+                },
+            )
+            item["applicable_branch_count"] += 1
+            item["available_branch_count"] += int(bool(row["effective_availability"]))
+            item["digital_menu_visible_branch_count"] += int(
+                bool(row["show_in_digital_menu"])
+            )
+            item["local_availability_override_count"] += int(
+                bool(row["has_local_override"])
+            )
+            item["digital_menu_override_count"] += int(
+                bool(row["has_digital_menu_override"])
+            )
 
+    items: list[dict[str, Any]] = []
+    for item in aggregate.values():
+        applicable_count = int(item["applicable_branch_count"])
+        available_count = int(item["available_branch_count"])
+        visible_count = int(item["digital_menu_visible_branch_count"])
+        item["availability_summary"] = _aggregate_state(
+            available_count, applicable_count
+        )
+        item["digital_menu_summary"] = _aggregate_state(visible_count, applicable_count)
+        item["effective_availability"] = available_count == applicable_count
+        item["show_in_digital_menu"] = visible_count == applicable_count
+        item["has_local_override"] = bool(item["local_availability_override_count"])
+        item["has_digital_menu_override"] = bool(item["digital_menu_override_count"])
+        items.append(item)
+    items.sort(key=lambda item: (str(item["name"]).casefold(), str(item["id"])))
+    return {"scope": "all_active", "branches": branches, "items": items}
+
+
+def _load_product_for_branch_settings(session: Session, product_id: str) -> dict[str, Any]:
     product = (
         session.execute(
             sa.select(
                 models.products.c.id,
                 models.products.c.name,
                 models.products.c.status,
+                models.products.c.catalog_scope,
+                models.products.c.source_branch_id,
             ).where(
                 models.products.c.id == product_id,
                 models.products.c.organization_id == ORGANIZATION_ID,
@@ -26264,11 +26364,28 @@ def set_branch_product_availability(
     )
     if not product:
         raise NotFoundError("product_not_found", "Product not found")
+    return dict(product)
 
+
+def _product_applies_to_branch(product: dict[str, Any], branch_id: str) -> bool:
+    return product.get("catalog_scope") == "organization" or str(
+        product.get("source_branch_id") or ""
+    ) == branch_id
+
+
+def _apply_branch_product_availability(
+    session: Session,
+    actor_id: str,
+    product: dict[str, Any],
+    branch_id: str,
+    action: str,
+    request_scope: str,
+) -> dict[str, Any]:
+    product_id = str(product["id"])
     existing = (
         session.execute(
             sa.select(models.branch_product_availability).where(
-                models.branch_product_availability.c.branch_id == authorized_branch,
+                models.branch_product_availability.c.branch_id == branch_id,
                 models.branch_product_availability.c.product_id == product_id,
             )
         )
@@ -26276,13 +26393,12 @@ def set_branch_product_availability(
         .first()
     )
     previous_value = existing["is_available"] if existing else None
-
     now = _now()
     if action == "inherit":
         if existing:
             session.execute(
                 models.branch_product_availability.delete().where(
-                    models.branch_product_availability.c.branch_id == authorized_branch,
+                    models.branch_product_availability.c.branch_id == branch_id,
                     models.branch_product_availability.c.product_id == product_id,
                 )
             )
@@ -26293,7 +26409,7 @@ def set_branch_product_availability(
             session.execute(
                 models.branch_product_availability.update()
                 .where(
-                    models.branch_product_availability.c.branch_id == authorized_branch,
+                    models.branch_product_availability.c.branch_id == branch_id,
                     models.branch_product_availability.c.product_id == product_id,
                 )
                 .values(is_available=new_value, updated_at=now)
@@ -26301,38 +26417,111 @@ def set_branch_product_availability(
         else:
             session.execute(
                 models.branch_product_availability.insert().values(
-                    branch_id=authorized_branch,
+                    branch_id=branch_id,
                     product_id=product_id,
                     is_available=new_value,
                     updated_at=now,
                 )
             )
-
     _audit(
         session,
         action="branch_product_availability.updated",
         entity_type="product",
         entity_id=product_id,
         payload={
-            "branch_id": authorized_branch,
+            "branch_id": branch_id,
             "product_name": product["name"],
             "previous": previous_value,
             "new": new_value,
             "requested_action": action,
+            "request_scope": request_scope,
         },
-        branch_id=authorized_branch,
+        branch_id=branch_id,
         actor_user_id=_actor_user_id(actor_id),
     )
-    session.commit()
     central_active = product["status"] == "active"
     effective_availability = central_active and (new_value if new_value is not None else True)
     return {
         "product_id": product_id,
-        "branch_id": authorized_branch,
+        "branch_id": branch_id,
         "effective_availability": effective_availability,
         "has_local_override": action != "inherit",
         "availability_source": "central" if action == "inherit" else "branch_override",
         "previous": previous_value,
+    }
+
+
+def set_branch_product_availability(
+    session: Session,
+    actor_id: str,
+    product_id: str,
+    action: str,
+    branch_id: str | None = None,
+) -> dict[str, Any]:
+    """Set availability for one authorized branch and audit the change."""
+    authorized_branch = _branch_administration_target(
+        session, actor_id, "catalog.branch.manage", branch_id
+    )
+    if action not in ("available", "unavailable", "inherit"):
+        raise BusinessError(
+            "invalid_availability_action",
+            "Action must be available, unavailable or inherit",
+        )
+    product = _load_product_for_branch_settings(session, product_id)
+    if not _product_applies_to_branch(product, authorized_branch):
+        raise NotFoundError("product_not_found", "Product not found")
+    _lock_branch_catalog_scopes(session, [authorized_branch])
+    try:
+        result = _apply_branch_product_availability(
+            session, actor_id, product, authorized_branch, action, "single_branch"
+        )
+        session.commit()
+        return result
+    except Exception:
+        session.rollback()
+        raise
+
+
+def set_all_active_branch_product_availability(
+    session: Session,
+    actor_id: str,
+    product_id: str,
+    action: str,
+) -> dict[str, Any]:
+    branches = _all_active_branch_administration_targets(
+        session, actor_id, "catalog.branch.manage"
+    )
+    if action not in ("available", "unavailable", "inherit"):
+        raise BusinessError(
+            "invalid_availability_action",
+            "Action must be available, unavailable or inherit",
+        )
+    product = _load_product_for_branch_settings(session, product_id)
+    branch_ids = [
+        branch["id"]
+        for branch in branches
+        if _product_applies_to_branch(product, branch["id"])
+    ]
+    if not branch_ids:
+        raise NotFoundError("product_not_found", "Product not found")
+    _lock_branch_catalog_scopes(session, branch_ids)
+    try:
+        results = [
+            _apply_branch_product_availability(
+                session, actor_id, product, target, action, "all_active"
+            )
+            for target in branch_ids
+        ]
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return {
+        "product_id": product_id,
+        "scope": "all_active",
+        "affected_branch_count": len(branch_ids),
+        "branch_ids": branch_ids,
+        "results": results,
     }
 
 
@@ -26348,54 +26537,28 @@ def _branch_product_is_visible_in_digital_menu(
     return exclusion is not False
 
 
-def set_branch_product_digital_visibility(
+def _apply_branch_product_digital_visibility(
     session: Session,
     actor_id: str,
-    product_id: str,
-    visible: Any,
-    branch_id: str | None = None,
+    product: dict[str, Any],
+    branch_id: str,
+    visible: bool,
+    request_scope: str,
 ) -> dict[str, Any]:
-    """Hide a product only from the public menu of one authorized branch."""
-    if type(visible) is not bool:
-        raise BusinessError(
-            "invalid_digital_menu_visibility",
-            "visible must be a boolean",
-        )
-    authorized_branch = _branch_administration_target(
-        session, actor_id, "catalog.branch.manage", branch_id
-    )
-    product = (
-        session.execute(
-            sa.select(models.products.c.id, models.products.c.name).where(
-                models.products.c.id == product_id,
-                models.products.c.organization_id == ORGANIZATION_ID,
-                sa.or_(
-                    models.products.c.catalog_scope == "organization",
-                    models.products.c.source_branch_id == authorized_branch,
-                ),
-            )
-        )
-        .mappings()
-        .first()
-    )
-    if not product:
-        raise NotFoundError("product_not_found", "Product not found")
-
-    previous = _branch_product_is_visible_in_digital_menu(
-        session, authorized_branch, product_id
-    )
+    product_id = str(product["id"])
+    previous = _branch_product_is_visible_in_digital_menu(session, branch_id, product_id)
     now = _now()
     if visible:
         session.execute(
             models.branch_product_digital_visibility.delete().where(
-                models.branch_product_digital_visibility.c.branch_id == authorized_branch,
+                models.branch_product_digital_visibility.c.branch_id == branch_id,
                 models.branch_product_digital_visibility.c.product_id == product_id,
             )
         )
     else:
         existing = session.execute(
             sa.select(models.branch_product_digital_visibility.c.product_id).where(
-                models.branch_product_digital_visibility.c.branch_id == authorized_branch,
+                models.branch_product_digital_visibility.c.branch_id == branch_id,
                 models.branch_product_digital_visibility.c.product_id == product_id,
             )
         ).first()
@@ -26403,7 +26566,7 @@ def set_branch_product_digital_visibility(
             session.execute(
                 models.branch_product_digital_visibility.update()
                 .where(
-                    models.branch_product_digital_visibility.c.branch_id == authorized_branch,
+                    models.branch_product_digital_visibility.c.branch_id == branch_id,
                     models.branch_product_digital_visibility.c.product_id == product_id,
                 )
                 .values(is_visible=False, updated_at=now)
@@ -26411,7 +26574,7 @@ def set_branch_product_digital_visibility(
         else:
             session.execute(
                 models.branch_product_digital_visibility.insert().values(
-                    branch_id=authorized_branch,
+                    branch_id=branch_id,
                     product_id=product_id,
                     is_visible=False,
                     updated_at=now,
@@ -26424,21 +26587,95 @@ def set_branch_product_digital_visibility(
         entity_type="product",
         entity_id=product_id,
         payload={
-            "branch_id": authorized_branch,
+            "branch_id": branch_id,
             "product_name": product["name"],
             "previous": previous,
             "new": visible,
+            "request_scope": request_scope,
         },
-        branch_id=authorized_branch,
+        branch_id=branch_id,
         actor_user_id=_actor_user_id(actor_id),
     )
-    session.commit()
     return {
         "product_id": product_id,
-        "branch_id": authorized_branch,
+        "branch_id": branch_id,
         "show_in_digital_menu": visible,
         "has_digital_menu_override": not visible,
         "previous": previous,
+    }
+
+
+def set_branch_product_digital_visibility(
+    session: Session,
+    actor_id: str,
+    product_id: str,
+    visible: Any,
+    branch_id: str | None = None,
+) -> dict[str, Any]:
+    """Hide a product only from the public menu of one authorized branch."""
+    authorized_branch = _branch_administration_target(
+        session, actor_id, "catalog.branch.manage", branch_id
+    )
+    if type(visible) is not bool:
+        raise BusinessError(
+            "invalid_digital_menu_visibility",
+            "visible must be a boolean",
+        )
+    product = _load_product_for_branch_settings(session, product_id)
+    if not _product_applies_to_branch(product, authorized_branch):
+        raise NotFoundError("product_not_found", "Product not found")
+    _lock_branch_catalog_scopes(session, [authorized_branch])
+    try:
+        result = _apply_branch_product_digital_visibility(
+            session, actor_id, product, authorized_branch, visible, "single_branch"
+        )
+        session.commit()
+        return result
+    except Exception:
+        session.rollback()
+        raise
+
+
+def set_all_active_branch_product_digital_visibility(
+    session: Session,
+    actor_id: str,
+    product_id: str,
+    visible: Any,
+) -> dict[str, Any]:
+    branches = _all_active_branch_administration_targets(
+        session, actor_id, "catalog.branch.manage"
+    )
+    if type(visible) is not bool:
+        raise BusinessError(
+            "invalid_digital_menu_visibility",
+            "visible must be a boolean",
+        )
+    product = _load_product_for_branch_settings(session, product_id)
+    branch_ids = [
+        branch["id"]
+        for branch in branches
+        if _product_applies_to_branch(product, branch["id"])
+    ]
+    if not branch_ids:
+        raise NotFoundError("product_not_found", "Product not found")
+    _lock_branch_catalog_scopes(session, branch_ids)
+    try:
+        results = [
+            _apply_branch_product_digital_visibility(
+                session, actor_id, product, target, visible, "all_active"
+            )
+            for target in branch_ids
+        ]
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return {
+        "product_id": product_id,
+        "scope": "all_active",
+        "affected_branch_count": len(branch_ids),
+        "branch_ids": branch_ids,
+        "results": results,
     }
 
 

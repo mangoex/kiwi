@@ -92,4 +92,18 @@ Feature: Un Supervisor de sucursal administra su sucursal sin ser administrador 
     When el Supervisor vuelve a marcar Mostrar en menú digital
     Then se elimina la excepción y el producto reaparece en el catálogo público si continúa disponible
     And cambiar disponibilidad no borra la preferencia digital independiente
+
+  @BDD-SC-707
+  Scenario: Dueño configura un producto en una sucursal o en todas las sucursales actuales
+    Given un Dueño con alcance organizacional y varias sucursales activas autorizadas
+    When abre la disponibilidad de productos
+    Then puede seleccionar una sucursal específica o Todas las sucursales actuales
+    And la vista total distingue si disponibilidad y visibilidad están en todas, ninguna o una mezcla
+    When confirma ocultar el producto del menú digital para todas las sucursales actuales
+    Then el backend prevalida alcance y producto antes de escribir
+    And persiste todas las exclusiones en una sola transacción con auditoría por sucursal
+    But el producto continúa disponible en el POS donde su disponibilidad efectiva lo permita
+    And una sucursal creada después conserva visibilidad digital por defecto
+    When un Supervisor de sucursal intenta el mismo comando masivo
+    Then recibe 403 permission_denied y ninguna sucursal cambia
 ```

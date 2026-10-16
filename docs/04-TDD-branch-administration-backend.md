@@ -51,6 +51,10 @@ Casos:
   público de esa sucursal y rechaza una captura pública que reutilice un ID obsoleto;
 - volver a mostrar elimina la excepción y no modifica precio, receta, inventario ni historia;
 - un error al cargar el catálogo público no activa productos estáticos que el backend no autorizó.
+- el resumen corporativo agrega únicamente sucursales activas autorizadas y distingue `all`, `none`
+  y `mixed`, respetando productos con alcance local;
+- los comandos `all-active` requieren alcance organizacional, bloquean sucursales en orden estable,
+  escriben y auditan en una transacción, y dejan intactas las sucursales futuras.
 
 ## TDD-TC-408 La visibilidad digital permanece separada de la venta POS
 
@@ -62,3 +66,14 @@ And no aparece ni puede capturarse en el canal público de A
 And continúa visible en el canal público de B
 When la prueba vuelve a marcarlo
 Then la fila de excepción se elimina y el default visible vuelve a aplicar.
+
+## TDD-TC-409 El alcance total es corporativo, explícito y atómico
+
+Given un producto corporativo y dos sucursales activas con estados distintos
+When el Dueño consulta el resumen de Todas las sucursales actuales
+Then recibe conteos y estado mixto sin cambiar la sucursal activa de la sesión
+When confirma disponibilidad o visibilidad para todas
+Then ambas sucursales cambian dentro de un solo commit y cada efecto queda auditado
+And repetir la lectura devuelve estado uniforme
+When un Supervisor intenta la operación total o una escritura inyectada falla
+Then recibe rechazo o rollback completo sin efectos parciales.

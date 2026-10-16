@@ -143,6 +143,20 @@ la captura pública vuelve a validarlos para impedir pedidos desde cachés obsol
 usando la proyección vendible canónica. Si el catálogo público no puede cargarse, el cliente móvil no
 inventa un catálogo de respaldo que pudiera reexponer productos ocultos.
 
+Una cuenta con alcance organizacional puede consultar un resumen de los productos en todas las
+sucursales activas autorizadas. El resumen informa estados `all`, `none` o `mixed` y cantidades
+aplicables, disponibles y visibles; los productos de alcance local sólo consideran su sucursal de
+origen. Los comandos `all-active` de disponibilidad y visibilidad exigen alcance organizacional,
+prevalidan todas las sucursales antes de escribir, bloquean sus filas en orden estable y confirman un
+único commit. Cada efecto conserva auditoría por sucursal con `request_scope=all_active`. Una falla
+revierte el comando completo. La operación sólo materializa excepciones en las sucursales activas del
+momento; una sucursal creada posteriormente hereda disponibilidad central y visibilidad digital.
+La operación debe permitir responder: (1) qué producto y cuántas sucursales aplicables cambió el
+comando, mediante `affected_branch_count`, `branch_ids` y las auditorías acotadas; (2) si una falla
+de almacenamiento dejó efectos parciales, mediante el error estable, la ausencia de auditorías del
+comando revertido y la siguiente lectura agregada; y (3) cuál fue el estado final ante comandos
+concurrentes, mediante el bloqueo ordenado y el resumen posterior, sin registrar nombres sensibles.
+
 El contexto operativo de sucursal se persiste con una selección canónica compartida por Admin y POS.
 Una cuenta sin `pos.branch.select` no puede sustituir su asignación localmente. Una cuenta con esa
 capacidad puede elegir entre sucursales autorizadas; todos los módulos que consultan compras,

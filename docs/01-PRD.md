@@ -143,7 +143,10 @@ funcional separada.
   POS, pero oculta y rechaza el producto en el canal público. Un producto no disponible permanece
   fuera de POS y menú digital sin eliminar identidad, precio, receta, inventario ni historia. La
   disponibilidad tiene precedencia sobre la visibilidad digital y ambas configuraciones sobreviven
-  de manera independiente.
+  de manera independiente. Una cuenta con alcance corporativo puede seleccionar cualquiera de sus
+  sucursales autorizadas o aplicar disponibilidad y visibilidad a todas las sucursales activas
+  actuales mediante una operación atómica y confirmada. La acción masiva no establece una política
+  para sucursales futuras: éstas conservan disponibilidad heredada y visibilidad digital por defecto.
 - `PRD-FR-018`: El POS debe distinguir entre administración corporativa y administración operativa
   por sucursal, con acceso controlado por permisos granulares en lugar de un único permiso o
   comparación de nombres de rol.

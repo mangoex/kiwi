@@ -8723,6 +8723,255 @@ def test_branch_admin_staff_availability_and_audit_are_branch_scoped() -> None:
         assert audit_rows[0]["payload"]["new"] is False
 
 
+def test_owner_summarizes_and_updates_all_active_branch_product_settings() -> None:
+    client = _client_with_seeded_database()
+    second_branch = client.post(
+        "/api/v1/branches",
+        headers=_admin_headers(),
+        json={"name": "Sucursal Sur", "code": "SUR"},
+    ).json()
+    headers = _admin_headers()
+    catalog = client.get(
+        f"/api/v1/branch-administration/catalog/products?branch_id={BRANCH_ID}",
+        headers=headers,
+    ).json()
+    product_id = catalog[0]["id"]
+    local_product_id = "018f6f73-2d0a-74f0-8f1c-000000009870"
+    with _test_session_factory(client)() as session:
+        template = dict(
+            session.execute(
+                products.select().where(products.c.id == product_id)
+            ).mappings().one()
+        )
+        session.execute(products.insert().values(
+            **{
+                **template,
+                "id": local_product_id,
+                "name": "PRODUCTO LOCAL PILOTO",
+                "sku": "LOCAL-9870",
+                "catalog_scope": "branch",
+                "source_branch_id": BRANCH_ID,
+            }
+        ))
+        session.commit()
+
+    assert client.put(
+        f"/api/v1/branch-administration/catalog/products/{product_id}"
+        f"/availability?branch_id={BRANCH_ID}",
+        headers=headers,
+        json={"action": "unavailable"},
+    ).status_code == 200
+    assert client.put(
+        f"/api/v1/branch-administration/catalog/products/{product_id}"
+        f"/digital-menu-visibility?branch_id={BRANCH_ID}",
+        headers=headers,
+        json={"visible": False},
+    ).status_code == 200
+
+    summary = client.get(
+        "/api/v1/branch-administration/catalog/products/all-active-summary",
+        headers=headers,
+    )
+    assert summary.status_code == 200
+    summary_payload = summary.json()
+    assert summary_payload["scope"] == "all_active"
+    assert {branch["id"] for branch in summary_payload["branches"]} == {
+        BRANCH_ID,
+        second_branch["id"],
+    }
+    product = next(row for row in summary_payload["items"] if row["id"] == product_id)
+    assert product["applicable_branch_count"] == 2
+    assert product["available_branch_count"] == 1
+    assert product["availability_summary"] == "mixed"
+    assert product["digital_menu_visible_branch_count"] == 1
+    assert product["digital_menu_summary"] == "mixed"
+    local_product = next(
+        row for row in summary_payload["items"] if row["id"] == local_product_id
+    )
+    assert local_product["applicable_branch_count"] == 1
+    local_hidden = client.put(
+        f"/api/v1/branch-administration/catalog/products/{local_product_id}"
+        "/digital-menu-visibility/all-active",
+        headers=headers,
+        json={"visible": False},
+    )
+    assert local_hidden.status_code == 200
+    assert local_hidden.json()["branch_ids"] == [BRANCH_ID]
+
+    hidden = client.put(
+        f"/api/v1/branch-administration/catalog/products/{product_id}"
+        "/digital-menu-visibility/all-active",
+        headers=headers,
+        json={"visible": False},
+    )
+    assert hidden.status_code == 200
+    assert hidden.json()["affected_branch_count"] == 2
+    unavailable = client.put(
+        f"/api/v1/branch-administration/catalog/products/{product_id}"
+        "/availability/all-active",
+        headers=headers,
+        json={"action": "unavailable"},
+    )
+    assert unavailable.status_code == 200
+    assert unavailable.json()["affected_branch_count"] == 2
+
+    uniform = client.get(
+        "/api/v1/branch-administration/catalog/products/all-active-summary",
+        headers=headers,
+    ).json()
+    updated = next(row for row in uniform["items"] if row["id"] == product_id)
+    assert updated["availability_summary"] == "none"
+    assert updated["digital_menu_summary"] == "none"
+
+    shown = client.put(
+        f"/api/v1/branch-administration/catalog/products/{product_id}"
+        "/digital-menu-visibility/all-active",
+        headers=headers,
+        json={"visible": True},
+    )
+    assert shown.status_code == 200
+    inherited = client.put(
+        f"/api/v1/branch-administration/catalog/products/{product_id}"
+        "/availability/all-active",
+        headers=headers,
+        json={"action": "inherit"},
+    )
+    assert inherited.status_code == 200
+    restored = client.get(
+        "/api/v1/branch-administration/catalog/products/all-active-summary",
+        headers=headers,
+    ).json()
+    restored_product = next(row for row in restored["items"] if row["id"] == product_id)
+    assert restored_product["availability_summary"] == "all"
+    assert restored_product["digital_menu_summary"] == "all"
+
+    future_branch = client.post(
+        "/api/v1/branches",
+        headers=headers,
+        json={"name": "Sucursal Futura", "code": "FUTURA"},
+    ).json()
+    future_catalog = client.get(
+        "/api/v1/branch-administration/catalog/products"
+        f"?branch_id={future_branch['id']}",
+        headers=headers,
+    ).json()
+    future_product = next(row for row in future_catalog if row["id"] == product_id)
+    assert future_product["effective_availability"] is True
+    assert future_product["show_in_digital_menu"] is True
+
+    with _test_session_factory(client)() as session:
+        bulk_audits = session.execute(
+            audit_events.select().where(
+                audit_events.c.entity_id == product_id,
+                audit_events.c.action.in_([
+                    "branch_product_availability.updated",
+                    "branch_product_digital_visibility.updated",
+                ]),
+            )
+        ).mappings().all()
+        scoped = [
+            row for row in bulk_audits
+            if row["payload"].get("request_scope") == "all_active"
+        ]
+        assert len(scoped) == 8
+        assert {row["branch_id"] for row in scoped} == {BRANCH_ID, second_branch["id"]}
+
+
+def test_all_active_product_commands_require_corporate_scope() -> None:
+    client = _client_with_seeded_database()
+    fixture = _branch_admin_fixture(client)
+    supervisor_headers = _login_headers(
+        client, "supervisor.norte@kiwi.local", "Temporal123+"
+    )
+    product_id = client.get(
+        "/api/v1/branch-administration/catalog/products",
+        headers=supervisor_headers,
+    ).json()[0]["id"]
+
+    summary = client.get(
+        "/api/v1/branch-administration/catalog/products/all-active-summary",
+        headers=supervisor_headers,
+    )
+    assert summary.status_code == 403
+    command = client.put(
+        f"/api/v1/branch-administration/catalog/products/{product_id}"
+        "/digital-menu-visibility/all-active",
+        headers=supervisor_headers,
+        json={"visible": False},
+    )
+    assert command.status_code == 403
+    assert command.json()["detail"]["code"] == "permission_denied"
+
+    with _test_session_factory(client)() as session:
+        exclusions = session.execute(
+            models.branch_product_digital_visibility.select().where(
+                models.branch_product_digital_visibility.c.product_id == product_id,
+                models.branch_product_digital_visibility.c.branch_id.in_([
+                    BRANCH_ID,
+                    fixture["branch_id"],
+                ]),
+            )
+        ).all()
+        assert exclusions == []
+
+
+def test_all_active_visibility_rolls_back_if_one_branch_write_fails() -> None:
+    client = _client_with_seeded_database()
+    second_branch = client.post(
+        "/api/v1/branches",
+        headers=_admin_headers(),
+        json={"name": "Sucursal Rollback", "code": "ROLLBACK"},
+    ).json()
+    headers = _admin_headers()
+    product_id = client.get(
+        f"/api/v1/branch-administration/catalog/products?branch_id={BRANCH_ID}",
+        headers=headers,
+    ).json()[0]["id"]
+    session_factory = _test_session_factory(client)
+    engine = session_factory.kw["bind"]
+    writes = 0
+
+    def fail_second_visibility_insert(
+        _conn: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        nonlocal writes
+        if statement.lstrip().upper().startswith(
+            "INSERT INTO BRANCH_PRODUCT_DIGITAL_VISIBILITY"
+        ):
+            writes += 1
+            if writes == 2:
+                raise sa.exc.OperationalError(statement, {}, RuntimeError("injected"))
+
+    sa.event.listen(engine, "before_cursor_execute", fail_second_visibility_insert)
+    try:
+        response = client.put(
+            f"/api/v1/branch-administration/catalog/products/{product_id}"
+            "/digital-menu-visibility/all-active",
+            headers=headers,
+            json={"visible": False},
+        )
+    finally:
+        sa.event.remove(engine, "before_cursor_execute", fail_second_visibility_insert)
+
+    assert response.status_code == 503
+    with session_factory() as session:
+        exclusions = session.execute(
+            models.branch_product_digital_visibility.select().where(
+                models.branch_product_digital_visibility.c.product_id == product_id,
+                models.branch_product_digital_visibility.c.branch_id.in_([
+                    BRANCH_ID,
+                    second_branch["id"],
+                ]),
+            )
+        ).all()
+        assert exclusions == []
+
+
 def test_branch_inventory_reads_do_not_leak_another_branch() -> None:
     client = _client_with_seeded_database()
     fixture = _branch_admin_fixture(client)
