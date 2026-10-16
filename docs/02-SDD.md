@@ -948,6 +948,9 @@ Stack y pasos obligatorios del gate:
 - build de KDS (`@restaurantos/kds-web`).
 - la suite autoritativa completa se ejecuta una sola vez en `pull_request`; `main` sólo puede integrarse por PR protegido con checks requeridos.
 - despliegue y verificación productiva son gates separados del gate de integración continua.
+- los dos contenedores API abren Uvicorn directamente; el proceso web no ejecuta Alembic ni DDL
+  desde lifespan. Las migraciones son un paso operativo separado, autorizado y verificado antes
+  de promover API/worker; si fallan, se detiene la promoción conforme al runbook.
 - ningún build depende de secretos.
 - las aplicaciones compilan contra los paquetes compartidos del monorepo mediante el protocolo `workspace:`.
 

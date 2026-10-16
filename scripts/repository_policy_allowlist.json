@@ -37,7 +37,7 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "7b153c2161ab742312b46d99bcd1dce9d98f3f03e9f2d5d28604e5f1405b1045",
+      "sha256": "4c4ac24a70c2e88a82dfacea168bc71580433a0d8945190018c5983eac1b9075",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {

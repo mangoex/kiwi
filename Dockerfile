@@ -44,4 +44,4 @@ ENV RESTAURANTOS_PUBLIC_ORDER_INTENTS_ENABLED="true"
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn restaurant_os.main:app --host 0.0.0.0 --port 8000"]
+CMD ["uvicorn", "restaurant_os.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -8599,6 +8599,7 @@ def test_branch_admin_session_and_scope_guards() -> None:
         "home_branch_id": fixture["branch_id"],
         "allowed_branch_ids": [fixture["branch_id"]],
         "can_select_branch": False,
+        "branch_selection_block_reason": "single_branch",
         "authorization_version": 1,
     }
     assert profile["active_branch"]["id"] == fixture["branch_id"]
