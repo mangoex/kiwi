@@ -17,7 +17,8 @@ def test_orders_detail_is_an_inline_right_panel_not_a_modal() -> None:
     assert 'aria-label="Detalle del pedido"' in source
     assert "orders-history-detail" in source
     assert "Selecciona un pedido para revisar su detalle" in source
-    assert source.count("<Modal ") == 1
+    assert source.count("<Modal ") == 2
+    assert 'title="Recibir efectivo del repartidor"' in source
     assert '<Modal isOpen={Boolean(correctionRequest)}' in source
     assert 'title="Corrección compensatoria"' in source
 

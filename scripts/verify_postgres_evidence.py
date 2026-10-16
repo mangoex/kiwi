@@ -20,6 +20,7 @@ MODULES = (
     "offline_authorization",
     "operational_intents",
     "supplier_xml",
+    "driver_cash_settlement",
 )
 PATHS = tuple(f"apps/api/tests/test_{name}_postgres.py" for name in MODULES)
 

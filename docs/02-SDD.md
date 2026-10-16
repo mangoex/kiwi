@@ -6636,3 +6636,83 @@ canónico siguen siendo la autoridad. Una sesión corporativa con varias sucursa
 incluso bloqueado; se explica el rollout, conexión o gateway. No se habilitan flags ni se omiten
 bloqueadores. El hub `/inventory` y el catálogo `/inventory/items` no presentan la sucursal POS como
 alcance corporativo; las pantallas operativas de stock conservan su contexto.
+
+## 66. DRIVER-CASH-001 — liquidación exacta de efectivo por repartidor
+
+Este diseño implementa `PRD-FR-059` y la primera versión exacta de `PRD-FR-129`.
+
+### 66.1 Alcance y autoridad
+
+`GET /api/v1/orders/accounts` acepta `driver_id` únicamente junto con
+`service_type=delivery`. Autoriza `orders.read` sobre la sucursal, une la asignación inmutable y
+proyecta `driver_id`, `driver_name`, `payment_method_intent` y `settlement_eligible`. El cursor liga
+también al repartidor. Los intents web sin pedido aceptado nunca se atribuyen a un repartidor.
+
+`GET /api/v1/driver-cash-settlements/drivers?branch_id=...` usa el mismo alcance y devuelve un DTO
+acotado con ID, nombre, estado, cantidad e importe de cobros elegibles. Incluye repartidores activos
+y, para no perder deuda histórica, inactivos o trasladados con efectivo todavía pendiente en la
+sucursal de la asignación. Un traslado no mueve la deuda a la sucursal vigente. No expone teléfono,
+domicilio del cliente, licencia ni otra PII.
+
+`POST /api/v1/driver-cash-settlements` exige actor autenticado, `payments.confirm`, contexto vigente
+de la sucursal cuando workspace V2 está activo e `Idempotency-Key`. El cuerpo contiene sólo
+`branch_id`, `driver_id`, `register_id` y entre 1 y 100 `order_ids` UUID únicos. No acepta importe,
+método, turno, estado de pago ni nombre. La caja seleccionada no es autoridad: Python deriva el único
+turno `OPEN` bajo el guard compartido con pagos y cierre.
+
+### 66.2 Modelo append-only y cálculo
+
+La migración `0096_driver_cash_settlements` añade:
+
+- `driver_cash_settlements`: organización, sucursal, repartidor y nombre snapshot, turno de cobro,
+  caja snapshot, actor, cantidad, total exacto, moneda y fecha;
+- `driver_cash_settlement_items`: un renglón único por pedido y pago, con folio e importe snapshot;
+- `driver_cash_settlement_commands`: identidad org/actor/key, huella canónica y respuesta persistida.
+
+El downgrade toma un lock PostgreSQL `ACCESS EXCLUSIVE` sobre las tres tablas antes de comprobar
+que estén vacías; así ninguna inserción concurrente puede aparecer entre la guarda y el `DROP`.
+
+La liquidación bloquea guard de caja y pedidos en orden estable; revalida que todos sean `delivery`,
+pertenezcan a la sucursal y asignación indicada, tengan intención `cash`, importe positivo, no estén
+`CANCELLED|CLOSED` y carezcan de pago `CONFIRMED`. El total se suma en enteros desde las órdenes. En
+una sola transacción crea un pago cash y snapshot de venta por pedido, eventos, cabecera, renglones,
+comando y auditoría agregada. No cambia cocina/entrega ni crea trabajos de impresión: el efectivo
+recibido al regreso del repartidor no debe reenviar comandas ni tickets. Los pagos ya forman parte
+del efectivo esperado; crear además un `cash_movement` duplicaría el ingreso y está prohibido.
+
+No se admite diferencia en esta versión. Si cualquier fila cambió, el turno dejó de estar abierto o
+falla una escritura, se revierte todo. La restricción única de pago confirmado y la asociación única
+de renglón impiden doble contabilización. La misma clave y huella devuelve el snapshot confirmado;
+la misma clave con otro actor, sucursal, caja, repartidor u órdenes falla cerrado. Una corrección
+posterior conserva los pagos y usa el flujo compensatorio existente; nunca borra la liquidación.
+
+El POS muestra Repartidor sólo con `A domicilio`. Tras elegirlo, las casillas sólo habilitan filas
+elegibles; la cabecera selecciona todos los elegibles cargados y el resumen muestra cantidad y suma.
+La confirmación conserva la misma clave mientras el conjunto no cambie. El flujo agrupado central se
+oculta bajo gateway local hasta que exista un comando offline equivalente; no hay fallback cloud.
+
+### 66.3 Operación y revisión R3
+
+Preguntas operativas y señales asociadas:
+
+1. ¿Cuántas operaciones que alcanzan el dominio terminan, son replay o son rechazadas? Log
+   estructurado `driver_cash_settlement_total` envuelve autorización, validación de dominio,
+   idempotencia y persistencia, con `result`, `reason_code`, sucursal, cantidad y total, sin PII.
+   Los cuerpos que no cumplen el esquema cerrado se rechazan antes con una respuesta HTTP `422`,
+   sin contarse como intención monetaria válida.
+2. ¿Qué sucursal/caja/turno recibió el lote? Auditoría `driver.cash_settlement.confirmed` y cabecera
+   persistida con IDs internos y snapshots operativos.
+3. ¿Hubo conflicto por pedido ya pagado, turno cerrado o alcance incorrecto? Código estable y cero
+   renglones/pagos del comando fallido, verificado mediante prueba de rollback.
+4. ¿Un reintento duplicó efectivo? Comando por clave/huella, índices únicos de pago/renglón y prueba
+   de replay/concurrencia; no se etiqueta por repartidor en métricas.
+
+Afirmación: una liquidación es todo-o-nada. Evidencia: una transacción, locks estables y prueba con
+fallo inyectado. Intento de refutación: fallo después del primer pago y pago competidor. Resultado
+esperado: rollback completo o un único ganador. Riesgo residual: la concurrencia real PostgreSQL se
+mantiene como gate separado cuando no exista URL de prueba.
+
+Afirmación: no se duplica el efectivo esperado. Evidencia: cada pedido conserva un único pago
+`CONFIRMED`; la liquidación no crea movimientos manuales. Intento de refutación: replay equivalente y
+misma clave con cuerpo diferente. Resultado esperado: misma respuesta o conflicto sin nuevos pagos.
+Riesgo residual: correcciones/diferencias distintas de cero quedan fuera de esta primera versión.

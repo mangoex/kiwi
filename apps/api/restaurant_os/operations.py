@@ -15,7 +15,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import wraps
-from typing import Any, Callable, NoReturn, TypedDict, cast
+from typing import Any, Callable, Literal, NoReturn, TypedDict, cast
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -4627,6 +4627,19 @@ def list_order_accounts(
     service = raw.get("service_type")
     if service and service not in {"dine-in", "takeout", "delivery"}:
         raise BusinessError("order_accounts_service_invalid", "Service type is invalid")
+    driver_id = str(raw.get("driver_id") or "").strip() or None
+    if driver_id:
+        try:
+            UUID(driver_id)
+        except ValueError as exc:
+            raise BusinessError(
+                "order_accounts_driver_invalid", "Driver reference is invalid"
+            ) from exc
+        if service != "delivery":
+            raise BusinessError(
+                "order_accounts_driver_requires_delivery",
+                "Driver filter requires delivery service",
+            )
 
     def parse(name: str) -> datetime | None:
         value = raw.get(name)
@@ -4665,6 +4678,7 @@ def list_order_accounts(
         "cash_shift_id": raw.get("cash_shift_id"),
         "register_code": raw.get("register_code"),
         "service_type": service,
+        "driver_id": driver_id,
         "q": q.casefold() or None,
     }
     cursor_created: datetime | None = None
@@ -4708,6 +4722,11 @@ def list_order_accounts(
         query = query.where(models.cash_shifts.c.register_code == raw["register_code"])
     if service:
         query = query.where(models.orders.c.order_type == service)
+    if driver_id:
+        query = query.join(
+            models.delivery_assignments,
+            models.delivery_assignments.c.order_id == models.orders.c.id,
+        ).where(models.delivery_assignments.c.driver_id == driver_id)
     if q:
         query = query.where(
             sa.or_(
@@ -4724,7 +4743,7 @@ def list_order_accounts(
         intents.c.accepted_order_id.is_(None),
     )
     # Web requests have no operational shift/register until accepted.
-    if not branch_id or raw.get("cash_shift_id") or raw.get("register_code"):
+    if not branch_id or raw.get("cash_shift_id") or raw.get("register_code") or driver_id:
         intent_query = intent_query.where(sa.false())
     if start is not None and end is not None:
         intent_query = intent_query.where(intents.c.created_at >= start, intents.c.created_at < end)
@@ -4785,6 +4804,10 @@ def list_order_accounts(
                     if intent["created_at"].tzinfo is None else intent["created_at"],
                     "customer_label": f"🌐 {cust_name or 'Cliente Web'}",
                     "payment_status": "UNPAID",
+                    "payment_method_intent": None,
+                    "driver_id": None,
+                    "driver_name": None,
+                    "settlement_eligible": False,
                     "production_summary": {
                         "task_count": 0,
                         "started": False,
@@ -4798,6 +4821,7 @@ def list_order_accounts(
 
     for order in rows:
         detail = get_order_detail(session, order["id"], actor_id)
+        assignment = detail.get("delivery_assignment") or {}
         items.append(
             {
                 "id": order["id"],
@@ -4813,6 +4837,17 @@ def list_order_accounts(
                 "customer_label": (order.get("customer_snapshot") or {}).get("name")
                 or order.get("owner_name"),
                 "payment_status": detail["payment_status"],
+                "payment_method_intent": order.get("payment_method_intent"),
+                "driver_id": assignment.get("driver_id"),
+                "driver_name": assignment.get("driver_name_snapshot"),
+                "settlement_eligible": bool(
+                    order["order_type"] == "delivery"
+                    and assignment.get("driver_id")
+                    and order.get("payment_method_intent") == "cash"
+                    and detail["payment_status"] == "PENDING"
+                    and order["status"] not in {"CANCELLED", "CLOSED"}
+                    and int(order["total_cents"]) > 0
+                ),
                 "production_summary": {
                     "task_count": len(detail["production_tasks"]),
                     "started": any(
@@ -6642,6 +6677,8 @@ def pay_order(
     *,
     commit: bool = True,
     received_cash: object = _CASH_RECEIVED_UNSET,
+    create_print_jobs: bool = True,
+    source_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     _begin_cash_shift_serialization(session)
     method_normalized = method.lower()
@@ -6674,17 +6711,23 @@ def pay_order(
         raise BusinessError(
             "idempotency_key_invalid", "Idempotency-Key must contain 12 to 160 characters"
         )
+    payment_source = dict(source_context or {})
+    request_hash_payload: dict[str, Any] = {
+        "organization_id": ORGANIZATION_ID,
+        "actor_user_id": actor_id,
+        "order_id": order_id,
+        "amount_cents": amount_cents,
+        "method": method_normalized,
+        "register_id": register_code,
+        **({'received_cents': tender['received_cents']} if tender is not None else {}),
+    }
+    if not create_print_jobs:
+        request_hash_payload["create_print_jobs"] = False
+    if payment_source:
+        request_hash_payload["source_context"] = _sanitize_for_json(payment_source)
     request_hash = hashlib.sha256(
         json.dumps(
-            {
-                "organization_id": ORGANIZATION_ID,
-                "actor_user_id": actor_id,
-                "order_id": order_id,
-                "amount_cents": amount_cents,
-                "method": method_normalized,
-                "register_id": register_code,
-                **({'received_cents': tender['received_cents']} if tender is not None else {}),
-            },
+            request_hash_payload,
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
@@ -6850,18 +6893,24 @@ def pay_order(
                 "payment_id": payment["id"],
                 "method": method_normalized,
                 "amount_cents": amount_cents,
+                **payment_source,
                 **({'cash_tender': tender} if tender is not None else {}),
             },
             created_at=now,
         )
     )
-    print_jobs = _create_print_jobs(session, dict(order), payment, now, cash_tender=tender)
+    print_jobs = (
+        _create_print_jobs(session, dict(order), payment, now, cash_tender=tender)
+        if create_print_jobs
+        else []
+    )
     _audit(
         session,
         action="payment.confirmed",
         entity_type="payment",
         entity_id=payment["id"],
         payload={"order_id": order_id, "method": method_normalized, "amount_cents": amount_cents,
+                 **payment_source,
                  **({'cash_tender': tender} if tender is not None else {})},
         branch_id=order["branch_id"],
         actor_user_id=actor_id,
@@ -6926,6 +6975,357 @@ def pay_order(
                 "Idempotency-Key was used for a different payment intention",
             ) from exc
     return stable_response
+
+
+def settle_driver_cash_orders(
+    session: Session,
+    *,
+    branch_id: str,
+    driver_id: str,
+    order_ids: Sequence[str],
+    register_id: str,
+    idempotency_key: str,
+    actor_user_id: str | None = None,
+    _failure_hook: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    order_count = (
+        len(order_ids)
+        if isinstance(order_ids, Sequence) and not isinstance(order_ids, (str, bytes))
+        else 0
+    )
+    try:
+        response, result = _settle_driver_cash_orders(
+            session,
+            branch_id=branch_id,
+            driver_id=driver_id,
+            order_ids=order_ids,
+            register_id=register_id,
+            idempotency_key=idempotency_key,
+            actor_user_id=actor_user_id,
+            _failure_hook=_failure_hook,
+        )
+    except Exception as exc:
+        logger.info(
+            "driver_cash_settlement_total",
+            extra={
+                "metric": "driver_cash_settlement_total",
+                "result": "rejected",
+                "reason_code": (
+                    exc.code if isinstance(exc, BusinessError) else "persistence_failure"
+                ),
+                "branch_id": str(branch_id),
+                "order_count": order_count,
+            },
+        )
+        raise
+    logger.info(
+        "driver_cash_settlement_total",
+        extra={
+            "metric": "driver_cash_settlement_total",
+            "result": result,
+            "branch_id": response["branch_id"],
+            "order_count": response["order_count"],
+            "total_cents": response["total_cents"],
+        },
+    )
+    return response
+
+
+def _settle_driver_cash_orders(
+    session: Session,
+    *,
+    branch_id: str,
+    driver_id: str,
+    order_ids: Sequence[str],
+    register_id: str,
+    idempotency_key: str,
+    actor_user_id: str | None = None,
+    _failure_hook: Callable[[str], None] | None = None,
+) -> tuple[dict[str, Any], Literal["success", "replay"]]:
+    _begin_cash_shift_serialization(session)
+    actor_id = _actor_user_id(actor_user_id)
+    authorized_branch_id = authorize_branch_scope(
+        session, actor_id, "payments.confirm", branch_id
+    )
+    if not authorized_branch_id:
+        raise BusinessError(
+            "driver_settlement_branch_required", "A branch is required for settlement"
+        )
+    _require_order_write_fence(session, authorized_branch_id)
+    register_code = str(register_id or "").strip()
+    if not register_code:
+        raise BusinessError("register_id_required", "A collection register is required")
+    key = str(idempotency_key or "").strip()
+    if not 12 <= len(key) <= 160:
+        raise BusinessError(
+            "idempotency_key_invalid", "Idempotency-Key must contain 12 to 160 characters"
+        )
+    normalized_driver_id = str(driver_id or "").strip()
+    try:
+        UUID(normalized_driver_id)
+    except ValueError as exc:
+        raise BusinessError(
+            "driver_settlement_driver_invalid", "Driver reference is invalid"
+        ) from exc
+    if not isinstance(order_ids, Sequence) or isinstance(order_ids, (str, bytes)):
+        raise BusinessError(
+            "driver_settlement_orders_invalid", "Order references must be a list"
+        )
+    normalized_order_ids = sorted(str(order_id).strip() for order_id in order_ids)
+    if not 1 <= len(normalized_order_ids) <= 100 or len(set(normalized_order_ids)) != len(
+        normalized_order_ids
+    ):
+        raise BusinessError(
+            "driver_settlement_orders_invalid",
+            "Settlement requires 1 to 100 unique orders",
+        )
+    try:
+        for order_id in normalized_order_ids:
+            UUID(order_id)
+    except ValueError as exc:
+        raise BusinessError(
+            "driver_settlement_orders_invalid", "Order reference is invalid"
+        ) from exc
+
+    request_payload = {
+        "organization_id": ORGANIZATION_ID,
+        "actor_user_id": actor_id,
+        "branch_id": authorized_branch_id,
+        "driver_id": normalized_driver_id,
+        "register_id": register_code,
+        "order_ids": normalized_order_ids,
+    }
+    request_hash = hashlib.sha256(
+        json.dumps(request_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    _acquire_idempotency_lock(session, "driver-cash-settlement", key)
+    existing_command = (
+        session.execute(
+            sa.select(models.driver_cash_settlement_commands).where(
+                models.driver_cash_settlement_commands.c.organization_id == ORGANIZATION_ID,
+                models.driver_cash_settlement_commands.c.idempotency_key == key,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if existing_command:
+        if (
+            existing_command["request_hash"] != request_hash
+            or existing_command["actor_user_id"] != actor_id
+            or existing_command["branch_id"] != authorized_branch_id
+        ):
+            raise BusinessError(
+                "driver_settlement_idempotency_conflict",
+                "Idempotency-Key was used for a different driver settlement",
+            )
+        return dict(existing_command["response_snapshot"]), "replay"
+
+    try:
+        collection_shift = _guard_open_cash_shift(
+            session, register_code, authorized_branch_id
+        )
+        driver = (
+            session.execute(
+                sa.select(models.drivers)
+                .where(
+                    models.drivers.c.id == normalized_driver_id,
+                    models.drivers.c.organization_id == ORGANIZATION_ID,
+                )
+                .with_for_update()
+            )
+            .mappings()
+            .first()
+        )
+        if not driver:
+            raise BusinessError(
+                "driver_settlement_driver_invalid", "Driver was not found"
+            )
+        locked_orders = [
+            dict(row)
+            for row in session.execute(
+                sa.select(models.orders)
+                .where(
+                    models.orders.c.organization_id == ORGANIZATION_ID,
+                    models.orders.c.branch_id == authorized_branch_id,
+                    models.orders.c.id.in_(normalized_order_ids),
+                )
+                .order_by(models.orders.c.id)
+                .with_for_update()
+            ).mappings()
+        ]
+        assignments = {
+            row["order_id"]: dict(row)
+            for row in session.execute(
+                sa.select(models.delivery_assignments).where(
+                    models.delivery_assignments.c.organization_id == ORGANIZATION_ID,
+                    models.delivery_assignments.c.branch_id == authorized_branch_id,
+                    models.delivery_assignments.c.order_id.in_(normalized_order_ids),
+                )
+            ).mappings()
+        }
+        confirmed_order_ids: set[str] = set(
+            session.scalars(
+                sa.select(models.payments.c.order_id).where(
+                    models.payments.c.order_id.in_(normalized_order_ids),
+                    models.payments.c.status == "CONFIRMED",
+                )
+            )
+        )
+        if len(locked_orders) != len(normalized_order_ids):
+            raise BusinessError(
+                "driver_settlement_order_ineligible",
+                "One or more orders are not eligible for settlement",
+            )
+        for order in locked_orders:
+            assignment = assignments.get(order["id"])
+            if (
+                order["order_type"] != "delivery"
+                or order.get("payment_method_intent") != "cash"
+                or order["status"] in {"CANCELLED", "CLOSED"}
+                or order["id"] in confirmed_order_ids
+                or int(order["total_cents"]) <= 0
+                or not assignment
+                or assignment["driver_id"] != normalized_driver_id
+                or assignment["branch_id"] != authorized_branch_id
+            ):
+                raise BusinessError(
+                    "driver_settlement_order_ineligible",
+                    "One or more orders are not eligible for settlement",
+                )
+        currencies = {str(order["currency"]) for order in locked_orders}
+        if len(currencies) != 1:
+            raise BusinessError(
+                "driver_settlement_currency_mismatch",
+                "Orders in a settlement must use the same currency",
+            )
+        total_cents = sum(int(order["total_cents"]) for order in locked_orders)
+        settlement_id = _id()
+        now = _now()
+        item_rows: list[dict[str, Any]] = []
+        for index, order in enumerate(locked_orders):
+            child_key = "driver-settlement:" + hashlib.sha256(
+                f"{key}:{order['id']}".encode()
+            ).hexdigest()
+            payment = pay_order(
+                session,
+                order["id"],
+                int(order["total_cents"]),
+                "cash",
+                actor_id,
+                register_code,
+                idempotency_key=child_key,
+                commit=False,
+                create_print_jobs=False,
+                source_context={
+                    "source": "driver_cash_settlement",
+                    "settlement_id": settlement_id,
+                    "driver_id": normalized_driver_id,
+                },
+            )
+            item_rows.append(
+                {
+                    "id": _id(),
+                    "settlement_id": settlement_id,
+                    "order_id": order["id"],
+                    "payment_id": payment["id"],
+                    "folio_snapshot": order["folio"],
+                    "amount_cents": int(order["total_cents"]),
+                    "created_at": now,
+                }
+            )
+            if _failure_hook:
+                _failure_hook(f"after_payment_{index + 1}")
+        settlement = {
+            "id": settlement_id,
+            "organization_id": ORGANIZATION_ID,
+            "branch_id": authorized_branch_id,
+            "driver_id": normalized_driver_id,
+            "driver_name_snapshot": driver["name"],
+            "cash_shift_id": collection_shift["id"],
+            "register_code_snapshot": collection_shift["register_code"],
+            "actor_user_id": actor_id,
+            "status": "CONFIRMED",
+            "order_count": len(item_rows),
+            "total_cents": total_cents,
+            "currency": currencies.pop(),
+            "confirmed_at": now,
+            "created_at": now,
+        }
+        session.execute(models.driver_cash_settlements.insert().values(**settlement))
+        session.execute(models.driver_cash_settlement_items.insert(), item_rows)
+        response = cast(
+            dict[str, Any],
+            _sanitize_for_json(
+                {
+                    **settlement,
+                    "items": [
+                        {
+                            "order_id": item["order_id"],
+                            "payment_id": item["payment_id"],
+                            "folio": item["folio_snapshot"],
+                            "amount_cents": item["amount_cents"],
+                        }
+                        for item in item_rows
+                    ],
+                }
+            ),
+        )
+        session.execute(
+            models.driver_cash_settlement_commands.insert().values(
+                id=_id(),
+                organization_id=ORGANIZATION_ID,
+                branch_id=authorized_branch_id,
+                actor_user_id=actor_id,
+                driver_id=normalized_driver_id,
+                settlement_id=settlement_id,
+                idempotency_key=key,
+                request_hash=request_hash,
+                response_snapshot=response,
+                created_at=now,
+            )
+        )
+        _audit(
+            session,
+            action="driver.cash_settlement.confirmed",
+            entity_type="driver_cash_settlement",
+            entity_id=settlement_id,
+            payload={
+                "driver_id": normalized_driver_id,
+                "cash_shift_id": collection_shift["id"],
+                "register_code": collection_shift["register_code"],
+                "order_ids": normalized_order_ids,
+                "payment_ids": [item["payment_id"] for item in item_rows],
+                "order_count": len(item_rows),
+                "total_cents": total_cents,
+                "currency": settlement["currency"],
+            },
+            branch_id=authorized_branch_id,
+            actor_user_id=actor_id,
+        )
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        concurrent = (
+            session.execute(
+                sa.select(models.driver_cash_settlement_commands).where(
+                    models.driver_cash_settlement_commands.c.organization_id == ORGANIZATION_ID,
+                    models.driver_cash_settlement_commands.c.idempotency_key == key,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if concurrent and concurrent["request_hash"] == request_hash:
+            return dict(concurrent["response_snapshot"]), "replay"
+        raise BusinessError(
+            "driver_settlement_order_ineligible",
+            "One or more orders changed while the settlement was confirmed",
+        ) from exc
+    except Exception:
+        session.rollback()
+        raise
+    return response, "success"
 
 
 def list_payments(session: Session, branch_id: str | None = None) -> list[dict[str, Any]]:
@@ -12133,6 +12533,95 @@ def list_available_delivery_drivers(
         .order_by(models.drivers.c.name, models.drivers.c.id)
     ).mappings()
     return [dict(row) for row in rows]
+
+
+def list_driver_cash_settlement_candidates(
+    session: Session,
+    branch_id: str,
+    actor_user_id: str | None = None,
+) -> list[dict[str, Any]]:
+    actor_id = _actor_user_id(actor_user_id)
+    authorized_branch_id = authorize_branch_scope(
+        session,
+        actor_id,
+        "orders.read",
+        branch_id,
+    )
+    confirmed = models.payments.alias("confirmed_driver_cash_payment")
+    eligible = sa.and_(
+        models.orders.c.id.is_not(None),
+        models.orders.c.order_type == "delivery",
+        models.orders.c.payment_method_intent == "cash",
+        models.orders.c.status.not_in(("CANCELLED", "CLOSED")),
+        models.orders.c.total_cents > 0,
+        confirmed.c.id.is_(None),
+    )
+    eligible_count = sa.func.sum(sa.case((eligible, 1), else_=0))
+    eligible_total = sa.func.sum(
+        sa.case((eligible, models.orders.c.total_cents), else_=0)
+    )
+    rows = session.execute(
+        sa.select(
+            models.drivers.c.id,
+            models.drivers.c.name,
+            models.drivers.c.status,
+            eligible_count.label("eligible_order_count"),
+            eligible_total.label("eligible_total_cents"),
+        )
+        .select_from(models.drivers)
+        .outerjoin(
+            models.delivery_assignments,
+            sa.and_(
+                models.delivery_assignments.c.driver_id == models.drivers.c.id,
+                models.delivery_assignments.c.organization_id == ORGANIZATION_ID,
+                models.delivery_assignments.c.branch_id == authorized_branch_id,
+            ),
+        )
+        .outerjoin(
+            models.orders,
+            sa.and_(
+                models.orders.c.id == models.delivery_assignments.c.order_id,
+                models.orders.c.organization_id == ORGANIZATION_ID,
+                models.orders.c.branch_id == authorized_branch_id,
+            ),
+        )
+        .outerjoin(
+            confirmed,
+            sa.and_(
+                confirmed.c.order_id == models.orders.c.id,
+                confirmed.c.status == "CONFIRMED",
+            ),
+        )
+        .where(
+            models.drivers.c.organization_id == ORGANIZATION_ID,
+        )
+        .group_by(
+            models.drivers.c.id,
+            models.drivers.c.name,
+            models.drivers.c.status,
+            models.drivers.c.branch_id,
+        )
+        .having(
+            sa.or_(
+                sa.and_(
+                    models.drivers.c.status == "active",
+                    models.drivers.c.branch_id == authorized_branch_id,
+                ),
+                eligible_count > 0,
+            )
+        )
+        .order_by(models.drivers.c.name, models.drivers.c.id)
+    ).mappings()
+    return [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "status": row["status"],
+            "eligible_order_count": int(row["eligible_order_count"] or 0),
+            "eligible_total_cents": int(row["eligible_total_cents"] or 0),
+        }
+        for row in rows
+    ]
 
 
 def list_driver_deliveries(
@@ -26110,7 +26599,7 @@ def _all_active_branch_administration_targets(
 
 def _lock_branch_catalog_scopes(session: Session, branch_ids: list[str]) -> None:
     """Serialize single and bulk branch-catalog changes in a stable order."""
-    locked = set(
+    locked: set[str] = set(
         session.execute(
             sa.select(models.branches.c.id)
             .where(
@@ -26718,7 +27207,7 @@ def get_public_catalog(session: Session, branch_id: str | None = None) -> dict[s
     )
 
     categories, products = _project_pos_catalog(session, active_branch_id)
-    hidden_product_ids = set(
+    hidden_product_ids: set[str] = set(
         session.scalars(
             sa.select(models.branch_product_digital_visibility.c.product_id).where(
                 models.branch_product_digital_visibility.c.branch_id == active_branch_id,
@@ -26896,7 +27385,7 @@ def create_public_order_intent(
         for item in normalized["lines"]
         if isinstance(item, dict) and isinstance(item.get("product_id"), str)
     ]
-    hidden_public_product_ids = set(
+    hidden_public_product_ids: set[str] = set(
         session.scalars(
             sa.select(models.branch_product_digital_visibility.c.product_id).where(
                 models.branch_product_digital_visibility.c.branch_id == branch_id,

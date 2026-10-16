@@ -228,6 +228,7 @@ from restaurant_os.operations import (
     list_customers,
     list_customers_page,
     list_driver_deliveries,
+    list_driver_cash_settlement_candidates,
     list_drivers,
     list_effective_cash_concepts,
     list_ingredient_variations,
@@ -281,6 +282,7 @@ from restaurant_os.operations import (
     set_branch_variation_note,
     set_supplier_branch_terms,
     save_product_configuration,
+    settle_driver_cash_orders,
     submit_physical_count_session,
     update_branch,
     update_customer,
@@ -333,6 +335,10 @@ SessionDep = Annotated[Session, Depends(get_session)]
 ActorUserDep = Annotated[Optional[str], Header(alias="X-Actor-User-Id")]
 AuthorizationDep = Annotated[Optional[str], Header(alias="Authorization")]
 IdempotencyKeyDep = Annotated[Optional[str], Header(alias="Idempotency-Key")]
+RequiredIdempotencyKeyDep = Annotated[
+    str,
+    Header(alias="Idempotency-Key", min_length=12, max_length=160),
+]
 BranchContextDep = Annotated[Optional[str], Header(alias="X-Branch-Context")]
 DeviceTokenDep = Annotated[Optional[str], Header(alias="X-Device-Token")]
 
@@ -467,6 +473,44 @@ class BulkRecipePreviewRequest(BaseModel):
 class BulkRecipeApplyRequest(BulkRecipePreviewRequest):
     preview_fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
     expected_active_recipe_ids: dict[str, str | None]
+
+
+class DriverCashSettlementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    branch_id: UUID
+    driver_id: UUID
+    register_id: str = Field(min_length=1, max_length=32)
+    order_ids: list[UUID] = Field(min_length=1, max_length=100)
+
+
+class DriverCashSettlementItemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    order_id: UUID
+    payment_id: UUID
+    folio: str
+    amount_cents: int = Field(gt=0)
+
+
+class DriverCashSettlementResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    organization_id: UUID
+    branch_id: UUID
+    driver_id: UUID
+    driver_name_snapshot: str
+    cash_shift_id: UUID
+    register_code_snapshot: str
+    actor_user_id: UUID
+    status: Literal["CONFIRMED"]
+    order_count: int = Field(ge=1, le=100)
+    total_cents: int = Field(gt=0)
+    currency: str = Field(min_length=3, max_length=3)
+    confirmed_at: datetime
+    created_at: datetime
+    items: list[DriverCashSettlementItemResponse] = Field(min_length=1, max_length=100)
 
 
 class PrintFailureRequest(BaseModel):
@@ -932,6 +976,19 @@ def get_available_delivery_drivers(
 ) -> list[dict[str, Any]]:
     actor_id = _actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: list_available_delivery_drivers(session, branch_id, actor_id))
+
+
+@router.get("/driver-cash-settlements/drivers")
+def get_driver_cash_settlement_candidates(
+    branch_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> list[dict[str, Any]]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: list_driver_cash_settlement_candidates(session, branch_id, actor_id)
+    )
 
 
 @router.get("/drivers/{driver_id}/deliveries")
@@ -2760,6 +2817,7 @@ def get_order_accounts(
     cash_shift_id: str | None = None,
     register_code: str | None = None,
     service_type: str | None = None,
+    driver_id: str | None = None,
     q: str | None = None,
     limit: int = 50,
     cursor: str | None = None,
@@ -2777,6 +2835,7 @@ def get_order_accounts(
                 "cash_shift_id": cash_shift_id,
                 "register_code": register_code,
                 "service_type": service_type,
+                "driver_id": driver_id,
                 "q": q,
                 "limit": limit,
                 "cursor": cursor,
@@ -2905,6 +2964,44 @@ def quote_order(
             actor_id,
             str(payload.get("adjustment_authorization_id") or "").strip() or None,
             **({"received_cash": payload["received_cash"]} if "received_cash" in payload else {}),
+        )
+
+    return _business_response(operation)
+
+
+@router.post(
+    "/driver-cash-settlements",
+    response_model=DriverCashSettlementResponse,
+)
+def post_driver_cash_settlement(
+    payload: DriverCashSettlementRequest,
+    session: SessionDep,
+    idempotency_key: RequiredIdempotencyKeyDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
+) -> dict[str, Any]:
+    branch_id = str(payload.branch_id)
+
+    def operation() -> dict[str, Any]:
+        if get_settings().branch_scope_v2_enabled:
+            actor_id = operational_route_guard.require_human(
+                session,
+                authorization,
+                "payments.confirm",
+                branch_id,
+                branch_context=branch_context,
+            ).user_id
+        else:
+            actor_id = _required_actor_from_request(actor_user_id, authorization)
+        return settle_driver_cash_orders(
+            session,
+            branch_id=branch_id,
+            driver_id=str(payload.driver_id),
+            order_ids=[str(order_id) for order_id in payload.order_ids],
+            register_id=payload.register_id,
+            idempotency_key=idempotency_key,
+            actor_user_id=actor_id,
         )
 
     return _business_response(operation)
