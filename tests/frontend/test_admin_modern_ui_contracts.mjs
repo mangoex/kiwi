@@ -5,6 +5,7 @@ console.log('--- Verificando Contratos UI/UX y Sistema de Diseño (KiwiPOS Admin
 
 // 1. Verificar existencia de componentes atómicos del Sistema de Diseño
 const fastTabPath = 'apps/admin-web/src/components/FastTabDrawer.tsx';
+const modernStylesPath = 'apps/admin-web/src/kiwi-modern-admin.css';
 const dagTreePath = 'apps/admin-web/src/components/DagTreeView.tsx';
 const copilotPath = 'apps/admin-web/src/components/KiwiCopilotWidget.tsx';
 const metricPath = 'apps/admin-web/src/components/MetricDataViz.tsx';
@@ -16,9 +17,11 @@ assert.ok(existsSync(metricPath), 'El componente MetricDataViz debe existir');
 
 // 2. Verificar contenido y contratos de FastTabDrawer (Cero Modales)
 const fastTabContent = readFileSync(fastTabPath, 'utf8');
+const modernStylesContent = readFileSync(modernStylesPath, 'utf8');
 assert.match(fastTabContent, /FastTabDrawer/, 'Debe exportar FastTabDrawer');
 assert.match(fastTabContent, /AccordionSection|FastTabAccordion/, 'Debe soportar acordeones contextuales (FastTabs)');
-assert.match(fastTabContent, /w-\[460px\]|max-w-md|w-full sm:w-\[460px\]/, 'Debe tener ancho adecuado de slide-over');
+assert.match(fastTabContent, /data-size=\{size\}/, 'Debe exponer el ancho elegido del slide-over');
+assert.match(modernStylesContent, /\.fast-tab-drawer[^}]*\{[^}]*width:\s*480px/s, 'Debe tener ancho estándar adecuado de slide-over');
 assert.doesNotMatch(fastTabContent, /<dialog|<Modal.*isOpen.*centered/i, 'No debe usar modales centradas bloqueantes');
 
 // 3. Verificar contenido de DagTreeView (BOM recursivo y modificadores)

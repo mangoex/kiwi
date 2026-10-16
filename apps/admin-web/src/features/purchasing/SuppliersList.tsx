@@ -512,6 +512,7 @@ export const SuppliersList: React.FC = () => {
       <FastTabDrawer
         isOpen={isFastTabOpen}
         onClose={() => setIsFastTabOpen(false)}
+        size="wide"
         title={selectedSupplier?.commercial_name || 'Nuevo Proveedor'}
         subtitle={`RFC: ${selectedSupplier?.tax_id || 'SIN RFC'} • Plazo: ${selectedSupplier?.credit_days || 0} días`}
         badge={
@@ -538,73 +539,75 @@ export const SuppliersList: React.FC = () => {
           </div>
         }
       >
-        <fieldset disabled={!canManageCatalog || !isEditing} style={{border:0,padding:0,margin:0}}>{/* FastTab 1: Datos Fiscales y Comerciales */}
+        {/* FastTab 1: Datos Fiscales y Comerciales */}
         <AccordionSection title="1. Datos Fiscales y Comerciales" defaultOpen={true}>
-          <div className="space-y-3">
-            <div>
-              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
-                Nombre Comercial / Razón Social
-              </label>
-              <input
-                type="text"
-                value={formData.commercial_name}
-                onChange={(e) => setFormData({ ...formData, commercial_name: e.target.value })}
-                className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-900 focus:bg-white focus:ring-1 focus:ring-emerald-500 font-semibold"
-                placeholder="Ej. La Huerta Fresca S.A."
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5">
+          <fieldset disabled={!canManageCatalog || !isEditing} style={{border:0,padding:0,margin:0}}>
+            <div className="space-y-3">
               <div>
                 <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
-                  RFC
+                  Nombre Comercial / Razón Social
                 </label>
                 <input
                   type="text"
-                  value={formData.tax_id}
-                  onChange={(e) => setFormData({ ...formData, tax_id: e.target.value })}
-                  className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 font-mono text-gray-800"
+                  value={formData.commercial_name}
+                  onChange={(e) => setFormData({ ...formData, commercial_name: e.target.value })}
+                  className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-900 focus:bg-white focus:ring-1 focus:ring-emerald-500 font-semibold"
+                  placeholder="Ej. La Huerta Fresca S.A."
                 />
               </div>
 
-              <div>
-                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
-                  Días de Crédito
-                </label>
-                <input
-                  type="number"
-                  value={formData.credit_days}
-                  onChange={(e) => setFormData({ ...formData, credit_days: e.target.value })}
-                  className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-800"
-                />
-              </div>
-            </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                    RFC
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.tax_id}
+                    onChange={(e) => setFormData({ ...formData, tax_id: e.target.value })}
+                    className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 font-mono text-gray-800"
+                  />
+                </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
-                  Teléfono
-                </label>
-                <input
-                  type="text"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-800"
-                />
+                <div>
+                  <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                    Días de Crédito
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.credit_days}
+                    onChange={(e) => setFormData({ ...formData, credit_days: e.target.value })}
+                    className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-800"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
-                  Email Facturación
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-800"
-                />
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                    Teléfono
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-800"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                    Email Facturación
+                  </label>
+                  <input
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-800"
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          </fieldset>
         </AccordionSection>
 
         {/* FastTab 2: Cartera de Facturas y Vencimientos */}
@@ -684,7 +687,6 @@ export const SuppliersList: React.FC = () => {
             </div>
           </div>
         </AccordionSection>
-        </fieldset>
       </FastTabDrawer>
 
       {/* 4. Kiwi IA Copilot Widget (Dockeado) */}
