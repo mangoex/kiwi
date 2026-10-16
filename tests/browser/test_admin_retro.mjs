@@ -177,14 +177,14 @@ async function verifyViewport(browser, viewport) {
   assert.equal(await page.locator('html').evaluate((element) => element.scrollWidth <= element.clientWidth), true, `document overflows at ${viewport.width}px`);
   await assertModernSurface(page.locator('.admin-sidebar'));
   await assertModernSurface(page.locator('.productos-window-container'));
-  const selectedCells = page.locator('.productos-table tr.active td');
-  assert.equal(await selectedCells.count(), 4, 'selected product retains all four columns');
-  for (const cell of await selectedCells.all()) await assertModernSurface(cell);
+  const productSelector = page.getByLabel('Producto', { exact: true });
+  assert.equal(await productSelector.inputValue(), products[0].id);
+  assert.ok((await productSelector.locator('option:checked').innerText()).includes(products[0].name));
   assert.equal(await page.locator('html').getAttribute('data-admin-modern'), 'true');
   assert.equal(await page.locator('html').getAttribute('data-admin-retro'), null);
   assert.equal(await page.locator('.admin-sidebar-logo-icon').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(48, 48, 48)');
   assert.equal(await page.locator('.admin-sidebar-logo-icon svg').getAttribute('aria-hidden'), 'true');
-  assert.match(await page.locator('.productos-table th').first().evaluate(element => getComputedStyle(element).fontFamily), /Inter|Segoe UI|Arial|sans-serif/);
+  assert.match(await productSelector.evaluate(element => getComputedStyle(element).fontFamily), /Inter|Segoe UI|Arial|sans-serif/);
   mkdirSync(screenshotDir, { recursive: true });
   await page.screenshot({ path: join(screenshotDir, `admin-retro-${viewport.width}.png`), fullPage: true });
   const newProduct = page.getByRole('button', { name: '+ Nuevo', exact: true });
@@ -279,7 +279,7 @@ async function verifyViewport(browser, viewport) {
     assert.ok(state.bulkApply.idempotencyKey);
     assert.equal('gross_quantity' in state.bulkApply.body.components[0], false);
     await page.goto(`${baseUrl}/products`, { waitUntil: 'domcontentloaded' });
-    await page.getByRole('cell', { name: products[0].name, exact: true }).waitFor();
+    await page.getByLabel('Producto', { exact: true }).selectOption(products[0].id);
     await page.evaluate(async () => {
       await document.fonts.ready;
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));

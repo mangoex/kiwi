@@ -111,11 +111,11 @@ const AdminLayout = () => {
   ].some((prefix) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`));
   const globalOnlyRoute = [
     '/catalog', '/products', '/recipes', '/categories', '/variations', '/modifiers',
-    '/ingredient-extras', '/category-priorities', '/recipes/bulk', '/suppliers',
+    '/ingredient-extras', '/category-priorities', '/recipes/bulk', '/suppliers', '/inventory/items',
     '/purchase-presentations', '/purchases',
   ].some((prefix) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`));
-  const hideRedundantTopbarScope = !isDashboard && globalOnlyRoute
-    && !(branchScopeV2Enabled && configurationRoute);
+  const hideRedundantTopbarScope = location.pathname === '/inventory'
+    || (!isDashboard && globalOnlyRoute && !(branchScopeV2Enabled && configurationRoute));
   const localConfigurationBlocked = branchScopeV2Enabled && configurationRoute && configurationScope.kind === 'branch';
   const changeConfigurationScope = (id:string):boolean => {
     setScopeError('');

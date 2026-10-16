@@ -78,8 +78,8 @@ assert.match(source, /price_with_tax: priceNum/, 'Seleccionar un producto carga 
 assert.match(source, /station: selectedProduct\.station \|\| ''/, 'Seleccionar un producto carga su estación en el detalle');
 assert.match(
   source,
-  /if \(isEditing \|\| isNew\)[\s\S]*setIsEditing\(false\)[\s\S]*setActiveTab\('Principal \/ Varios'\)[\s\S]*setSelectedProductId\(p\.id\)/,
-  'Seleccionar una fila descarta la edición confirmada y muestra inmediatamente su detalle principal',
+  /if \(\(isEditing \|\| isNew\) && !window\.confirm[\s\S]*return;[\s\S]*setIsEditing\(false\)[\s\S]*setActiveTab\('Principal \/ Varios'\)[\s\S]*setSelectedProductId\(nextId\)/,
+  'Seleccionar un producto conserva el borrador al cancelar y muestra su detalle principal al confirmar',
 );
 const commandPayload = source.match(/const payload = \{([\s\S]*?)\n      \};/)?.[1] || '';
 assert.doesNotMatch(commandPayload, /tax_rate|service_dining|loyalty_accrual|barcode|open_price/, 'No se envían campos sin contrato');

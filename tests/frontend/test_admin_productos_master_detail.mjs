@@ -3,12 +3,15 @@ import { readFileSync } from 'node:fs';
 
 const products = readFileSync('apps/admin-web/src/features/catalog/ProductsList.tsx', 'utf8');
 
-// 1. Split Layout Master-Detail structure
+// 1. Selector superior y detalle a todo el ancho
 assert.match(products, /productos-window-container/);
-assert.match(products, /productos-split-layout/);
+assert.match(products, /productos-workspace-layout/);
 assert.match(products, /productos-master-panel/);
 assert.match(products, /productos-detail-panel/);
-assert.match(products, /productos-table/);
+assert.match(products, /htmlFor="product-selection"/);
+assert.match(products, /<select id="product-selection"/);
+assert.match(products, /isEditing \|\| isNew/);
+assert.doesNotMatch(products, /className="productos-table"/);
 
 // 2. Toolbar Actions
 assert.match(products, /productos-toolbar/);

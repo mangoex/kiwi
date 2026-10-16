@@ -2432,7 +2432,13 @@ habilitar el cierre legacy con contado cero.
 
 `GET /orders/accounts` recibe intervalo UTC consciente y semiabierto, sucursal, turno, caja, tipo de
 servicio, búsqueda folio/cliente, límite `1..100` y cursor opaco. Python valida y liga el cursor al
-hash de filtros y ordena por `(created_at, id)` descendente. Para pagos confirmados proyecta operación
+hash de filtros y ordena por `(created_at, id, origen)` descendente. Pedidos operativos y solicitudes
+web pendientes comparten límite y cursor; fecha, servicio y búsqueda se aplican antes de paginar.
+Una solicitud pendiente no coincide con filtro de turno/caja ni se duplica si ya fue aceptada.
+El origen desambigua identidades coincidentes; un cursor anterior sin origen corresponde a pedido.
+El botón Ver pedidos navega con identificador y sucursal confirmados sin recargar la sesión; el
+historial conserva el transporte local/central y rechaza un enlace de otra sucursal antes de consultar.
+Para pagos confirmados proyecta operación
 y líneas desde los snapshots de venta; no consulta catálogo vigente ni completa faltantes. El DTO
 expone elegibilidad y estado de solicitud activa, pero nunca claves de idempotencia o evidencia.
 
@@ -3587,8 +3593,10 @@ organización, actor y permisos; el navegador no puede afirmar esos valores. La 
 se usa únicamente para consultar receta efectiva, disponibilidad y vista previa POS. No se crea una
 excepción de disponibilidad ni se modifica una receta al guardar los datos generales del producto.
 
-La interfaz conserva lista maestra, detalle y barra de acciones para mantener el modelo operativo
-del sistema de referencia. Las secciones visibles recuperan el recorrido familiar de seis pestañas:
+La interfaz presenta un selector de productos desplegable en la parte superior, con búsqueda y
+filtro de grupo; al seleccionar, el detalle utiliza todo el ancho disponible. Cambiar de producto
+durante una edición o alta exige confirmar el descarte; cancelarlo conserva selección y borrador.
+La barra de acciones y las secciones visibles conservan el recorrido familiar de seis pestañas:
 **Principal / Varios**, **Receta**, **Precios promoción**, **Imagen de producto**,
 **Monedero electrónico** y **Combo / Paquete fijo**. Se renderizan como un
 único `tablist` semántico paginado: las flechas y los indicadores cambian únicamente el subconjunto
@@ -6574,3 +6582,12 @@ como Meta Tech Provider y Kiwi como motor de inteligencia de restaurante y fuent
      interviene enviando un mensaje desde el teléfono móvil físico vinculado a la línea, el bot entra en estado
      `PAUSED` de forma conservadora durante una ventana de tiempo configurable, preservando el estado del pedido
      sin colisionar con la conversación humana.
+
+### PILOT-UX-2026-10-15 — diagnóstico visible de selección
+
+El perfil de sesión expone `scope.branch_selection_block_reason` nullable: `single_branch`,
+`rollout_disabled` o `permission_denied`. Es diagnóstico; `can_select_branch`, permisos y comando
+canónico siguen siendo la autoridad. Una sesión corporativa con varias sucursales ve el selector
+incluso bloqueado; se explica el rollout, conexión o gateway. No se habilitan flags ni se omiten
+bloqueadores. El hub `/inventory` y el catálogo `/inventory/items` no presentan la sucursal POS como
+alcance corporativo; las pantallas operativas de stock conservan su contexto.

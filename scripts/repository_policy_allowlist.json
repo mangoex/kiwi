@@ -2,7 +2,7 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "926fa9feca1298ab5ead56bf7ab444c56051375280c306f947e73ce0de452a7f",
+      "sha256": "78f413cc363e48472e196bfa25f51d70b790c822a099bf138342317acc8a0269",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {
@@ -118,7 +118,7 @@
     {
       "path": "tests/browser/test_admin_retro.mjs",
       "provenance": "restaurantos-admin-retro-browser-v1",
-      "sha256": "58b3b7e6a2dae8645409f844edc9bd06d068639f90b484df26bcd6003185764a"
+      "sha256": "87fea318f13d5c15029a53ddf32e204013fa8ba7120294d1d6bff4e29fd502de"
     },
     {
       "path": "tests/browser/test_compound_product_admin.mjs",
@@ -204,6 +204,11 @@
       "path": "apps/api/tests/test_offline_authorization_migration.py",
       "sha256": "e1caeb8f2214a619bc8d83589ab2a5cb9d4e7208cce61fa93f0f4dd0abac4f19",
       "provenance": "restaurantos-offline-authorization-migration-tests-v1"
+    },
+    {
+      "path": "apps/api/tests/test_whatsapp_integration.py",
+      "sha256": "f89c27759e4b2167c38ef2078e83431c68db42ac2d7d14521a28ba0e51c7f953",
+      "provenance": "restaurantos-whatsapp-asistto-fixtures-v1"
     }
   ]
 }

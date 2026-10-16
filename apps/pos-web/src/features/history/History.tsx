@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Card, Modal } from '@restaurantos/ui';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { Calendar, ChefHat, ChevronRight, Clock, CreditCard, Pencil, Printer, ReceiptText, RefreshCcw, Search, X } from 'lucide-react';
@@ -16,6 +16,7 @@ type RequestStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'APPLIE
 
 interface OrderAccount {
   id: string;
+  branch_id: string;
   folio: string;
   status: string;
   payment_status?: 'PENDING' | 'CONFIRMED';
@@ -115,6 +116,9 @@ const getCorrectionDeltaLabel = (deltaCents: number) => deltaCents > 0 ? 'Cargo 
 
 const History = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const linkedOrderId = searchParams.get('order_id');
+  const linkedBranchId = searchParams.get('branch_id');
   const { hasPermission, session } = usePosSession();
   const canRequestReopen = hasPermission('orders.reopen.request');
   const canAuthorizeReopen = hasPermission('orders.reopen.authorize');
@@ -254,13 +258,32 @@ const History = () => {
     } catch (reason) { setDetailError(reason instanceof Error ? reason.message : 'Cobro pendiente inválido.'); }
   }, [paymentAuthority, session, hasPermission]);
 
-  const openOrder = async (orderId: string) => {
+  const detailRequestSequence = useRef(0);
+  const openOrder = useCallback(async (orderId: string) => {
+    const sequence = ++detailRequestSequence.current;
     setActiveOrderId(orderId); setSelected(null); setDetailLoading(true); setDetailError('');
-    try { const detail = await requestOrder<OrderDetail>(`/orders/${orderId}`); setSelected(detail); setPaymentMethod(detail.payment_method_intent || 'cash'); }
-    catch (reason) { setDetailError(reason instanceof ApiError ? reason.message : 'No fue posible abrir el pedido.'); }
-    finally { setDetailLoading(false); }
-  };
-  const closeDetail = () => { setSelected(null); setActiveOrderId(null); setDetailError(''); setReopenError(''); };
+    try {
+      const detail = await requestOrder<OrderDetail>(`/orders/${encodeURIComponent(orderId)}`);
+      if (sequence !== detailRequestSequence.current) return;
+      if (detail.branch_id !== branchId) throw new Error('El pedido no corresponde a la sucursal de trabajo.');
+      setSelected(detail); setPaymentMethod(detail.payment_method_intent || 'cash');
+    }
+    catch (reason) {
+      if (sequence === detailRequestSequence.current) setDetailError(reason instanceof Error ? reason.message : 'No fue posible abrir el pedido.');
+    }
+    finally { if (sequence === detailRequestSequence.current) setDetailLoading(false); }
+  }, [requestOrder, branchId]);
+  useEffect(() => {
+    if (linkedOrderId) {
+      if (linkedBranchId !== branchId) {
+        setSelected(null); setDetailLoading(false);
+        setActiveOrderId(linkedOrderId);
+        setDetailError('El pedido pertenece a otro contexto de sucursal. Vuelve a su sucursal de origen.');
+      } else void openOrder(linkedOrderId);
+    }
+    return () => { detailRequestSequence.current += 1; };
+  }, [linkedOrderId, linkedBranchId, branchId, openOrder]);
+  const closeDetail = () => { detailRequestSequence.current += 1; setSelected(null); setActiveOrderId(null); setDetailError(''); setReopenError(''); };
   const refreshSelected = async () => { if (selected) await openOrder(selected.id); };
   const confirmPayment = () => {
     if (!selected) return;

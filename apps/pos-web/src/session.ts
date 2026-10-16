@@ -37,6 +37,7 @@ export interface SessionScope {
   home_branch_id: string | null;
   allowed_branch_ids: string[];
   can_select_branch: boolean;
+  branch_selection_block_reason?: 'single_branch' | 'rollout_disabled' | 'permission_denied' | null;
   authorization_version: number;
 }
 

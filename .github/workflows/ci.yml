@@ -339,6 +339,7 @@ jobs:
           node tests/browser/test_catalog_classification.mjs
           node tests/browser/test_branch_scope_headers.mjs
           node tests/browser/test_branch_workspace_recovery.mjs
+          node tests/browser/test_pilot_pos_admin.mjs
           node tests/browser/test_operational_intent_recovery.mjs
           node tests/browser/test_fiscal_artifacts.mjs
           node tests/browser/test_admin_ai_assistant.mjs
