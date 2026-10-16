@@ -204,6 +204,11 @@
       "path": "apps/api/tests/test_offline_authorization_migration.py",
       "sha256": "e1caeb8f2214a619bc8d83589ab2a5cb9d4e7208cce61fa93f0f4dd0abac4f19",
       "provenance": "restaurantos-offline-authorization-migration-tests-v1"
+    },
+    {
+      "path": "apps/api/tests/test_whatsapp_integration.py",
+      "sha256": "33582e79c7959a24b8f113e2aac3f35eca99688a5b633117b72e2750be568f1b",
+      "provenance": "restaurantos-whatsapp-asistto-fixtures-v1"
     }
   ]
 }

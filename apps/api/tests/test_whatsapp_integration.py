@@ -203,7 +203,6 @@ def auth_headers():
     return {"Authorization": f"Bearer {token}"}
 
 
-
 @pytest.fixture
 def client(test_db):
     def override_get_session():
@@ -368,9 +367,11 @@ def test_tc400_whatsapp_order_persistence_with_closed_shift(client, test_db, aut
     order_id = res_data["order_id"]
 
     # Verify order in DB: cash_shift_id is None, channel is WHATSAPP, branch_id is BRANCH_ID
-    order_row = test_db.execute(
-        models.orders.select().where(models.orders.c.id == order_id)
-    ).mappings().first()
+    order_row = (
+        test_db.execute(models.orders.select().where(models.orders.c.id == order_id))
+        .mappings()
+        .first()
+    )
     assert order_row is not None
     assert order_row["cash_shift_id"] is None
     assert order_row["channel"] == "WHATSAPP"
@@ -396,7 +397,8 @@ def test_tc400_whatsapp_order_persistence_with_closed_shift(client, test_db, aut
 def test_tc401_whatsapp_admin_config_and_outbound_dispatch(client, test_db, auth_headers):
     # Save config with master_prompt and return_url
     prompt_text = (
-        "Eres el sommelier virtual de Kiwi. Conoce a Carlos, recomiéndale sus hamburguesas favoritas."
+        "Eres el sommelier virtual de Kiwi. Conoce a Carlos, "
+        "recomiéndale sus hamburguesas favoritas."
     )
     return_url = "https://asistto.humanio.ai/api/v1/meta/whatsapp/webhook/kiwi-return"
 
@@ -538,7 +540,9 @@ def test_tc404_conversational_message_reply_and_outbound_dispatch(client, test_d
             "webhook_secret": secret,
             "return_url": "https://mock.localhost/return-asistto",
             "client_secret": "asistto_bearer_outbound",
-            "master_prompt": "Eres el asistente saludable de Kiwi. Saluda a Carlos y recomienda ensaladas.",
+            "master_prompt": (
+                "Eres el asistente saludable de Kiwi. Saluda a Carlos y recomienda ensaladas."
+            ),
         },
         headers=auth_headers,
     )
@@ -622,7 +626,11 @@ def test_tc404_conversational_message_reply_and_outbound_dispatch(client, test_d
                         "field": "messages",
                         "value": {
                             "statuses": [
-                                {"id": "wamid.HBgL", "status": "delivered", "recipient_id": "3312345678"}
+                                {
+                                    "id": "wamid.HBgL",
+                                    "status": "delivered",
+                                    "recipient_id": "3312345678",
+                                }
                             ]
                         },
                     }
@@ -640,7 +648,7 @@ def test_tc404_conversational_message_reply_and_outbound_dispatch(client, test_d
 
 
 # ---------------------------------------------------------------------------
-# TDD-TC-405: Interpolación de Variables en Tiempo de Ejecución (Menú con Precios, Sucursales y Cliente)
+# TDD-TC-405: Interpolación de Variables en Tiempo de Ejecución
 # ---------------------------------------------------------------------------
 
 
@@ -697,4 +705,3 @@ def test_tc405_master_prompt_interpolation_and_live_db_context(client, test_db, 
     assert "Carlos Mendoza" in rendered
     assert "$145.00 MXN" in rendered
     assert "Sucursal Principal" in rendered
-

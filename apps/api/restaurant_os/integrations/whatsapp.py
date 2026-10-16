@@ -6,8 +6,8 @@ customer lookup, address validation, and cash-shift-independent order persistenc
 
 from __future__ import annotations
 
-import hmac
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -15,8 +15,8 @@ import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -82,7 +82,7 @@ class WhatsAppAdapter(IOrderChannelAdapter):
     def extract_incoming_message(
         self, payload: dict[str, Any]
     ) -> tuple[str | None, str | None, bool]:
-        """Extract (sender_phone, message_text, is_status_receipt) from Meta/Asistto webhook formats."""
+        """Extract (sender_phone, message_text, is_status_receipt) from webhook formats."""
         # 1. Delivery/read status receipts from Meta Cloud API
         if "statuses" in payload:
             return None, None, True
@@ -100,11 +100,7 @@ class WhatsAppAdapter(IOrderChannelAdapter):
             or payload.get("customer_phone")
             or payload.get("wa_id")
         )
-        incoming_text = (
-            payload.get("message")
-            or payload.get("text")
-            or payload.get("body")
-        )
+        incoming_text = payload.get("message") or payload.get("text") or payload.get("body")
 
         # Meta Cloud API standard format
         if isinstance(entries, list):
@@ -124,10 +120,9 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                             elif "button" in msg and isinstance(msg["button"], dict):
                                 incoming_text = msg["button"].get("text")
                             elif "interactive" in msg and isinstance(msg["interactive"], dict):
-                                incoming_text = (
-                                    msg["interactive"].get("button_reply", {}).get("title")
-                                    or msg["interactive"].get("list_reply", {}).get("title")
-                                )
+                                incoming_text = msg["interactive"].get("button_reply", {}).get(
+                                    "title"
+                                ) or msg["interactive"].get("list_reply", {}).get("title")
                     contacts = val.get("contacts", [])
                     if contacts and not sender_phone:
                         sender_phone = contacts[0].get("wa_id")
@@ -174,8 +169,11 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         payload: dict[str, Any] | None = None,
         default_prep_time_minutes: int = 25,
     ) -> dict[str, Any]:
-        """Build full live context from DB: customer profile, menu with prices, branches, and conversation history."""
-        customer: dict[str, Any] = {"found": False, "normalized_phone": normalize_mexican_phone(sender_phone or "")}
+        """Build full live context from DB: customer, menu/prices, branches, and history."""
+        customer: dict[str, Any] = {
+            "found": False,
+            "normalized_phone": normalize_mexican_phone(sender_phone or ""),
+        }
         if sender_phone:
             try:
                 customer = self.lookup_customer(session, organization_id, sender_phone)
@@ -201,20 +199,29 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                 city = addr.get("city") or ""
                 refs = f" (Ref: {addr['references']})" if addr.get("references") else ""
                 default_tag = " [Predeterminada]" if addr.get("is_default") else ""
-                addr_lines.append(f"{alias}: {street} #{ext}, Col. {col}, {city}{refs}{default_tag}".strip())
+                addr_lines.append(
+                    f"{alias}: {street} #{ext}, Col. {col}, {city}{refs}{default_tag}".strip()
+                )
             delivery_address_str = " | ".join(addr_lines)
         else:
-            delivery_address_str = "Sin domicilio registrado en el sistema (preguntar dirección o si pasa a recoger)"
+            delivery_address_str = (
+                "Sin domicilio registrado en el sistema (preguntar dirección o si pasa a recoger)"
+            )
 
         # Format favorite dishes
         favorites = (customer.get("favorites") if customer else None) or []
         if favorites:
             fav_parts = [
-                f"{f['product_name']} (pedido {f['times_ordered']} {'vez' if f['times_ordered'] == 1 else 'veces'})"
+                (
+                    f"{f['product_name']} (pedido {f['times_ordered']} "
+                    f"{'vez' if f['times_ordered'] == 1 else 'veces'})"
+                )
                 for f in favorites
                 if f.get("product_name")
             ]
-            favorite_dishes_str = ", ".join(fav_parts) if fav_parts else "Sin platillos favoritos registrados aún"
+            favorite_dishes_str = (
+                ", ".join(fav_parts) if fav_parts else "Sin platillos favoritos registrados aún"
+            )
         else:
             favorite_dishes_str = "Sin platillos favoritos registrados aún"
 
@@ -245,12 +252,23 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                         models.branches.c.status == "active",
                     )
                     .order_by(models.branches.c.name.asc())
-                ).mappings().all()
+                )
+                .mappings()
+                .all()
             )
             if branch_rows:
                 b_lines = []
                 for b in branch_rows:
-                    addr_parts = [p for p in (b.get("street"), f"#{b['exterior_number']}" if b.get("exterior_number") else None, b.get("neighborhood"), b.get("city")) if p]
+                    addr_parts = [
+                        p
+                        for p in (
+                            b.get("street"),
+                            f"#{b['exterior_number']}" if b.get("exterior_number") else None,
+                            b.get("neighborhood"),
+                            b.get("city"),
+                        )
+                        if p
+                    ]
                     addr_txt = f" — Dirección: {', '.join(addr_parts)}" if addr_parts else ""
                     phone_txt = f" — Tel: {b['phone']}" if b.get("phone") else ""
                     b_lines.append(f"• {b['name']} ({b['code']}){addr_txt}{phone_txt}")
@@ -287,7 +305,9 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                         models.product_categories.c.name.asc(),
                         models.products.c.name.asc(),
                     )
-                ).mappings().all()
+                )
+                .mappings()
+                .all()
             )
 
             price_map: dict[str, int] = {}
@@ -306,7 +326,9 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                             models.price_versions.c.valid_to.is_(None),
                         )
                         .order_by(models.price_versions.c.valid_from.desc())
-                    ).mappings().all()
+                    )
+                    .mappings()
+                    .all()
                 )
                 for pr in price_rows:
                     pid = str(pr["product_id"])
@@ -320,7 +342,9 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                     pname = str(r["name"])
                     pdesc = str(r.get("description") or "").strip()
                     price_cents = price_map.get(pid)
-                    price_txt = f" — ${price_cents / 100:,.2f} MXN" if price_cents is not None else ""
+                    price_txt = (
+                        f" — ${price_cents / 100:,.2f} MXN" if price_cents is not None else ""
+                    )
                     desc_txt = f" ({pdesc})" if pdesc else ""
                     by_category.setdefault(cat, []).append(f"• {pname}{price_txt}{desc_txt}")
 
@@ -349,7 +373,9 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                         )
                         .order_by(models.integration_webhook_logs.c.created_at.desc())
                         .limit(40)
-                    ).mappings().all()
+                    )
+                    .mappings()
+                    .all()
                 )
                 # Skip the very first log if it is the current incoming message just logged
                 skipped_current = False
@@ -381,7 +407,13 @@ class WhatsAppAdapter(IOrderChannelAdapter):
             "customer": customer,
             "customer_found": customer_found,
             "customer_name": customer_name or "Estimado cliente",
-            "customer_name_for_prompt": customer_name if customer_found else (f"{contact_name} (Cliente nuevo no registrado aún en BD)" if contact_name else "Cliente nuevo (no registrado aún en BD)"),
+            "customer_name_for_prompt": customer_name
+            if customer_found
+            else (
+                f"{contact_name} (Cliente nuevo no registrado aún en BD)"
+                if contact_name
+                else "Cliente nuevo (no registrado aún en BD)"
+            ),
             "customer_phone": phone_10,
             "delivery_address": delivery_address_str,
             "favorite_dishes": favorite_dishes_str,
@@ -402,7 +434,9 @@ class WhatsAppAdapter(IOrderChannelAdapter):
     ) -> str:
         """Interpolate all runtime variables into the master prompt and append live DB context."""
         ctx = context or {}
-        customer_found = bool(ctx.get("customer_found", customer_name and customer_name != "Estimado cliente"))
+        customer_found = bool(
+            ctx.get("customer_found", customer_name and customer_name != "Estimado cliente")
+        )
         prompt_customer_name = str(
             ctx.get("customer_name_for_prompt")
             or (customer_name if customer_found else "Cliente nuevo (no registrado aún en BD)")
@@ -411,7 +445,9 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         fav_str = str(ctx.get("favorite_dishes") or "Sin platillos favoritos registrados aún")
         past_str = str(ctx.get("past_orders") or "Sin pedidos previos registrados")
         addr_str = str(ctx.get("delivery_address") or "Sin domicilio registrado aún")
-        branches_str = str(ctx.get("branches") or ctx.get("active_branch") or "• Sucursal Principal Kiwi")
+        branches_str = str(
+            ctx.get("branches") or ctx.get("active_branch") or "• Sucursal Principal Kiwi"
+        )
         prep_str = str(ctx.get("default_prep_time_minutes") or "25")
         phone_str = str(ctx.get("customer_phone") or "")
 
@@ -419,8 +455,8 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         if not base_prompt:
             base_prompt = (
                 "Eres KiwiBot, el anfitrión y sommelier virtual de Kiwi - Comida Saludable. "
-                "Atiende con calidez, ofrece el menú oficial con sus precios reales, identifica al cliente "
-                "y confirma sucursal y modalidad (recoger o domicilio) antes de registrar su pedido."
+                "Atiende con calidez, ofrece el menú oficial con sus precios reales, "
+                "identifica al cliente y confirma sucursal y modalidad antes de registrar."
             )
 
         replacements = {
@@ -443,7 +479,10 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         customer_status_line = (
             f"Cliente registrado en BD: SÍ — Nombre: {customer_name} (Tel: {phone_str})"
             if customer_found
-            else f"Cliente registrado en BD: NO (Teléfono: {phone_str}). Es cliente nuevo; salúdalo cálidamente y pregúntale su nombre."
+            else (
+                f"Cliente registrado en BD: NO (Teléfono: {phone_str}). "
+                "Es cliente nuevo; salúdalo cálidamente y pregúntale su nombre."
+            )
         )
         live_block = (
             "\n\n=== DATOS EN TIEMPO REAL DE LA BASE DE DATOS (KIWI POS) ===\n"
@@ -468,16 +507,18 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         context: dict[str, Any] | None = None,
         conversation_history: list[dict[str, str]] | None = None,
     ) -> str:
-        """Generate conversational reply using OpenRouter/Gemini with interpolated live DB context."""
+        """Generate conversational reply using OpenRouter/Gemini with live DB context."""
         rendered_prompt = self.render_system_prompt(
             system_prompt=system_prompt,
             customer_name=customer_name,
             menu_items=menu_items,
             context=context,
         )
-        history = conversation_history if conversation_history is not None else (
-            context.get("conversation_history") if isinstance(context, dict) else None
-        ) or []
+        history = (
+            conversation_history
+            if conversation_history is not None
+            else (context.get("conversation_history") if isinstance(context, dict) else None) or []
+        )
 
         api_key = (
             getattr(settings, "openrouter_api_key", None)
@@ -487,10 +528,16 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         )
         if api_key:
             try:
-                base_url = getattr(settings, "openrouter_base_url", "https://openrouter.ai/api/v1").rstrip("/")
+                base_url = getattr(
+                    settings, "openrouter_base_url", "https://openrouter.ai/api/v1"
+                ).rstrip("/")
                 messages: list[dict[str, str]] = [{"role": "system", "content": rendered_prompt}]
                 for turn in history[-10:]:
-                    if isinstance(turn, dict) and turn.get("role") in ("user", "assistant") and turn.get("content"):
+                    if (
+                        isinstance(turn, dict)
+                        and turn.get("role") in ("user", "assistant")
+                        and turn.get("content")
+                    ):
                         messages.append({"role": turn["role"], "content": str(turn["content"])})
                 messages.append({"role": "user", "content": incoming_text})
 
@@ -514,7 +561,7 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                     envelope = json.loads(resp.read().decode("utf-8"))
                     content = envelope["choices"][0]["message"]["content"]
                     if content and isinstance(content, str):
-                        return content.strip()
+                        return str(content).strip()
             except Exception as e:
                 logger.warning("Error invocando OpenRouter para WhatsApp: %s", e)
 
@@ -528,19 +575,57 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         has_known_name = bool(customer_name and customer_name != "Estimado cliente")
         greeting_name = f" {customer_name}" if has_known_name else ""
 
-        if any(w in text_lower for w in ("menu", "menú", "carta", "platillo", "que tienen", "qué tienen", "opciones", "comida", "precio", "precios", "venden")):
-            preview = effective_menu if effective_menu else "• Bowls de Proteína Limpia\n• Ensaladas Frescas\n• Wraps Saludables\n• Jugos Verdes y Smoothies"
+        if any(
+            w in text_lower
+            for w in (
+                "menu",
+                "menú",
+                "carta",
+                "platillo",
+                "que tienen",
+                "qué tienen",
+                "opciones",
+                "comida",
+                "precio",
+                "precios",
+                "venden",
+            )
+        ):
+            preview = (
+                effective_menu
+                if effective_menu
+                else (
+                    "• Bowls de Proteína Limpia\n• Ensaladas Frescas\n"
+                    "• Wraps Saludables\n• Jugos Verdes y Smoothies"
+                )
+            )
             fav_note = (
                 f"\n\n⭐ *Tus favoritos registrados:* {effective_favs}"
                 if has_known_name and effective_favs and "Sin platillos" not in effective_favs
                 else ""
             )
             return (
-                f"¡Hola{greeting_name}! 🥑 Aquí tienes nuestro *Menú Saludable de Kiwi*:\n\n{preview}{fav_note}\n\n"
-                "¿Cuál se te antoja ordenar hoy? Dime si prefieres entrega a domicilio o pasar a recoger a sucursal."
+                f"¡Hola{greeting_name}! 🥑 Aquí tienes nuestro *Menú Saludable de Kiwi*:\n\n"
+                f"{preview}{fav_note}\n\n"
+                "¿Cuál se te antoja ordenar hoy? Dime si prefieres entrega a domicilio "
+                "o pasar a recoger a sucursal."
             )
-        if any(w in text_lower for w in ("sucursal", "sucursales", "donde", "dónde", "ubicacion", "ubicación", "dirección", "direccion")):
-            branch_info = effective_branches if effective_branches else "• Sucursal Principal Kiwi (Activa)"
+        if any(
+            w in text_lower
+            for w in (
+                "sucursal",
+                "sucursales",
+                "donde",
+                "dónde",
+                "ubicacion",
+                "ubicación",
+                "dirección",
+                "direccion",
+            )
+        ):
+            branch_info = (
+                effective_branches if effective_branches else "• Sucursal Principal Kiwi (Activa)"
+            )
             return (
                 f"📍 *Nuestras Sucursales Kiwi:*\n{branch_info}\n\n"
                 "¿En qué sucursal prefieres recoger tu pedido o a qué dirección te lo enviamos?"
@@ -553,26 +638,32 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                     else ""
                 )
                 return (
-                    f"¡Hola {customer_name}! 🥑 Qué gusto saludarte de nuevo en *Kiwi - Comida Saludable* 🥝{addr_hint}\n\n"
-                    "¿Te gustaría ver nuestro menú saludable de hoy o repetir alguno de tus platillos favoritos?"
+                    f"¡Hola {customer_name}! 🥑 Qué gusto saludarte de nuevo en "
+                    f"*Kiwi - Comida Saludable* 🥝{addr_hint}\n\n"
+                    "¿Te gustaría ver nuestro menú saludable de hoy o repetir "
+                    "alguno de tus platillos favoritos?"
                 )
             return (
                 "¡Hola! 🥗 Bienvenido a *Kiwi - Comida Saludable* 🥝\n\n"
-                "¿Con quién tengo el gusto hoy? Puedo mostrarte nuestro menú con precios, sucursales disponibles o tomar tu pedido para recoger o a domicilio."
+                "¿Con quién tengo el gusto hoy? Puedo mostrarte nuestro menú con precios, "
+                "sucursales disponibles o tomar tu pedido para recoger o a domicilio."
             )
         if any(w in text_lower for w in ("horario", "horarios", "abren", "cierran", "abierto")):
-            branch_info = f"\n\n📍 *Sucursales:*\n{effective_branches}" if effective_branches else ""
+            branch_info = (
+                f"\n\n📍 *Sucursales:*\n{effective_branches}" if effective_branches else ""
+            )
             return (
                 f"⏰ *Horarios de Atención Kiwi:*\n"
-                f"Nuestra cocina saludable está lista para preparar tus alimentos frescos.{branch_info}\n\n"
+                f"Nuestra cocina saludable está lista para preparar tus alimentos.{branch_info}\n\n"
                 "¿Deseas conocer el menú o levantar tu pedido?"
             )
 
         menu_snippet = f"\n\n📋 *Menú disponible:*\n{effective_menu}" if effective_menu else ""
         return (
             f"¡Con gusto{greeting_name}! 🥝\n\n"
-            f"Recibí tu mensaje: *\"{incoming_text}\"*.{menu_snippet}\n\n"
-            "¿Qué platillos te gustaría incluir en tu pedido y en qué sucursal o domicilio lo prefieres?"
+            f'Recibí tu mensaje: *"{incoming_text}"*.{menu_snippet}\n\n'
+            "¿Qué platillos te gustaría incluir en tu pedido y en qué sucursal "
+            "o domicilio lo prefieres?"
         )
 
     def normalize_order(
@@ -582,10 +673,16 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         default_products: list[dict[str, Any]] | None = None,
     ) -> NormalizedOrder:
         """Convert a structured order payload into a canonical NormalizedOrder."""
-        external_order_id = str(payload.get("external_order_id") or payload.get("order_id") or uuid.uuid4())
+        external_order_id = str(
+            payload.get("external_order_id") or payload.get("order_id") or uuid.uuid4()
+        )
         customer = payload.get("customer") or {}
-        customer_name = str(customer.get("name") or payload.get("customer_name") or "Cliente WhatsApp").strip()
-        raw_phone = str(customer.get("phone") or payload.get("customer_phone") or payload.get("wa_id") or "")
+        customer_name = str(
+            customer.get("name") or payload.get("customer_name") or "Cliente WhatsApp"
+        ).strip()
+        raw_phone = str(
+            customer.get("phone") or payload.get("customer_phone") or payload.get("wa_id") or ""
+        )
         customer_phone = normalize_mexican_phone(raw_phone)
         delivery_address = payload.get("delivery_address")
         delivery_notes = str(payload.get("delivery_notes") or payload.get("notes") or "")
@@ -644,7 +741,9 @@ class WhatsAppAdapter(IOrderChannelAdapter):
             external_order_id=external_order_id,
             provider="WHATSAPP",
             display_code=str(payload.get("display_code") or external_order_id[:8]),
-            external_store_id=str(payload.get("external_store_id") or payload.get("bot_id") or "default"),
+            external_store_id=str(
+                payload.get("external_store_id") or payload.get("bot_id") or "default"
+            ),
             customer_name=customer_name,
             customer_phone=customer_phone,
             delivery_notes=delivery_notes or None,
@@ -672,31 +771,35 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         ]
 
         # Join customer_phones with customers scoped to organization_id first
-        joined_row = session.execute(
-            sa.select(
-                models.customers.c.id.label("customer_id"),
-                models.customers.c.name,
-                models.customers.c.customer_segment,
-                models.customer_phones.c.normalized_number,
-            )
-            .select_from(
-                models.customer_phones.join(
-                    models.customers,
-                    models.customer_phones.c.customer_id == models.customers.c.id,
+        joined_row = (
+            session.execute(
+                sa.select(
+                    models.customers.c.id.label("customer_id"),
+                    models.customers.c.name,
+                    models.customers.c.customer_segment,
+                    models.customer_phones.c.normalized_number,
                 )
+                .select_from(
+                    models.customer_phones.join(
+                        models.customers,
+                        models.customer_phones.c.customer_id == models.customers.c.id,
+                    )
+                )
+                .where(
+                    models.customers.c.organization_id == organization_id,
+                    models.customers.c.status == "active",
+                    models.customer_phones.c.status == "active",
+                    sa.or_(
+                        models.customer_phones.c.normalized_number.in_(phone_variants),
+                        models.customer_phones.c.normalized_number.like(f"%{phone_10}"),
+                        models.customer_phones.c.captured_number.like(f"%{phone_10}%"),
+                    ),
+                )
+                .order_by(models.customer_phones.c.is_primary.desc())
             )
-            .where(
-                models.customers.c.organization_id == organization_id,
-                models.customers.c.status == "active",
-                models.customer_phones.c.status == "active",
-                sa.or_(
-                    models.customer_phones.c.normalized_number.in_(phone_variants),
-                    models.customer_phones.c.normalized_number.like(f"%{phone_10}"),
-                    models.customer_phones.c.captured_number.like(f"%{phone_10}%"),
-                ),
-            )
-            .order_by(models.customer_phones.c.is_primary.desc())
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
 
         if not joined_row:
             return {"found": False, "normalized_phone": phone_10}
@@ -706,11 +809,15 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         # Retrieve saved addresses
         addresses = list(
             session.execute(
-                sa.select(models.customer_addresses).where(
+                sa.select(models.customer_addresses)
+                .where(
                     models.customer_addresses.c.customer_id == customer_id,
                     models.customer_addresses.c.status == "active",
-                ).order_by(models.customer_addresses.c.is_default.desc())
-            ).mappings().all()
+                )
+                .order_by(models.customer_addresses.c.is_default.desc())
+            )
+            .mappings()
+            .all()
         )
 
         formatted_addresses = [
@@ -748,7 +855,9 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                 .group_by(models.order_lines.c.product_id, models.order_lines.c.product_name)
                 .order_by(sa.desc("times_ordered"))
                 .limit(5)
-            ).mappings().all()
+            )
+            .mappings()
+            .all()
         )
 
         favorites = [
@@ -779,7 +888,9 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                     )
                     .order_by(models.orders.c.created_at.desc())
                     .limit(5)
-                ).mappings().all()
+                )
+                .mappings()
+                .all()
             )
             for orow in recent_order_rows:
                 total_mxn = (int(orow.get("total_cents") or 0)) / 100.0
@@ -811,7 +922,9 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         """Send asynchronous reply back to Asistto webhook return URL."""
         if not return_url:
             return False
-        if return_url.startswith("https://mock.localhost") or return_url.startswith("http://mock.localhost"):
+        if return_url.startswith("https://mock.localhost") or return_url.startswith(
+            "http://mock.localhost"
+        ):
             return True
 
         auth_token = outgoing_secret or token or ""
@@ -839,4 +952,3 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         except Exception as e:
             logger.warning("Error inesperado despachando a Asistto: %s", e)
             return False
-
