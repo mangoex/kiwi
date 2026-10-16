@@ -2584,6 +2584,97 @@ sa.Index(
     payment_commands.c.created_at,
 )
 
+driver_cash_settlements = sa.Table(
+    "driver_cash_settlements",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("driver_id", sa.String(36), sa.ForeignKey("drivers.id"), nullable=False),
+    sa.Column("driver_name_snapshot", sa.String(160), nullable=False),
+    sa.Column("cash_shift_id", sa.String(36), sa.ForeignKey("cash_shifts.id"), nullable=False),
+    sa.Column("register_code_snapshot", sa.String(32), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("status", sa.String(16), nullable=False),
+    sa.Column("order_count", sa.Integer(), nullable=False),
+    sa.Column("total_cents", sa.Integer(), nullable=False),
+    sa.Column("currency", sa.String(3), nullable=False),
+    sa.Column("confirmed_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("status = 'CONFIRMED'", name="ck_driver_cash_settlements_status"),
+    sa.CheckConstraint(
+        "order_count BETWEEN 1 AND 100 AND total_cents > 0",
+        name="ck_driver_cash_settlements_amounts",
+    ),
+)
+
+sa.Index(
+    "ix_driver_cash_settlements_scope_confirmed",
+    driver_cash_settlements.c.organization_id,
+    driver_cash_settlements.c.branch_id,
+    driver_cash_settlements.c.driver_id,
+    driver_cash_settlements.c.confirmed_at,
+)
+
+driver_cash_settlement_items = sa.Table(
+    "driver_cash_settlement_items",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column(
+        "settlement_id",
+        sa.String(36),
+        sa.ForeignKey("driver_cash_settlements.id"),
+        nullable=False,
+    ),
+    sa.Column("order_id", sa.String(36), sa.ForeignKey("orders.id"), nullable=False, unique=True),
+    sa.Column(
+        "payment_id", sa.String(36), sa.ForeignKey("payments.id"), nullable=False, unique=True
+    ),
+    sa.Column("folio_snapshot", sa.String(64), nullable=False),
+    sa.Column("amount_cents", sa.Integer(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("amount_cents > 0", name="ck_driver_cash_settlement_items_amount"),
+)
+
+sa.Index(
+    "ix_driver_cash_settlement_items_settlement",
+    driver_cash_settlement_items.c.settlement_id,
+    driver_cash_settlement_items.c.order_id,
+)
+
+driver_cash_settlement_commands = sa.Table(
+    "driver_cash_settlement_commands",
+    metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("driver_id", sa.String(36), sa.ForeignKey("drivers.id"), nullable=False),
+    sa.Column(
+        "settlement_id",
+        sa.String(36),
+        sa.ForeignKey("driver_cash_settlements.id"),
+        nullable=False,
+    ),
+    sa.Column("idempotency_key", sa.String(160), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("response_snapshot", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "organization_id", "idempotency_key", name="uq_driver_cash_settlement_command_org_key"
+    ),
+    sa.CheckConstraint(
+        "length(request_hash) = 64", name="ck_driver_cash_settlement_command_hash"
+    ),
+)
+
+sa.Index(
+    "ix_driver_cash_settlement_commands_scope_created",
+    driver_cash_settlement_commands.c.organization_id,
+    driver_cash_settlement_commands.c.branch_id,
+    driver_cash_settlement_commands.c.created_at,
+)
+
 cash_shift_closures = sa.Table(
     "cash_shift_closures",
     metadata,

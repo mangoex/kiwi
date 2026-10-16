@@ -87,7 +87,7 @@ y regresiones del paquete, sin certificar despliegue o datos productivos.
 | PRD-FR-056 | Cash count differences | BDD-SC-011, BDD-SC-034 | TDD-TS-005, TDD-TS-021 | Scaffold |
 | PRD-FR-057 | Final close | BDD-SC-011, BDD-SC-029, BDD-SC-034, BDD-SC-061, BDD-SC-066 | TDD-TS-005, TDD-TS-017, TDD-TS-021, TDD-TS-037, TDD-TC-031 | Scaffold |
 | PRD-FR-058 | Reopen evidence and audit | BDD-SC-011 | TDD-TS-005 | Disenado |
-| PRD-FR-059 | Driver cash settlement | BDD-SC-016 | TDD-TS-008 | Disenado |
+| PRD-FR-059 | Driver cash settlement; SDD §66; API, rollback, idempotencia, migración SQLite, frontend y QA visual 1440/390 probados localmente; PostgreSQL/CI pendientes | BDD-SC-708, BDD-SC-709, BDD-SC-710, BDD-SC-711, BDD-SC-712, BDD-SC-713, BDD-SC-714 | TDD-TS-148, TDD-TC-410, TDD-TC-411, TDD-TC-412, TDD-TC-413, TDD-TC-414, TDD-TC-415 | Probado |
 | PRD-FR-060 | Inventory ledger | BDD-SC-005, BDD-SC-049, BDD-SC-050, BDD-SC-056, BDD-SC-058 | TDD-TS-002, TDD-TS-028, TDD-TS-033, TDD-TS-035 | Scaffold |
 | PRD-FR-061 | Units by process | BDD-SC-005, BDD-SC-049, BDD-SC-050 | TDD-TS-002, TDD-TS-028 | Scaffold |
 | PRD-FR-062 | Exact conversions | BDD-SC-005, BDD-SC-049, BDD-SC-050 | TDD-TS-002, TDD-TS-028 | Scaffold |
@@ -150,7 +150,7 @@ y regresiones del paquete, sin certificar despliegue o datos productivos.
 | PRD-FR-126 | Manual route override | BDD-SC-017 | TDD-TS-008 | Disenado |
 | PRD-FR-127 | Manual dispatch fallback | BDD-SC-017 | TDD-TS-008 | Disenado |
 | PRD-FR-128 | Delivery state registration | BDD-SC-016 | TDD-TS-008 | Disenado |
-| PRD-FR-129 | Driver settlement | BDD-SC-016 | TDD-TS-008 | Disenado |
+| PRD-FR-129 | Exact driver cash settlement; SDD §66; API, rollback, idempotencia, migración SQLite, frontend y QA visual 1440/390 probados localmente; PostgreSQL/CI pendientes | BDD-SC-708, BDD-SC-709, BDD-SC-710, BDD-SC-711, BDD-SC-712, BDD-SC-713, BDD-SC-714 | TDD-TS-148, TDD-TC-410, TDD-TC-411, TDD-TC-412, TDD-TC-413, TDD-TC-414, TDD-TC-415 | Probado |
 | PRD-FR-140 | Versioned APIs | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-141 | Idempotent webhooks | BDD-SC-003 | TDD-TS-009 | Disenado |
 | PRD-FR-142 | Integration health/errors | BDD-SC-023 | TDD-TS-009 | Disenado |

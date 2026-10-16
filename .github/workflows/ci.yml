@@ -92,6 +92,7 @@ jobs:
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE grokbot_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE corp_pur_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE supplier_xml_test_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE driver_cash_ci"
       - name: Preprovision mandatory PCO-003 PostgreSQL schema
         working-directory: apps/api
         env:
@@ -130,6 +131,7 @@ jobs:
           GROKBOT_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/grokbot_ci
           CORP_PUR_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/corp_pur_ci
           SUPPLIER_XML_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/supplier_xml_test_ci
+          DRIVER_CASH_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/driver_cash_ci
         run: |
           python -m pytest --collect-only -q > python-collection.txt
           python -m pytest --junitxml=python-tests.xml
@@ -316,8 +318,11 @@ jobs:
           ADMINRETRO_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
           AIA002_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
           OFFLINE_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
+          DRIVER_CASH_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
           ADMINRETRO_BASE_URL: http://127.0.0.1:3002/admin
           BRANCH_SCOPE_POS_URL: http://127.0.0.1:4175/pos
+          DRIVER_CASH_POS_URL: http://127.0.0.1:4175/pos
+          DRIVER_CASH_SCREENSHOT_DIR: ${{ runner.temp }}/driver-cash-browser
           AIA002_BASE_URL: http://127.0.0.1:3002/admin/products
           AIA002_OUTPUT_DIR: ${{ runner.temp }}/assistant-browser
           CATCLASS_POS_URL: http://127.0.0.1:4175/pos
@@ -340,6 +345,7 @@ jobs:
           node tests/browser/test_branch_scope_headers.mjs
           node tests/browser/test_branch_workspace_recovery.mjs
           node tests/browser/test_pilot_pos_admin.mjs
+          node tests/browser/test_driver_cash_settlement_ui.mjs
           node tests/browser/test_operational_intent_recovery.mjs
           node tests/browser/test_fiscal_artifacts.mjs
           node tests/browser/test_admin_ai_assistant.mjs

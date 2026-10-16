@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -62,6 +63,7 @@ from restaurant_os.operations import (
     AuthorizationError,
     _next_folio,
     require_permission,
+    settle_driver_cash_orders,
 )
 from restaurant_os.platform_data import list_catalog_products
 from sqlalchemy import create_engine
@@ -961,6 +963,386 @@ def test_delivery_order_assigns_available_branch_driver_and_preserves_history() 
     )
     assert incomplete_recovery.status_code == 409
     assert incomplete_recovery.json()["detail"]["code"] == "order_create_replay_incomplete"
+
+
+def test_driver_cash_settlement_filters_sums_and_confirms_atomically(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = _client_with_seeded_database()
+    caplog.set_level(logging.INFO, logger="restaurant_os.operations")
+    driver_payload = {
+        "employee_code": "DRC001",
+        "name": "Repartidor Efectivo",
+        "license_number": "LIC-CASH-1",
+        "motorcycle_plate": "MOTO-CASH-1",
+        "branch_id": BRANCH_ID,
+        "phone": "6691000001",
+        "address": "Base Centro",
+        "emergency_contact_name": "Contacto",
+    }
+    driver_response = client.post(
+        "/api/v1/drivers",
+        headers=_admin_headers(),
+        json=driver_payload,
+    )
+    assert driver_response.status_code == 200
+    driver = driver_response.json()
+    customer_response = client.post(
+        "/api/v1/customers",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "name": "Cliente Liquidación",
+            "phones": [{"number": "6691000002", "is_primary": True}],
+        },
+    )
+    assert customer_response.status_code == 200
+    customer = customer_response.json()
+    address_response = client.post(
+        f"/api/v1/customers/{customer['id']}/addresses",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "alias": "Casa",
+            "street": "Calle Efectivo",
+            "exterior_number": "10",
+            "neighborhood": "Centro",
+            "postal_code": "82000",
+            "city": "Mazatlán",
+            "municipality": "Mazatlán",
+            "state": "Sinaloa",
+            "is_default": True,
+        },
+    )
+    assert address_response.status_code == 200
+    address = address_response.json()
+    open_shift = _open_shift(client, 50000)
+    assert open_shift.status_code == 200
+
+    def create_delivery(method: str, quantity: int, key: str) -> dict[str, Any]:
+        response = client.post(
+            "/api/v1/orders",
+            headers={**_admin_headers(), "Idempotency-Key": key},
+            json={
+                "branch_id": BRANCH_ID,
+                "order_type": "delivery",
+                "payment_method_intent": method,
+                "customer_id": customer["id"],
+                "delivery_address_id": address["id"],
+                "driver_id": driver["id"],
+                "lines": [{
+                    "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
+                    "quantity": quantity,
+                }],
+            },
+        )
+        assert response.status_code == 200
+        return cast(dict[str, Any], response.json())
+
+    cash_one = create_delivery("cash", 1, "driver-cash-order-0001")
+    cash_two = create_delivery("cash", 2, "driver-cash-order-0002")
+    card = create_delivery("debit_card", 1, "driver-card-order-0001")
+
+    candidates = client.get(
+        "/api/v1/driver-cash-settlements/drivers",
+        headers=_admin_headers(),
+        params={"branch_id": BRANCH_ID},
+    )
+    assert candidates.status_code == 200
+    candidate = next(row for row in candidates.json() if row["id"] == driver["id"])
+    assert candidate["eligible_order_count"] == 2
+    assert candidate["eligible_total_cents"] == cash_one["total_cents"] + cash_two["total_cents"]
+
+    accounts = client.get(
+        "/api/v1/orders/accounts",
+        headers=_admin_headers(),
+        params={
+            "branch_id": BRANCH_ID,
+            "service_type": "delivery",
+            "driver_id": driver["id"],
+            "limit": 100,
+        },
+    )
+    assert accounts.status_code == 200
+    by_id = {row["id"]: row for row in accounts.json()["items"]}
+    assert set(by_id) == {cash_one["id"], cash_two["id"], card["id"]}
+    assert by_id[cash_one["id"]]["settlement_eligible"] is True
+    assert by_id[cash_two["id"]]["settlement_eligible"] is True
+    assert by_id[card["id"]]["settlement_eligible"] is False
+    assert {row["driver_id"] for row in by_id.values()} == {driver["id"]}
+    assert {row["driver_name"] for row in by_id.values()} == {"Repartidor Efectivo"}
+
+    invalid_filter = client.get(
+        "/api/v1/orders/accounts",
+        headers=_admin_headers(),
+        params={
+            "branch_id": BRANCH_ID,
+            "service_type": "takeout",
+            "driver_id": driver["id"],
+        },
+    )
+    assert invalid_filter.status_code == 409
+    assert invalid_filter.json()["detail"]["code"] == "order_accounts_driver_requires_delivery"
+    paged = client.get(
+        "/api/v1/orders/accounts",
+        headers=_admin_headers(),
+        params={
+            "branch_id": BRANCH_ID,
+            "service_type": "delivery",
+            "driver_id": driver["id"],
+            "limit": 1,
+        },
+    )
+    assert paged.status_code == 200
+    assert paged.json()["next_cursor"]
+    cursor_mismatch = client.get(
+        "/api/v1/orders/accounts",
+        headers=_admin_headers(),
+        params={
+            "branch_id": BRANCH_ID,
+            "service_type": "delivery",
+            "limit": 1,
+            "cursor": paged.json()["next_cursor"],
+        },
+    )
+    assert cursor_mismatch.status_code == 409
+    assert cursor_mismatch.json()["detail"]["code"] == "order_accounts_cursor_invalid"
+
+    contract = client.get("/openapi.json").json()
+    settlement_operation = contract["paths"]["/api/v1/driver-cash-settlements"]["post"]
+    assert settlement_operation["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/DriverCashSettlementRequest"
+    }
+    assert settlement_operation["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/DriverCashSettlementResponse"}
+    assert contract["components"]["schemas"]["DriverCashSettlementRequest"][
+        "additionalProperties"
+    ] is False
+    idempotency_parameters = [
+        parameter
+        for parameter in settlement_operation["parameters"]
+        if parameter["name"].casefold() == "idempotency-key"
+        and parameter["in"] == "header"
+    ]
+    assert len(idempotency_parameters) == 1
+    assert idempotency_parameters[0]["required"] is True
+    assert idempotency_parameters[0]["schema"]["minLength"] == 12
+    assert idempotency_parameters[0]["schema"]["maxLength"] == 160
+
+    moved_branch_response = client.post(
+        "/api/v1/branches",
+        headers=_admin_headers(),
+        json={"name": "Sucursal Repartidor Trasladado", "code": "REP-TRASLADO"},
+    )
+    assert moved_branch_response.status_code == 200
+    moved_branch = moved_branch_response.json()
+    moved_response = client.put(
+        f"/api/v1/drivers/{driver['id']}",
+        headers=_admin_headers(),
+        json={**driver_payload, "branch_id": moved_branch["id"]},
+    )
+    assert moved_response.status_code == 200
+    moved_candidates = client.get(
+        "/api/v1/driver-cash-settlements/drivers",
+        headers=_admin_headers(),
+        params={"branch_id": BRANCH_ID},
+    )
+    assert moved_candidates.status_code == 200
+    moved_candidate = next(
+        row for row in moved_candidates.json() if row["id"] == driver["id"]
+    )
+    assert moved_candidate["eligible_order_count"] == 2
+    assert moved_candidate["eligible_total_cents"] == (
+        cash_one["total_cents"] + cash_two["total_cents"]
+    )
+
+    with _test_session_factory(client)() as session:
+        session.execute(
+            drivers.update().where(drivers.c.id == driver["id"]).values(status="inactive")
+        )
+        session.commit()
+    inactive_candidates = client.get(
+        "/api/v1/driver-cash-settlements/drivers",
+        headers=_admin_headers(),
+        params={"branch_id": BRANCH_ID},
+    )
+    assert inactive_candidates.status_code == 200
+    inactive_candidate = next(
+        row for row in inactive_candidates.json() if row["id"] == driver["id"]
+    )
+    assert inactive_candidate["status"] == "inactive"
+    assert inactive_candidate["eligible_order_count"] == 2
+
+    malformed = client.post(
+        "/api/v1/driver-cash-settlements",
+        headers={**_admin_headers(), "Idempotency-Key": "driver-settlement-malformed-0001"},
+        json={
+            "branch_id": BRANCH_ID,
+            "driver_id": driver["id"],
+            "register_id": "CAJA-01",
+            "order_ids": None,
+        },
+    )
+    assert malformed.status_code == 422
+
+    extra_field = client.post(
+        "/api/v1/driver-cash-settlements",
+        headers={**_admin_headers(), "Idempotency-Key": "driver-settlement-extra-0001"},
+        json={
+            "branch_id": BRANCH_ID,
+            "driver_id": driver["id"],
+            "register_id": "CAJA-01",
+            "order_ids": [cash_one["id"]],
+            "total_cents": 1,
+        },
+    )
+    assert extra_field.status_code == 422
+
+    duplicate_orders = client.post(
+        "/api/v1/driver-cash-settlements",
+        headers={**_admin_headers(), "Idempotency-Key": "driver-settlement-duplicate-0001"},
+        json={
+            "branch_id": BRANCH_ID,
+            "driver_id": driver["id"],
+            "register_id": "CAJA-01",
+            "order_ids": [cash_one["id"], cash_one["id"]],
+        },
+    )
+    assert duplicate_orders.status_code == 409
+    assert duplicate_orders.json()["detail"]["code"] == "driver_settlement_orders_invalid"
+    assert any(
+        getattr(record, "metric", None) == "driver_cash_settlement_total"
+        and getattr(record, "result", None) == "rejected"
+        and getattr(record, "reason_code", None) == "driver_settlement_orders_invalid"
+        for record in caplog.records
+    )
+
+    invalid = client.post(
+        "/api/v1/driver-cash-settlements",
+        headers={**_admin_headers(), "Idempotency-Key": "driver-settlement-invalid-0001"},
+        json={
+            "branch_id": BRANCH_ID,
+            "driver_id": driver["id"],
+            "register_id": "CAJA-01",
+            "order_ids": [cash_one["id"], card["id"]],
+        },
+    )
+    assert invalid.status_code == 409
+    assert invalid.json()["detail"]["code"] == "driver_settlement_order_ineligible"
+    session_factory = _test_session_factory(client)
+    with session_factory() as session:
+        assert session.scalar(sa.select(sa.func.count()).select_from(payments)) == 0
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(models.driver_cash_settlements)
+        ) == 0
+
+    closed = client.post(
+        f"/api/v1/cash/shifts/{open_shift.json()['id']}/close-operationally",
+        headers={**_admin_headers(), "Idempotency-Key": "driver-settlement-close-0001"},
+        json={},
+    )
+    assert closed.status_code == 200
+    closed_shift = client.post(
+        "/api/v1/driver-cash-settlements",
+        headers={**_admin_headers(), "Idempotency-Key": "driver-settlement-closed-0001"},
+        json={
+            "branch_id": BRANCH_ID,
+            "driver_id": driver["id"],
+            "register_id": "CAJA-01",
+            "order_ids": [cash_one["id"], cash_two["id"]],
+        },
+    )
+    assert closed_shift.status_code == 409
+    assert closed_shift.json()["detail"]["code"] == "cash_shift_not_open"
+    assert _open_shift(client, 50000).status_code == 200
+
+    with session_factory() as session, pytest.raises(AuthorizationError):
+        settle_driver_cash_orders(
+            session,
+            branch_id=BRANCH_ID,
+            driver_id=driver["id"],
+            order_ids=[cash_one["id"], cash_two["id"]],
+            register_id="CAJA-01",
+            idempotency_key="driver-settlement-unauthorized-0001",
+            actor_user_id="018f6f73-2d0a-74f0-8f1c-000000009999",
+        )
+
+    def fail_after_first_payment(step: str) -> None:
+        if step == "after_payment_1":
+            raise RuntimeError("injected rollback")
+
+    with session_factory() as session, pytest.raises(RuntimeError, match="injected rollback"):
+        settle_driver_cash_orders(
+            session,
+            branch_id=BRANCH_ID,
+            driver_id=driver["id"],
+            order_ids=[cash_one["id"], cash_two["id"]],
+            register_id="CAJA-01",
+            idempotency_key="driver-settlement-rollback-0001",
+            actor_user_id=ADMIN_USER_ID,
+            _failure_hook=fail_after_first_payment,
+        )
+    with session_factory() as session:
+        assert session.scalar(sa.select(sa.func.count()).select_from(payments)) == 0
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(models.driver_cash_settlements)
+        ) == 0
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(models.payment_commands)
+        ) == 0
+
+    headers = {**_admin_headers(), "Idempotency-Key": "driver-settlement-success-0001"}
+    body = {
+        "branch_id": BRANCH_ID,
+        "driver_id": driver["id"],
+        "register_id": "CAJA-01",
+        "order_ids": [cash_two["id"], cash_one["id"]],
+    }
+    confirmed = client.post(
+        "/api/v1/driver-cash-settlements", headers=headers, json=body
+    )
+    assert confirmed.status_code == 200
+    result = confirmed.json()
+    assert result["status"] == "CONFIRMED"
+    assert result["order_count"] == 2
+    assert result["total_cents"] == cash_one["total_cents"] + cash_two["total_cents"]
+    assert result["driver_id"] == driver["id"]
+    assert [item["order_id"] for item in result["items"]] == sorted(
+        [cash_one["id"], cash_two["id"]]
+    )
+
+    replay = client.post(
+        "/api/v1/driver-cash-settlements", headers=headers, json=body
+    )
+    assert replay.status_code == 200
+    assert replay.json() == result
+    conflict = client.post(
+        "/api/v1/driver-cash-settlements",
+        headers=headers,
+        json={**body, "order_ids": [cash_one["id"]]},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "driver_settlement_idempotency_conflict"
+
+    with session_factory() as session:
+        confirmed_payments = list(session.execute(
+            sa.select(payments).where(payments.c.order_id.in_([cash_one["id"], cash_two["id"]]))
+        ).mappings())
+        assert len(confirmed_payments) == 2
+        assert {row["method"] for row in confirmed_payments} == {"cash"}
+        assert len(list(session.execute(models.driver_cash_settlements.select()))) == 1
+        assert len(list(session.execute(models.driver_cash_settlement_items.select()))) == 2
+        assert len(list(session.execute(models.driver_cash_settlement_commands.select()))) == 1
+        assert session.scalar(sa.select(sa.func.count()).select_from(print_jobs)) == 0
+        assert {
+            row["status"]
+            for row in session.execute(
+                sa.select(orders.c.status).where(orders.c.id.in_([cash_one["id"], cash_two["id"]]))
+            ).mappings()
+        } == {"ACCEPTED"}
+
+
 def test_superadmin_can_login_and_create_active_admin_user() -> None:
     client = _client_with_seeded_database()
 

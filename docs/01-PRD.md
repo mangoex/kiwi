@@ -264,6 +264,13 @@ funcional separada.
 - `PRD-FR-057`: Debe realizar corte final irreversible salvo reapertura autorizada.
 - `PRD-FR-058`: Debe mantener evidencia y auditoría de reaperturas.
 - `PRD-FR-059`: Debe conciliar cobros entregados por repartidores.
+  - En Pedidos, seleccionar `A domicilio` debe habilitar un filtro por repartidor de la sucursal.
+  - Tras elegir repartidor, el Cajero puede seleccionar uno, varios o todos los pedidos elegibles
+    visibles, consultar cantidad e importe acumulado y confirmar la recepción exacta del efectivo.
+  - Sólo son elegibles pedidos asignados a ese repartidor, con intención `cash`, pago pendiente y
+    estado distinto de cancelado o cerrado. La liquidación confirma todos los pagos o ninguno.
+  - Cambiar al repartidor de sucursal o inactivarlo no traslada ni oculta la deuda: los cobros
+    pendientes siguen liquidándose en la sucursal de la asignación histórica.
 
 ### 4.6 Inventarios
 
@@ -442,6 +449,10 @@ funcional separada.
 - `PRD-FR-127`: Debe soportar despacho manual cuando el optimizador no esté disponible.
 - `PRD-FR-128`: Debe registrar estados de entrega desde la estación de despacho.
 - `PRD-FR-129`: Debe liquidar efectivo y diferencias por repartidor.
+  - La primera versión liquida únicamente el importe exacto: una diferencia no confirma pagos y
+    requiere un flujo posterior explícito de autorización/compensación.
+  - Cada liquidación debe conservar sucursal, turno de cobro, caja, repartidor, actor, pedidos,
+    pagos, total, moneda y fecha; reintentos no duplican pagos ni efectivo esperado.
 
 ### 4.10 Integraciones
 
