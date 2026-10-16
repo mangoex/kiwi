@@ -8653,6 +8653,24 @@ def test_branch_admin_staff_availability_and_audit_are_branch_scoped() -> None:
     assert product["has_local_override"] is False
     assert product["availability_source"] == "central"
     assert product["effective_availability"] is True
+    assert product["show_in_digital_menu"] is True
+    assert product["has_digital_menu_override"] is False
+
+    cashier_headers = _login_headers(client, "cajero.norte@kiwi.local", "Temporal123+")
+    denied_visibility = client.put(
+        f"/api/v1/branch-administration/catalog/products/{product['id']}"
+        "/digital-menu-visibility",
+        headers=cashier_headers,
+        json={"visible": False},
+    )
+    assert denied_visibility.status_code == 403
+    wrong_branch_visibility = client.put(
+        f"/api/v1/branch-administration/catalog/products/{product['id']}"
+        f"/digital-menu-visibility?branch_id={BRANCH_ID}",
+        headers=headers,
+        json={"visible": False},
+    )
+    assert wrong_branch_visibility.status_code == 403
 
     missing = client.put(
         "/api/v1/branch-administration/catalog/products/missing/availability",

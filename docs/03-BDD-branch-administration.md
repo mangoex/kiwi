@@ -3,7 +3,7 @@
 ## BDD-FEAT-050 Centro administrativo operativo de sucursal
 
 ```gherkin
-@PRD-FR-005 @PRD-FR-008 @PRD-FR-009 @PRD-FR-017 @PRD-FR-018 @PRD-FR-019 @PRD-ROLE-002 @admin @branch
+@PRD-FR-005 @PRD-FR-008 @PRD-FR-009 @PRD-FR-017 @PRD-FR-018 @PRD-FR-019 @PRD-FR-278 @PRD-ROLE-002 @admin @branch
 Feature: Un Supervisor de sucursal administra su sucursal sin ser administrador corporativo
 
   @BDD-SC-118
@@ -80,4 +80,16 @@ Feature: Un Supervisor de sucursal administra su sucursal sin ser administrador 
     Given sucursales activas registradas con coordenadas de latitud y longitud
     When un cliente o app móvil consulta las sucursales enviando latitud y longitud
     Then el backend devuelve las sucursales con la distancia calculada ordenada de la más cercana a la más lejana
+
+  @BDD-SC-706
+  Scenario: Supervisor oculta un producto vendible sólo del menú digital de su sucursal
+    Given un producto activo, con precio vigente y disponible en la sucursal autorizada
+    And Mostrar en menú digital está marcado por defecto
+    When el Supervisor desmarca Mostrar en menú digital
+    Then el producto continúa vendible y visible en el POS de esa sucursal
+    But no aparece en el catálogo público ni puede capturarse desde un cliente público obsoleto
+    And el producto conserva identidad, precio, receta, inventario e historia
+    When el Supervisor vuelve a marcar Mostrar en menú digital
+    Then se elimina la excepción y el producto reaparece en el catálogo público si continúa disponible
+    And cambiar disponibilidad no borra la preferencia digital independiente
 ```

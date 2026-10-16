@@ -428,6 +428,136 @@ def test_public_catalog_key_projects_its_own_branch_without_invented_prices() ->
     assert all(isinstance(item["price_cents"], int) for item in catalog["items"])
 
 
+def test_digital_menu_visibility_defaults_on_and_only_blocks_the_public_channel() -> None:
+    client = _client_with_seeded_database()
+    _enable_public_order_capture(client)
+    headers = _admin_headers()
+    second_branch = client.post(
+        "/api/v1/branches",
+        headers=headers,
+        json={"name": "Sucursal Visible", "code": "VISIBLE"},
+    ).json()
+    with _test_session_factory(client)() as session:
+        second_public_key = session.scalar(
+            sa.select(models.public_order_keys.c.public_key).where(
+                models.public_order_keys.c.branch_id == second_branch["id"]
+            )
+        )
+        assert second_public_key
+    admin_catalog = client.get(
+        f"/api/v1/branch-administration/catalog/products?branch_id={BRANCH_ID}",
+        headers=headers,
+    )
+    assert admin_catalog.status_code == 200
+    product = next(item for item in admin_catalog.json() if item["id"] == PRODUCT_ID)
+    assert product["effective_availability"] is True
+    assert product["show_in_digital_menu"] is True
+    assert product["has_digital_menu_override"] is False
+
+    hidden = client.put(
+        f"/api/v1/branch-administration/catalog/products/{PRODUCT_ID}"
+        f"/digital-menu-visibility?branch_id={BRANCH_ID}",
+        headers=headers,
+        json={"visible": False},
+    )
+    assert hidden.status_code == 200
+    assert hidden.json()["show_in_digital_menu"] is False
+    assert hidden.json()["has_digital_menu_override"] is True
+
+    invalid = client.put(
+        f"/api/v1/branch-administration/catalog/products/{PRODUCT_ID}"
+        f"/digital-menu-visibility?branch_id={BRANCH_ID}",
+        headers=headers,
+        json={"visible": "false"},
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"]["code"] == "invalid_digital_menu_visibility"
+
+    public_catalog = client.get(f"/api/v1/public/branches/{PUBLIC_KEY}/catalog")
+    assert public_catalog.status_code == 200
+    assert PRODUCT_ID not in {item["id"] for item in public_catalog.json()["items"]}
+    second_public_catalog = client.get(
+        f"/api/v1/public/branches/{second_public_key}/catalog"
+    )
+    assert PRODUCT_ID in {item["id"] for item in second_public_catalog.json()["items"]}
+
+    pos_catalog = client.get(
+        f"/api/v1/catalog/products?branch_id={BRANCH_ID}", headers=headers
+    )
+    assert pos_catalog.status_code == 200
+    assert PRODUCT_ID in {item["id"] for item in pos_catalog.json()}
+
+    for availability_action in ("unavailable", "inherit"):
+        availability = client.put(
+            f"/api/v1/branch-administration/catalog/products/{PRODUCT_ID}"
+            f"/availability?branch_id={BRANCH_ID}",
+            headers=headers,
+            json={"action": availability_action},
+        )
+        assert availability.status_code == 200
+    with _test_session_factory(client)() as session:
+        assert session.execute(
+            sa.select(models.branch_product_digital_visibility).where(
+                models.branch_product_digital_visibility.c.branch_id == BRANCH_ID,
+                models.branch_product_digital_visibility.c.product_id == PRODUCT_ID,
+            )
+        ).mappings().one()["is_visible"] is False
+
+    stale_capture = _post_intent(
+        client,
+        _payload(),
+        key="public-order-hidden-digital-product-001",
+    )
+    assert stale_capture.status_code == 409
+    assert stale_capture.json()["detail"]["code"] == "product_unavailable"
+    with _test_session_factory(client)() as session:
+        assert _count(session, "public_order_intents") == 0
+        exclusion = session.execute(
+            sa.select(models.branch_product_digital_visibility).where(
+                models.branch_product_digital_visibility.c.branch_id == BRANCH_ID,
+                models.branch_product_digital_visibility.c.product_id == PRODUCT_ID,
+            )
+        ).mappings().one()
+        assert exclusion["is_visible"] is False
+        hidden_audit = session.execute(
+            sa.select(models.audit_events).where(
+                models.audit_events.c.action
+                == "branch_product_digital_visibility.updated",
+                models.audit_events.c.branch_id == BRANCH_ID,
+            )
+        ).mappings().one()
+        assert hidden_audit["payload"]["previous"] is True
+        assert hidden_audit["payload"]["new"] is False
+
+    shown = client.put(
+        f"/api/v1/branch-administration/catalog/products/{PRODUCT_ID}"
+        f"/digital-menu-visibility?branch_id={BRANCH_ID}",
+        headers=headers,
+        json={"visible": True},
+    )
+    assert shown.status_code == 200
+    assert shown.json()["show_in_digital_menu"] is True
+    assert shown.json()["has_digital_menu_override"] is False
+    with _test_session_factory(client)() as session:
+        assert session.execute(
+            sa.select(models.branch_product_digital_visibility).where(
+                models.branch_product_digital_visibility.c.branch_id == BRANCH_ID,
+                models.branch_product_digital_visibility.c.product_id == PRODUCT_ID,
+            )
+        ).first() is None
+        visibility_audits = session.execute(
+            sa.select(models.audit_events).where(
+                models.audit_events.c.action
+                == "branch_product_digital_visibility.updated",
+                models.audit_events.c.branch_id == BRANCH_ID,
+            )
+        ).mappings().all()
+        assert [row["payload"]["new"] for row in visibility_audits] == [False, True]
+
+    visible_again = client.get(f"/api/v1/public/branches/{PUBLIC_KEY}/catalog")
+    assert PRODUCT_ID in {item["id"] for item in visible_again.json()["items"]}
+
+
 def test_post_commit_failure_recovers_the_same_intent_by_idempotency_key() -> None:
     client = _client_with_seeded_database()
     _enable_public_order_capture(client)

@@ -137,6 +137,13 @@ funcional separada.
   marcado como no vendible, y no puede ofrecerse ni cobrarse en POS.
   - La administración operativa por sucursal muestra la disponibilidad efectiva y distingue si
     proviene de herencia central o de una excepción local, sin permitir modificar el catálogo central.
+- `PRD-FR-278`: Un Administrador o Supervisor autorizado debe poder decidir por producto y sucursal
+  si un producto vendible se muestra en el menú digital público. La visibilidad digital está marcada
+  por defecto y es independiente de la disponibilidad operativa: desmarcarla conserva la venta en
+  POS, pero oculta y rechaza el producto en el canal público. Un producto no disponible permanece
+  fuera de POS y menú digital sin eliminar identidad, precio, receta, inventario ni historia. La
+  disponibilidad tiene precedencia sobre la visibilidad digital y ambas configuraciones sobreviven
+  de manera independiente.
 - `PRD-FR-018`: El POS debe distinguir entre administración corporativa y administración operativa
   por sucursal, con acceso controlado por permisos granulares en lugar de un único permiso o
   comparación de nombres de rol.

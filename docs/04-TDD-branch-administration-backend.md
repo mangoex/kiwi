@@ -37,3 +37,28 @@ And el Supervisor no puede forzar una sucursal fuera de allowed_branch_ids
 And la disponibilidad se hereda salvo excepción local explícita
 And la auditoría registra valor anterior y nuevo
 And `unit_type` distingue restaurant, bakery, production y other.
+
+## TDD-TS-147 Visibilidad del menú digital por sucursal
+
+Casos:
+
+- la migración `0095_branch_product_digital_visibility` crea una tabla separada con llave compuesta,
+  default visible por ausencia y downgrade bloqueado cuando existen exclusiones;
+- la consulta administrativa devuelve `show_in_digital_menu=true` para productos sin excepción;
+- el comando booleano requiere `catalog.branch.manage`, respeta la sucursal autorizada, audita el
+  cambio y sólo crea una excepción al ocultar;
+- ocultar no cambia la disponibilidad ni la proyección POS, pero sí excluye el producto del catálogo
+  público de esa sucursal y rechaza una captura pública que reutilice un ID obsoleto;
+- volver a mostrar elimina la excepción y no modifica precio, receta, inventario ni historia;
+- un error al cargar el catálogo público no activa productos estáticos que el backend no autorizó.
+
+## TDD-TC-408 La visibilidad digital permanece separada de la venta POS
+
+Given un producto activo, con precio positivo y disponibilidad efectiva en dos sucursales
+When la prueba desmarca Mostrar en menú digital únicamente en la sucursal A
+Then Administración refleja la excepción sólo en A
+And el producto permanece en el catálogo POS de A
+And no aparece ni puede capturarse en el canal público de A
+And continúa visible en el canal público de B
+When la prueba vuelve a marcarlo
+Then la fila de excepción se elimina y el default visible vuelve a aplicar.
