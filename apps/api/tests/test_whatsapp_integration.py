@@ -507,24 +507,21 @@ def test_tc403_meta_webhook_get_verification_and_dual_routing(client, test_db, a
 
     # 1. GET con /api/v1 y token correcto -> 200 con challenge en texto plano
     resp_api = client.get(
-        "/api/v1/integrations/whatsapp/webhook?hub.mode=subscribe"
-        f"&hub.challenge={challenge_val}&hub.verify_token={secret}"
+        f"/api/v1/integrations/whatsapp/webhook?hub.mode=subscribe&hub.challenge={challenge_val}&hub.verify_token={secret}"
     )
     assert resp_api.status_code == 200
     assert resp_api.text == challenge_val
 
     # 2. GET con /v1 (ruta de compatibilidad sin /api) -> 200 con challenge en texto plano
     resp_v1 = client.get(
-        "/v1/integrations/whatsapp/webhook?hub.mode=subscribe"
-        f"&hub.challenge={challenge_val}&hub.verify_token={secret}"
+        f"/v1/integrations/whatsapp/webhook?hub.mode=subscribe&hub.challenge={challenge_val}&hub.verify_token={secret}"
     )
     assert resp_v1.status_code == 200
     assert resp_v1.text == challenge_val
 
     # 3. GET con token incorrecto -> 403 Forbidden
     resp_forbidden = client.get(
-        "/api/v1/integrations/whatsapp/webhook?hub.mode=subscribe"
-        f"&hub.challenge={challenge_val}&hub.verify_token=wrong_token"
+        f"/api/v1/integrations/whatsapp/webhook?hub.mode=subscribe&hub.challenge={challenge_val}&hub.verify_token=wrong_token"
     )
     assert resp_forbidden.status_code == 403
 
@@ -544,8 +541,7 @@ def test_tc404_conversational_message_reply_and_outbound_dispatch(client, test_d
             "return_url": "https://mock.localhost/return-asistto",
             "client_secret": "asistto_bearer_outbound",
             "master_prompt": (
-                "Eres el asistente saludable de Kiwi. "
-                "Saluda a Carlos y recomienda ensaladas."
+                "Eres el asistente saludable de Kiwi. Saluda a Carlos y recomienda ensaladas."
             ),
         },
         headers=auth_headers,
@@ -652,7 +648,7 @@ def test_tc404_conversational_message_reply_and_outbound_dispatch(client, test_d
 
 
 # ---------------------------------------------------------------------------
-# TDD-TC-405: Interpolación de variables de menú con precios, sucursales y cliente.
+# TDD-TC-405: Interpolación de Variables en Tiempo de Ejecución
 # ---------------------------------------------------------------------------
 
 

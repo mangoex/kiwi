@@ -82,10 +82,7 @@ class WhatsAppAdapter(IOrderChannelAdapter):
     def extract_incoming_message(
         self, payload: dict[str, Any]
     ) -> tuple[str | None, str | None, bool]:
-        (
-            'Extract (sender_phone, message_text, is_status_receipt) '
-            'from Meta/Asistto webhook formats.'
-        )
+        """Extract (sender_phone, message_text, is_status_receipt) from webhook formats."""
         # 1. Delivery/read status receipts from Meta Cloud API
         if "statuses" in payload:
             return None, None, True
@@ -172,10 +169,7 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         payload: dict[str, Any] | None = None,
         default_prep_time_minutes: int = 25,
     ) -> dict[str, Any]:
-        (
-            'Build full live context from DB: customer profile, menu '
-            'with prices, branches, and conversation history.'
-        )
+        """Build full live context from DB: customer, menu/prices, branches, and history."""
         customer: dict[str, Any] = {
             "found": False,
             "normalized_phone": normalize_mexican_phone(sender_phone or ""),
@@ -218,8 +212,10 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         favorites = (customer.get("favorites") if customer else None) or []
         if favorites:
             fav_parts = [
-                f"{f['product_name']} (pedido {f['times_ordered']} "
-                f"{'vez' if f['times_ordered'] == 1 else 'veces'})"
+                (
+                    f"{f['product_name']} (pedido {f['times_ordered']} "
+                    f"{'vez' if f['times_ordered'] == 1 else 'veces'})"
+                )
                 for f in favorites
                 if f.get("product_name")
             ]
@@ -459,10 +455,8 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         if not base_prompt:
             base_prompt = (
                 "Eres KiwiBot, el anfitrión y sommelier virtual de Kiwi - Comida Saludable. "
-                'Atiende con calidez, ofrece el menú oficial con sus precios '
-                'reales, identifica al cliente '
-                'y confirma sucursal y modalidad (recoger o domicilio) antes '
-                'de registrar su pedido.'
+                "Atiende con calidez, ofrece el menú oficial con sus precios reales, "
+                "identifica al cliente y confirma sucursal y modalidad antes de registrar."
             )
 
         replacements = {
@@ -485,8 +479,10 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         customer_status_line = (
             f"Cliente registrado en BD: SÍ — Nombre: {customer_name} (Tel: {phone_str})"
             if customer_found
-            else f"Cliente registrado en BD: NO (Teléfono: {phone_str}). "
-            "Es cliente nuevo; salúdalo cálidamente y pregúntale su nombre."
+            else (
+                f"Cliente registrado en BD: NO (Teléfono: {phone_str}). "
+                "Es cliente nuevo; salúdalo cálidamente y pregúntale su nombre."
+            )
         )
         live_block = (
             "\n\n=== DATOS EN TIEMPO REAL DE LA BASE DE DATOS (KIWI POS) ===\n"
@@ -511,10 +507,7 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         context: dict[str, Any] | None = None,
         conversation_history: list[dict[str, str]] | None = None,
     ) -> str:
-        (
-            'Generate conversational reply using OpenRouter/Gemini with '
-            'interpolated live DB context.'
-        )
+        """Generate conversational reply using OpenRouter/Gemini with live DB context."""
         rendered_prompt = self.render_system_prompt(
             system_prompt=system_prompt,
             customer_name=customer_name,
@@ -566,9 +559,9 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                 )
                 with urlopen(req, timeout=12.0) as resp:
                     envelope = json.loads(resp.read().decode("utf-8"))
-                    content: object = envelope["choices"][0]["message"]["content"]
+                    content = envelope["choices"][0]["message"]["content"]
                     if content and isinstance(content, str):
-                        return content.strip()
+                        return str(content).strip()
             except Exception as e:
                 logger.warning("Error invocando OpenRouter para WhatsApp: %s", e)
 
@@ -601,8 +594,10 @@ class WhatsAppAdapter(IOrderChannelAdapter):
             preview = (
                 effective_menu
                 if effective_menu
-                else '• Bowls de Proteína Limpia\n• Ensaladas Frescas\n• Wraps '
-                'Saludables\n• Jugos Verdes y Smoothies'
+                else (
+                    "• Bowls de Proteína Limpia\n• Ensaladas Frescas\n"
+                    "• Wraps Saludables\n• Jugos Verdes y Smoothies"
+                )
             )
             fav_note = (
                 f"\n\n⭐ *Tus favoritos registrados:* {effective_favs}"
@@ -612,8 +607,8 @@ class WhatsAppAdapter(IOrderChannelAdapter):
             return (
                 f"¡Hola{greeting_name}! 🥑 Aquí tienes nuestro *Menú Saludable de Kiwi*:\n\n"
                 f"{preview}{fav_note}\n\n"
-                '¿Cuál se te antoja ordenar hoy? Dime si prefieres entrega a '
-                'domicilio o pasar a recoger a sucursal.'
+                "¿Cuál se te antoja ordenar hoy? Dime si prefieres entrega a domicilio "
+                "o pasar a recoger a sucursal."
             )
         if any(
             w in text_lower
@@ -645,14 +640,13 @@ class WhatsAppAdapter(IOrderChannelAdapter):
                 return (
                     f"¡Hola {customer_name}! 🥑 Qué gusto saludarte de nuevo en "
                     f"*Kiwi - Comida Saludable* 🥝{addr_hint}\n\n"
-                    '¿Te gustaría ver nuestro menú saludable de hoy o repetir '
-                    'alguno de tus platillos favoritos?'
+                    "¿Te gustaría ver nuestro menú saludable de hoy o repetir "
+                    "alguno de tus platillos favoritos?"
                 )
             return (
                 "¡Hola! 🥗 Bienvenido a *Kiwi - Comida Saludable* 🥝\n\n"
-                '¿Con quién tengo el gusto hoy? Puedo mostrarte nuestro menú '
-                'con precios, sucursales disponibles o tomar tu pedido para '
-                'recoger o a domicilio.'
+                "¿Con quién tengo el gusto hoy? Puedo mostrarte nuestro menú con precios, "
+                "sucursales disponibles o tomar tu pedido para recoger o a domicilio."
             )
         if any(w in text_lower for w in ("horario", "horarios", "abren", "cierran", "abierto")):
             branch_info = (
@@ -660,8 +654,7 @@ class WhatsAppAdapter(IOrderChannelAdapter):
             )
             return (
                 f"⏰ *Horarios de Atención Kiwi:*\n"
-                "Nuestra cocina saludable está lista para preparar tus alimentos frescos."
-                f"{branch_info}\n\n"
+                f"Nuestra cocina saludable está lista para preparar tus alimentos.{branch_info}\n\n"
                 "¿Deseas conocer el menú o levantar tu pedido?"
             )
 
@@ -669,8 +662,8 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         return (
             f"¡Con gusto{greeting_name}! 🥝\n\n"
             f'Recibí tu mensaje: *"{incoming_text}"*.{menu_snippet}\n\n'
-            '¿Qué platillos te gustaría incluir en tu pedido y en qué '
-            'sucursal o domicilio lo prefieres?'
+            "¿Qué platillos te gustaría incluir en tu pedido y en qué sucursal "
+            "o domicilio lo prefieres?"
         )
 
     def normalize_order(

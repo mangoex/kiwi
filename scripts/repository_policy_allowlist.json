@@ -207,7 +207,7 @@
     },
     {
       "path": "apps/api/tests/test_whatsapp_integration.py",
-      "sha256": "06880a75d99ce24b3f9e730c5bdb0d0f5025811e2761a3679d0bc4fb2e3338b6",
+      "sha256": "33582e79c7959a24b8f113e2aac3f35eca99688a5b633117b72e2750be568f1b",
       "provenance": "restaurantos-whatsapp-asistto-fixtures-v1"
     }
   ]
