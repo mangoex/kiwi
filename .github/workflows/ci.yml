@@ -93,6 +93,7 @@ jobs:
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE corp_pur_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE supplier_xml_test_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE driver_cash_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE tracking_ci"
       - name: Preprovision mandatory PCO-003 PostgreSQL schema
         working-directory: apps/api
         env:
@@ -132,6 +133,7 @@ jobs:
           CORP_PUR_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/corp_pur_ci
           SUPPLIER_XML_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/supplier_xml_test_ci
           DRIVER_CASH_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/driver_cash_ci
+          TRACKING_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/tracking_ci
         run: |
           python -m pytest --collect-only -q > python-collection.txt
           python -m pytest --junitxml=python-tests.xml
@@ -310,6 +312,21 @@ jobs:
         run: node tests/browser/test_offline_gateway_real.mjs
       - name: Build Mobile Web
         run: pnpm --filter @restaurantos/mobile-web build
+      - name: Verify public tracking against an isolated API
+        env:
+          ADMINRETRO_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
+          TRACKING_MANIFEST: ${{ runner.temp }}/public-tracking/manifest.json
+          TRACKING_BASE_URL: http://127.0.0.1:8149
+        run: |
+          python tests/e2e/public_tracking_fixture.py --directory "$RUNNER_TEMP/public-tracking" --port 8149 > "$RUNNER_TEMP/public-tracking.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8149/health/live > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8149/health/live > /dev/null
+          node tests/browser/test_public_order_tracking.mjs
       - name: Build Public Landing
         run: pnpm --filter @restaurantos/landing-web build
 

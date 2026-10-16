@@ -13,6 +13,8 @@ import { BottomNav, NavTab } from './components/BottomNav';
 import { FloatingCartBar } from './components/FloatingCartBar';
 import { BranchSelectorModal } from './components/BranchSelectorModal';
 import { detectProductSize } from './imageMap';
+import { usePublicOrderTracking } from './hooks/usePublicOrderTracking';
+import { ActiveOrderTracker } from './components/ActiveOrderTracker';
 
 const EXCLUDED_CATEGORY_KEYWORDS = [
   'servicio a domicilio',
@@ -27,6 +29,14 @@ const EXCLUDED_CATEGORY_KEYWORDS = [
   'modificador',
   'modificadores',
 ];
+
+function saveLocalPreference(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* Keep the current screen usable. */ }
+}
+
+function readLocalPreference(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
 
 export const App: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -72,7 +82,11 @@ export const App: React.FC = () => {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [createdOrderResult, setCreatedOrderResult] = useState<CreatedOrderResult | null>(null);
+  const [createdOrderBranchId, setCreatedOrderBranchId] = useState<string | undefined>();
   const [orderSubmitError, setOrderSubmitError] = useState<string | null>(null);
+  const tracking = usePublicOrderTracking(selectedBranch?.id);
+  const selectedBranchRef = useRef(selectedBranch?.id);
+  selectedBranchRef.current = selectedBranch?.id;
 
   // Geolocation detector
   const detectLocationAndFetchBranches = useCallback((forceNearest = false) => {
@@ -85,9 +99,9 @@ export const App: React.FC = () => {
         if (forceNearest && isGps) {
           // When user explicitly clicks GPS button, choose the nearest branch
           setSelectedBranch(branchList[0]);
-          localStorage.setItem('kiwi_selected_branch_id', branchList[0].id);
+          saveLocalPreference('kiwi_selected_branch_id', branchList[0].id);
         } else {
-          const savedId = localStorage.getItem('kiwi_selected_branch_id');
+          const savedId = readLocalPreference('kiwi_selected_branch_id');
           const match = branchList.find((b) => b.id === savedId);
           setSelectedBranch(match || branchList[0]);
         }
@@ -152,7 +166,7 @@ export const App: React.FC = () => {
 
   const handleSelectBranch = (branch: BranchInfo) => {
     setSelectedBranch(branch);
-    localStorage.setItem('kiwi_selected_branch_id', branch.id);
+    saveLocalPreference('kiwi_selected_branch_id', branch.id);
     if (returnToCartAfterBranch) {
       setReturnToCartAfterBranch(false);
       setIsCartOpen(true);
@@ -161,11 +175,11 @@ export const App: React.FC = () => {
 
   // Save favorites & cart to localStorage
   useEffect(() => {
-    localStorage.setItem('kiwi_liked_products', JSON.stringify(Array.from(likedProductIds)));
+    saveLocalPreference('kiwi_liked_products', JSON.stringify(Array.from(likedProductIds)));
   }, [likedProductIds]);
 
   useEffect(() => {
-    localStorage.setItem('kiwi_mobile_cart', JSON.stringify(cart));
+    saveLocalPreference('kiwi_mobile_cart', JSON.stringify(cart));
   }, [cart]);
 
   // Reset size filter when category changes
@@ -263,6 +277,11 @@ export const App: React.FC = () => {
         customerCoords || undefined,
         selectedBranch?.public_key,
       );
+      if (result.kind === 'public_order_intent' && selectedBranch) {
+        tracking.remember(result.public_reference, selectedBranch.id);
+      }
+      if (selectedBranchRef.current !== selectedBranch?.id) return;
+      setCreatedOrderBranchId(selectedBranch?.id);
       setCreatedOrderResult(result);
       setCart([]);
       setIsCartOpen(false);
@@ -385,6 +404,10 @@ export const App: React.FC = () => {
 
   return (
     <div className="mobile-app-shell">
+      {tracking.references.length > 0 && <div className="public-tracking-slot">
+        <ActiveOrderTracker tracking={tracking} branchPhone={selectedBranch?.phone} />
+      </div>}
+
       {currentTab === 'explore' && (
         <HeroHeader
           categories={visibleCategories}
@@ -535,10 +558,11 @@ export const App: React.FC = () => {
       />
 
       {/* Order Success & WhatsApp Modal */}
-      {createdOrderResult && (
+      {createdOrderResult && createdOrderBranchId === selectedBranch?.id && (
         <OrderSuccessModal
           orderResult={createdOrderResult}
           branch={selectedBranch}
+          tracking={tracking}
           onClose={() => setCreatedOrderResult(null)}
           onNewOrder={() => setCreatedOrderResult(null)}
         />

@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     public_order_global_rate_limit_per_minute: int = Field(default=20, ge=1, le=1000)
     public_order_client_rate_limit_per_minute: int = Field(default=5, ge=1, le=1000)
     public_order_rate_limit_hmac_secret: str | None = Field(default=None, min_length=32)
+    public_tracking_global_rate_limit_per_minute: int = Field(default=6000, ge=1, le=100000)
+    public_tracking_client_rate_limit_per_minute: int = Field(default=240, ge=1, le=10000)
     assisted_order_enabled: bool = Field(default=False)
     admin_ai_assistant_enabled: bool = Field(default=False)
     grokbot_agent_tools_enabled: bool = Field(default=False)
@@ -91,6 +93,11 @@ class Settings(BaseSettings):
                 "RESTAURANTOS_PUBLIC_ORDER_CLIENT_RATE_LIMIT_PER_MINUTE must not exceed "
                 "RESTAURANTOS_PUBLIC_ORDER_GLOBAL_RATE_LIMIT_PER_MINUTE"
             )
+        if (
+            self.public_tracking_client_rate_limit_per_minute
+            > self.public_tracking_global_rate_limit_per_minute
+        ):
+            raise ValueError("Public tracking client rate limit must not exceed its global limit")
         if (
             self.grokbot_agent_identity_rate_limit_per_minute
             > self.grokbot_agent_global_rate_limit_per_minute

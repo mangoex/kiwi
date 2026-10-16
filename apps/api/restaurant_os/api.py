@@ -3401,8 +3401,32 @@ def _create_public_order_intent_with_runtime(
 
 
 @router.get("/public/order-intents/{public_reference}")
-def get_public_order_intent_endpoint(public_reference: str, session: SessionDep) -> dict[str, Any]:
-    return _business_response(lambda: get_public_order_intent(session, public_reference))
+def get_public_order_intent_endpoint(
+    public_reference: str, session: SessionDep, request: Request, tracking: bool = False,
+) -> dict[str, Any]:
+    limiter = getattr(request.app.state, "public_order_tracking_rate_limiter", None)
+    signal = f"{request.client.host if request.client else 'unknown'}\n" + request.headers.get(
+        "user-agent", "",
+    )[:256] + f"\n{public_reference[:64]}"
+    try:
+        if limiter is None:
+            raise RuntimeError("tracking limiter unavailable")
+        allowed = bool(limiter.allow("tracking:v1", signal))
+    except Exception as exc:
+        logger.info("public_order_tracking", extra={"result": "unavailable"})
+        raise HTTPException(status_code=503, detail={
+            "code": "public_tracking_unavailable", "message": "Tracking is temporarily unavailable",
+        }, headers={"Retry-After": "60"}) from exc
+    if not allowed:
+        logger.info("public_order_tracking", extra={"result": "limited"})
+        raise HTTPException(status_code=429, detail={
+            "code": "public_tracking_rate_limited", "message": "Tracking is rate limited",
+        }, headers={"Retry-After": "60"})
+    result = _business_response(lambda: get_public_order_intent(
+        session, public_reference, include_tracking=tracking,
+    ))
+    logger.info("public_order_tracking", extra={"result": "success"})
+    return result
 
 
 class CustomerFeedbackPayload(BaseModel):

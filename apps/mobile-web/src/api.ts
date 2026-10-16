@@ -359,3 +359,28 @@ export async function fetchOrderUpsellRecommendations(
     return [];
   }
 }
+import type { PublicOrderTracking, TrackedOrderReference } from './types';
+import { parseTrackingResponse, TrackingRequestError } from './orderTracking';
+
+export async function fetchPublicOrderTracking(
+  ref: TrackedOrderReference, signal: AbortSignal,
+): Promise<PublicOrderTracking> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal.addEventListener('abort', abort, { once: true });
+  if (signal.aborted) controller.abort();
+  const timeout = setTimeout(abort, 10000);
+  try {
+    const response = await fetch(`/api/v1/public/order-intents/${encodeURIComponent(ref.public_reference)}?tracking=true`, {
+      cache: 'no-store', referrerPolicy: 'no-referrer', signal: controller.signal,
+    });
+    if (!response.ok) {
+      const seconds = Number(response.headers.get('Retry-After'));
+      throw new TrackingRequestError(response.status,
+        Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds * 1000, 300000) : 30000);
+    }
+    return parseTrackingResponse(await response.json(), ref.public_reference, ref.branch_id);
+  } finally {
+    clearTimeout(timeout); signal.removeEventListener('abort', abort);
+  }
+}

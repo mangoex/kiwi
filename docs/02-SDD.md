@@ -6716,3 +6716,49 @@ Afirmación: no se duplica el efectivo esperado. Evidencia: cada pedido conserva
 `CONFIRMED`; la liquidación no crea movimientos manuales. Intento de refutación: replay equivalente y
 misma clave con cuerpo diferente. Resultado esperado: misma respuesta o conflicto sin nuevos pagos.
 Riesgo residual: correcciones/diferencias distintas de cero quedan fuera de esta primera versión.
+
+## 67. Seguimiento público del menú móvil
+
+`GET /api/v1/public/order-intents/{public_reference}?tracking=true` amplía la lectura original;
+sin el parámetro conserva sus cuatro campos actuales. Sólo resuelve referencias `PI-` con los
+32 dígitos hexadecimales de un UUID v4. No admite folio operativo ni UUID interno. La referencia
+es una capacidad de lectura: quien la conoce puede consultar únicamente este DTO mínimo.
+
+La proyección conserva status/version de la intención, usa el total operativo vigente después
+de la aceptación (antes, el capturado), y agrega branch_id, branch_name,
+service_type, created_at, updated_at, operational_status, display_status, folio y terminal.
+El pedido se resuelve por accepted_order_id más public_order_intent_id, organization_id y branch_id;
+un vínculo incoherente falla como no encontrado. No expone cliente, domicilio, repartidor,
+motivo interno, pagos, IDs operativos ni payloads de eventos. No escribe ni expira filas al leer.
+Los timestamps UTC proceden de la intención y del máximo evento del pedido. CLOSED sólo se
+presenta como entregado/devuelto si existe el evento correspondiente; sin él dice Finalizado.
+
+Las respuestas de esta ruta, incluidos errores, llevan Cache-Control:no-store,
+Referrer-Policy:no-referrer y X-Content-Type-Options:nosniff. El GET usa un limiter independiente
+de captura, con bucket constante tracking:v1 e identidad derivada del peer ASGI, UA acotado y
+referencia (máximo 64 caracteres) para no compartir cuota entre pedidos detrás del mismo proxy,
+HMAC antes de Redis. Configuración global/client por minuto: 6000/240; Redis se usa cuando está
+configurado con secreto y el modo local usa limiter en memoria por proceso, como captura.
+Un limiter ausente o averiado devuelve 503, exceso 429 con Retry-After:60. No se confía en headers
+forwarded enviados por el cliente. Estos límites no certifican capacidad medida de producción.
+
+El menú guarda sólo referencias opacas y sucursal en storage versionado. No hay TTL que esconda
+un pedido aún activo. Una única fuente de actualización alimenta modal y tarjeta; las consultas
+secuenciales usan cinco segundos entre ciclos, timeout y backoff ante fallos/429, se suspenden
+con la página oculta y terminan individualmente en estados terminales. Se abortan al desmontar
+o cambiar de sucursal; un resultado tardío nunca contamina el nuevo contexto. Storage fallido
+conserva seguimiento en memoria y avisa que no sobrevivirá a recarga. El folio es presentación,
+nunca credencial. Eliminar una referencia local no escribe en el servidor.
+
+La tarjeta emplea cuatro etapas accesibles. PENDING_REVIEW no completa ninguna; ACCEPTED completa
+confirmación; producción marca preparación. READY muestra Listo para recoger para takeout/dine-in
+y Listo para salir para delivery; sólo IN_DELIVERY marca En camino. DELIVERED completa entrega.
+REJECTED/CANCELLED/EXPIRED/FAILED/RETURNED tienen presentación terminal específica. No se inventa
+ETA ni posición GPS. La última sincronización local y el timestamp del servidor son distintos.
+No se crea un enlace público por folio ni se modifica la captura legacy sin referencia opaca.
+
+La migración aditiva `0097_public_tracking_event_index` crea el índice de eventos por
+`(order_id, created_at, id)` para evitar recorrer el histórico completo en cada consulta. No
+modifica filas; el downgrade sólo retira el índice. La construcción requiere una ventana aprobada
+según volumen/bloqueo medido y autorización productiva separada. Una devolución posterior a
+DELIVERED se vuelve a consultar al recargar: la primera versión detiene ese estado terminal.

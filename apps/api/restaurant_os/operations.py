@@ -27506,7 +27506,12 @@ def create_public_order_intent(
     return result, True
 
 
-def get_public_order_intent(session: Session, public_reference: str) -> dict[str, Any]:
+def get_public_order_intent(
+    session: Session, public_reference: str, *, include_tracking: bool = False,
+) -> dict[str, Any]:
+    # This unguessable capability never falls back to a readable operational folio/ID.
+    if include_tracking and not re.fullmatch(r"PI-[0-9A-F]{32}", public_reference):
+        raise NotFoundError("public_order_not_found", "Public order intent was not found")
     intent = (
         session.execute(
             sa.select(models.public_order_intents).where(
@@ -27518,7 +27523,63 @@ def get_public_order_intent(session: Session, public_reference: str) -> dict[str
     )
     if not intent:
         raise NotFoundError("public_order_not_found", "Public order intent was not found")
-    return _public_intent_response(dict(intent))
+    result = _public_intent_response(dict(intent))
+    if not include_tracking:
+        return result
+    branch = session.execute(
+        sa.select(models.branches.c.name).where(
+            models.branches.c.id == intent["branch_id"],
+            models.branches.c.organization_id == intent["organization_id"],
+        )
+    ).first()
+    if not branch:
+        raise NotFoundError("public_order_not_found", "Public order intent was not found")
+    operational_status: str | None = None
+    folio: str | None = None
+    display_status = str(intent["status"])
+    service_type = str(intent["order_type"])
+    timestamps = [intent[key] for key in ("created_at", "accepted_at", "decided_at") if intent[key]]
+    if intent["status"] == "ACCEPTED":
+        order = session.execute(sa.select(models.orders).where(
+            models.orders.c.id == intent["accepted_order_id"],
+            models.orders.c.public_order_intent_id == intent["id"],
+            models.orders.c.organization_id == intent["organization_id"],
+            models.orders.c.branch_id == intent["branch_id"],
+        )).mappings().first()
+        if not order:
+            raise NotFoundError("public_order_not_found", "Public order intent was not found")
+        operational_status = str(order["status"])
+        display_status = operational_status
+        folio = str(order["folio"])
+        service_type = str(order["order_type"])
+        result["total_cents"] = int(order["total_cents"])
+        last_event = session.execute(sa.select(sa.func.max(models.order_events.c.created_at)).where(
+            models.order_events.c.order_id == order["id"],
+        )).scalar_one_or_none()
+        if last_event:
+            timestamps.append(last_event)
+        if operational_status == "CLOSED":
+            outcome = session.execute(sa.select(models.order_events.c.event_type).where(
+                models.order_events.c.order_id == order["id"],
+                models.order_events.c.event_type.in_(["DELIVERED", "RETURNED"]),
+            ).order_by(
+                models.order_events.c.created_at.desc(), models.order_events.c.id.desc(),
+            ).limit(1)).scalar_one_or_none()
+            display_status = str(outcome) if outcome else "CLOSED"
+
+    def utc(value: datetime) -> datetime:
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+    result.update({
+        "branch_id": str(intent["branch_id"]), "branch_name": str(branch[0]),
+        "service_type": service_type, "created_at": utc(intent["created_at"]).isoformat(),
+        "updated_at": max(utc(value) for value in timestamps).isoformat(),
+        "operational_status": operational_status, "display_status": display_status, "folio": folio,
+        "terminal": display_status in {
+            "DELIVERED", "CLOSED", "CANCELLED", "REJECTED", "EXPIRED", "FAILED", "RETURNED",
+        },
+    })
+    return result
 
 
 def _revalidate_public_intent_operationally(session: Session, intent: dict[str, Any]) -> None:

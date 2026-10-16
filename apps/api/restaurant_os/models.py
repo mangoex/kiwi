@@ -2519,6 +2519,11 @@ order_events = sa.Table(
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
 
+sa.Index(
+    "ix_order_events_tracking", order_events.c.order_id,
+    order_events.c.created_at, order_events.c.id,
+)
+
 production_tasks = sa.Table(
     "production_tasks",
     metadata,

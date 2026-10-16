@@ -90,6 +90,32 @@ def create_app() -> FastAPI:
     app = FastAPI(title="RestaurantOS API", version=settings.app_version)
     app.add_middleware(WorkspaceBodyLimitMiddleware)
     app.state.public_order_intents_enabled = settings.public_order_intents_enabled
+    tracking_limiter = (
+        RedisPublicOrderRateLimiter(
+            settings.redis_url, settings.public_tracking_global_rate_limit_per_minute,
+            settings.public_tracking_client_rate_limit_per_minute,
+            settings.public_order_rate_limit_hmac_secret,
+        )
+        if settings.redis_url and settings.public_order_rate_limit_hmac_secret
+        else InMemoryPublicOrderRateLimiter(
+            settings.public_tracking_global_rate_limit_per_minute,
+            settings.public_tracking_client_rate_limit_per_minute,
+            settings.public_order_rate_limit_hmac_secret or settings.secret_key,
+        )
+    )
+    app.state.public_order_tracking_rate_limiter = tracking_limiter
+
+    @app.middleware("http")
+    async def public_tracking_privacy(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        response = await call_next(request)
+        if request.url.path.startswith("/api/v1/public/order-intents/"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
     if settings.public_order_intents_enabled:
         if settings.redis_url and settings.public_order_rate_limit_hmac_secret:
             app.state.public_order_rate_limiter = RedisPublicOrderRateLimiter(
