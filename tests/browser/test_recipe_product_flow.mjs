@@ -18,14 +18,14 @@ const initialRecipe = () => ({
   id: 'recipe-qa',
   version: 3,
   source: 'branch',
-  yield_quantity: '1',
+  yield_quantity: '1.123456',
   yield_unit_id: unitId,
   components: [{
     item_id: itemId,
     unit_id: unitId,
-    net_quantity: '1',
-    waste_rate: '0.125',
-    gross_quantity: '1.142857',
+    net_quantity: '0.123456',
+    waste_rate: '0.125678',
+    gross_quantity: '0.141200',
   }],
   latest_cost: { total_cost: '4.000000', cost_per_yield_unit: '4.000000' },
 });
@@ -84,10 +84,11 @@ async function mockApi(page, state) {
     }
     if (path === `/recipes/${productId}/preview`) {
       const payload = route.request().postDataJSON();
+      state.previews.push(payload);
       const percent = payload.components[0]?.waste_percent;
-      if (!['12.5', '20', '25'].includes(percent)) return route.fulfill({ status: 409, json: { detail: { code: 'invalid_recipe_component', message: 'Invalid waste' } } });
-      const gross = { '12.5': '1.142857', '20': '1.250000', '25': '1.333333' }[percent];
-      return route.fulfill({ json: { source: 'python', context_fingerprint: 'synthetic-preview', total_cost: '5.000000', cost_per_yield_unit: '5.000000', breakdown: [{ item_id: itemId, gross_quantity: gross, total_cost: '5.000000', cost_source: 'inventory_average' }] } });
+      if (!['12.5678', '20', '25'].includes(percent)) return route.fulfill({ status: 409, json: { detail: { code: 'invalid_recipe_component', message: 'Invalid waste' } } });
+      const gross = { '12.5678': '0.141200', '20': '1.250000', '25': '1.333333' }[percent];
+      return route.fulfill({ json: { source: 'python', context_fingerprint: 'synthetic-preview', total_cost: '45.586562', cost_per_yield_unit: '40.578915', breakdown: [{ item_id: itemId, gross_quantity: gross, total_cost: '45.586562', cost_source: 'inventory_average' }] } });
     }
     if (path === `/products/${productId}/recipe`) {
       if (route.request().method() === 'PUT') {
@@ -98,14 +99,15 @@ async function mockApi(page, state) {
           });
         }
         const payload = route.request().postDataJSON();
+        state.saveCount += 1;
         state.save = { body: payload, idempotencyKey: route.request().headers()['idempotency-key'] };
         state.recipe = {
           ...initialRecipe(),
-          id: 'recipe-saved',
-          version: 4,
+          id: `recipe-saved-${state.saveCount}`,
+          version: 3 + state.saveCount,
           yield_quantity: payload.yield_quantity,
           yield_unit_id: payload.yield_unit_id,
-          components: payload.components.map((component) => ({ ...component, waste_rate: '0.2', gross_quantity: '1.250000' })),
+          components: payload.components.map((component) => ({ ...component, waste_rate: { '12.5678': '0.125678', '20': '0.2', '25': '0.25' }[component.waste_percent], gross_quantity: '1.250000' })),
           latest_cost: { total_cost: '5.000000', cost_per_yield_unit: '5.000000' },
         };
       } else if (state.recipeReadFails) {
@@ -127,6 +129,8 @@ async function verifyViewport(browser, width) {
   const state = {
     recipe: initialRecipe(),
     save: null,
+    saveCount: 0,
+    previews: [],
     productSave: null,
     paths: [],
     recipeReadFails: width === 1440,
@@ -170,17 +174,62 @@ async function verifyViewport(browser, width) {
   try {
     await wasteInput.waitFor();
     assert.equal(await wasteInput.getAttribute('aria-label'), 'Merma porcentual de Harina de prueba');
-    assert.equal(await wasteInput.inputValue(), '12.5');
+    assert.equal(await wasteInput.inputValue(), '12.57');
   } catch (error) {
     console.error(`Recipe editor did not load components at ${width}px`, { editor: await editor.innerText(), paths: state.paths });
     throw error;
   }
   await editor.getByText('Costo de captura calculado por Python:', { exact: true }).waitFor();
-  assert.match(await editor.innerText(), /1\.142857 PZA/);
+  assert.match(await editor.innerText(), /0\.14 PZA/);
+  assert.match(await editor.innerText(), /\$45\.59 MXN/);
+  assert.match(await editor.innerText(), /\$40\.58 MXN por unidad de rendimiento/);
+  assert.doesNotMatch(await editor.innerText(), /45\.586562|40\.578915|0\.141200/);
   assert.match(await editor.innerText(), /Precio de venta actual: \$10\.00 MXN/);
+
+  const yieldInput = editor.locator('input[id^="recipe-yield-"]');
+  const netInput = editor.getByRole('textbox', { name: 'Cantidad neta de Harina de prueba' });
+  assert.equal(await yieldInput.inputValue(), '1.12');
+  assert.equal(await netInput.inputValue(), '0.12');
+  assert.equal(state.previews.at(-1).yield_quantity, '1.123456');
+  assert.equal(state.previews.at(-1).components[0].net_quantity, '0.123456');
+  assert.equal(state.previews.at(-1).components[0].waste_percent, '12.5678');
+
+  // Focusing and leaving a rounded field must never quantize the command.
+  await netInput.focus();
+  await wasteInput.focus();
+  await yieldInput.focus();
+  await editor.getByRole('button', { name: 'Guardar Receta' }).click();
+  await editor.getByRole('status').filter({ hasText: 'Receta guardada y versionada' }).waitFor();
+  assert.equal(state.save.body.yield_quantity, '1.123456');
+  assert.equal(state.save.body.components[0].net_quantity, '0.123456');
+  assert.equal(state.save.body.components[0].waste_percent, '12.5678');
+
+  await wasteInput.fill('20');
+  await editor.getByRole('button', { name: 'Guardar Receta' }).click();
+  await editor.getByRole('status').filter({ hasText: 'Receta guardada y versionada' }).waitFor();
+  assert.equal(state.saveCount, 2);
+  assert.equal(state.save.body.yield_quantity, '1.123456');
+  assert.equal(state.save.body.components[0].net_quantity, '0.123456');
+  assert.equal(state.save.body.components[0].waste_percent, '20');
+
+  for (const [field, valid] of [[yieldInput, '1.25'], [netInput, '0,12'], [wasteInput, '20']]) {
+    const previewCount = state.previews.length;
+    await field.fill('12.345');
+    await field.blur();
+    assert.equal(await field.inputValue(), '12.345', 'Invalid text must not be silently rounded');
+    assert.equal(await field.getAttribute('aria-invalid'), 'true');
+    assert.equal(await editor.getByRole('button', { name: 'Guardar Receta' }).isDisabled(), true);
+    await page.waitForTimeout(300); // Beyond the preview debounce; invalid capture must produce no request.
+    assert.equal(state.previews.length, previewCount);
+    assert.equal(state.saveCount, 2);
+    await field.fill(valid);
+    await field.blur();
+    assert.match(await field.inputValue(), /^\d+\.\d{2}$/);
+  }
 
   await page.getByPlaceholder('Filtrar insumos por nombre o unidad').fill('harina');
   assert.equal(await editor.locator('select[aria-label="Insumo 1"] option').count(), 2);
+  await editor.getByText('Costo de captura calculado por Python:', { exact: true }).waitFor();
   mkdirSync(screenshotDir, { recursive: true });
   await page.screenshot({ path: join(screenshotDir, `recipe-product-flow-${width}.png`), fullPage: true });
   assert.equal(await page.locator('html').evaluate((element) => element.scrollWidth <= element.clientWidth), true, `document overflows at ${width}px`);
@@ -188,7 +237,7 @@ async function verifyViewport(browser, width) {
   if (width === 390) {
     await wasteInput.fill('-1');
     assert.equal(await page.getByRole('button', { name: 'Guardar Receta' }).isDisabled(), true, 'Invalid input cannot produce an authoritative preview');
-    assert.equal(state.save, null, 'an invalid visible percentage must never reach the API');
+    assert.equal(state.saveCount, 2, 'an invalid visible percentage must never reach the API');
   }
   await wasteInput.fill('20');
   await page.getByRole('button', { name: 'Guardar Receta' }).click();
@@ -196,8 +245,11 @@ async function verifyViewport(browser, width) {
   await page.waitForTimeout(900);
   assert.equal(await editor.isVisible(), true, 'successful save must not close the embedded editor');
   assert.equal(state.save.body.components[0].waste_percent, '20');
+  assert.equal(state.save.body.yield_quantity, '1.25');
+  assert.equal(state.save.body.components[0].net_quantity, '0.12');
+  assert.equal('net_quantity_input' in state.save.body.components[0], false);
   assert.equal('gross_quantity' in state.save.body.components[0], false);
-  assert.equal(state.save.body.expected_active_recipe_id, 'recipe-qa');
+  assert.equal(state.save.body.expected_active_recipe_id, 'recipe-saved-2');
   assert.equal(state.save.body.branch_id, branchId);
   assert.ok(state.save.idempotencyKey);
 
@@ -219,7 +271,7 @@ async function verifyViewport(browser, width) {
     await continuedEditor.getByRole('button', { name: 'Guardar Receta' }).click();
     await continuedEditor.getByText('La receta cambió en otra sesión. Cierra y vuelve a abrir para ver la última versión.').waitFor();
     assert.equal(await continuedEditor.getByRole('button', { name: 'Guardar Receta' }).isDisabled(), true);
-    assert.equal(await continuedWasteInput.inputValue(), '25', 'the conflicting draft must remain visible');
+    assert.equal(await continuedWasteInput.inputValue(), '25.00', 'the conflicting draft must remain visible');
     await page.getByRole('button', { name: 'Volver al producto' }).click();
   }
   assert.deepEqual(pageErrors, []);

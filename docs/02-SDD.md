@@ -94,7 +94,13 @@ un nuevo valor capturado. Si el campo cambia, se envía el valor ingresado confo
 exacto existente. El formato no altera APIs, escala de columnas, centavos, precisión interna de seis
 decimales, historial, payloads externos ni sincronización. Identificadores, conteos enteros, fechas
 y valores técnicos ajenos a magnitudes de negocio conservan su representación propia.
-Estado: diseñado; implementación de interfaces pendiente.
+RECIPES-DEC-001 aplica esta política en `RecipeManager`, compartido por Productos y Recetas:
+`recipeDecimal.ts` formatea cadenas mediante enteros exactos y los campos `*_input` conservan
+el texto capturado separado del valor del comando. Sólo esos campos manualmente editados se
+validan contra el límite de dos decimales; los valores cargados o propuestos por IA conservan
+su precisión original. El foco no modifica valores y el blur sólo formatea el texto visible.
+Los errores de captura bloquean preview y guardado; los metadatos de UI no se serializan.
+La extensión a las demás interfaces permanece pendiente.
 
 ### SDD-ADR-011 Impresión
 Agente Windows local con spooler, ESC/POS opcional y colas persistentes.

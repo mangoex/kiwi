@@ -4,7 +4,7 @@ import { Button, Input, Modal, usePythonPreview } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
 import { Plus, Trash2, Sparkles, ChefHat } from 'lucide-react';
 import { RecipeAiAssistantModal } from './RecipeAiAssistantModal';
-import { rateToPercent } from './recipeDecimal';
+import { formatRecipeDecimal, rateToPercent, recipeCaptureError } from './recipeDecimal';
 export { percentToRate, rateToPercent } from './recipeDecimal';
 import '../../premium-catalogs.css';
 
@@ -21,8 +21,10 @@ interface Component {
   item_id: string;
   unit_id: string;
   net_quantity: string;
+  net_quantity_input?: string;
   waste_rate: string;
   waste_percent?: string;
+  waste_percent_input?: string;
   unit_code?: string;
   gross_quantity?: string;
 }
@@ -30,6 +32,7 @@ interface Component {
 interface Recipe {
   id?: string;
   yield_quantity: string;
+  yield_quantity_input?: string;
   yield_unit_id: string;
   components: Component[];
   latest_cost?: Record<string, string | number> | null;
@@ -45,6 +48,41 @@ interface Props {
   requestedRecipeId?: string | null;
   salePriceCents?: number | null;
   presentation?: 'modal' | 'embedded';
+}
+
+function RecipeDecimalInput({ id, label, value, input, onCapture, onFormat, width = 85 }: {
+  id: string;
+  label?: string;
+  value: string;
+  input?: string;
+  onCapture: (exact: string, input: string) => void;
+  onFormat: (input: string) => void;
+  width?: number;
+}) {
+  const error = recipeCaptureError(input);
+  return (
+    <div>
+      <Input
+        id={id}
+        aria-label={label}
+        type="text"
+        inputMode="decimal"
+        value={input ?? formatRecipeDecimal(value)}
+        onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+          const text = event.target.value;
+          onCapture(text.trim().replace(',', '.'), text);
+        }}
+        onBlur={() => {
+          if (input !== undefined && !error) onFormat(formatRecipeDecimal(input));
+        }}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? `${id}-error` : undefined}
+        placeholder="0.00"
+        style={{ width, textAlign: 'right' }}
+      />
+      {error && <p id={`${id}-error`} role="alert" style={{ maxWidth: 170, fontSize: '0.75rem', color: 'var(--color-red)' }}>{error}</p>}
+    </div>
+  );
 }
 
 export const RecipeManager = ({
@@ -69,6 +107,10 @@ export const RecipeManager = ({
   const [ingredientFilter, setIngredientFilter] = useState('');
   const [hasVersionConflict, setHasVersionConflict] = useState(false);
   const [formData, setFormData] = useState<Recipe>({ yield_quantity: '1', yield_unit_id: defaultYieldUnitId, components: [] });
+  const hasCaptureErrors = Boolean(recipeCaptureError(formData.yield_quantity_input))
+    || formData.components.some((component) => component.item_id && (
+      recipeCaptureError(component.net_quantity_input) || recipeCaptureError(component.waste_percent_input)
+    ));
   const scopeQuery = branchId === null ? '' : `?branch_id=${encodeURIComponent(branchId)}`;
 
   const {
@@ -113,13 +155,14 @@ export const RecipeManager = ({
 
   const save = useMutation({
     mutationFn: () => {
+      if (hasCaptureErrors) throw new Error('Corrige los campos de captura: se permiten máximo 2 decimales.');
       const invalidWaste = formData.components.some((component) => {
         const visiblePercent = component.waste_percent?.trim() || '';
         if (!component.item_id) return false;
         return !visiblePercent || !/^\d+(?:[.,]\d+)?$/.test(visiblePercent);
       });
       if (invalidWaste) {
-        throw new Error('La merma debe ser un porcentaje entre 0 y 99.9999. Puedes usar punto o coma decimal.');
+        throw new Error('La merma debe ser un porcentaje desde 0 y menor que 100. Puedes usar punto o coma decimal.');
       }
       const cleanComponents = formData.components
         .filter((c) => c.item_id)
@@ -207,20 +250,29 @@ export const RecipeManager = ({
     }));
   };
 
-  const update = (index: number, key: keyof Component, value: string) => {
+  const updateFields = (index: number, changes: Partial<Component>) => {
     prepareRecipeEdit();
     setFormData((old) => ({
       ...old,
-      components: old.components.map((component, i) => (i === index ? { ...component, [key]: value } : component)),
+      components: old.components.map((component, i) => (i === index ? { ...component, ...changes } : component)),
     }));
   };
 
-  const updateWastePercent = (index: number, value: string) => {
+  const update = (index: number, key: keyof Component, value: string) => updateFields(index, { [key]: value });
+
+  const formatComponentInput = (index: number, key: 'net_quantity_input' | 'waste_percent_input', input: string) => {
+    setFormData((old) => ({
+      ...old,
+      components: old.components.map((component, i) => i === index ? { ...component, [key]: input } : component),
+    }));
+  };
+
+  const updateWastePercent = (index: number, value: string, input: string) => {
     prepareRecipeEdit();
     setFormData((old) => ({
       ...old,
       components: old.components.map((component, i) => (
-        i === index ? { ...component, waste_percent: value } : component
+        i === index ? { ...component, waste_percent: value, waste_percent_input: input } : component
       )),
     }));
   };
@@ -250,11 +302,11 @@ export const RecipeManager = ({
       item_id: row.item_id, unit_id: row.unit_id, net_quantity: row.net_quantity,
       waste_percent: row.waste_percent ?? rateToPercent(row.waste_rate),
     })),
-  }, Boolean(isOpen && branchId && !recipeLoadFailed));
+  }, Boolean(isOpen && branchId && !recipeLoadFailed && !hasCaptureErrors));
   const requestedVersionChanged = Boolean(requestedRecipeId && recipe?.id && recipe.id !== requestedRecipeId);
   const hasAuthoritative = Boolean(preview.data);
-  const displayTotalCost = preview.data ? '$' + preview.data.total_cost + ' MXN' : 'No disponible';
-  const displayCostPerPortion = preview.data ? '$' + preview.data.cost_per_yield_unit + ' MXN' : 'No disponible';
+  const displayTotalCost = preview.data ? '$' + formatRecipeDecimal(preview.data.total_cost) + ' MXN' : 'No disponible';
+  const displayCostPerPortion = preview.data ? '$' + formatRecipeDecimal(preview.data.cost_per_yield_unit) + ' MXN' : 'No disponible';
   const isEstimated = preview.data?.breakdown.some(row => row.cost_source === 'presentation_informative') ?? false;
 
   const yieldUnits = useMemo(() => {
@@ -316,17 +368,15 @@ export const RecipeManager = ({
                 <label htmlFor={`recipe-yield-${productId}`} style={{ fontWeight: 600, fontSize: '0.9375rem' }}>
                   Rendimiento:
                 </label>
-                <Input
+                <RecipeDecimalInput
                   id={`recipe-yield-${productId}`}
-                  type="number"
-                  min="0.000001"
-                  step="any"
                   value={formData.yield_quantity}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  input={formData.yield_quantity_input}
+                  onCapture={(exact, input) => {
                     prepareRecipeEdit();
-                    setFormData({ ...formData, yield_quantity: e.target.value });
+                    setFormData((old) => ({ ...old, yield_quantity: exact, yield_quantity_input: input }));
                   }}
-                  style={{ width: 85 }}
+                  onFormat={(input) => setFormData((old) => ({ ...old, yield_quantity_input: input }))}
                 />
                 <label htmlFor={`recipe-yield-unit-${productId}`} style={{ fontWeight: 600, fontSize: '0.875rem' }}>
                   Unidad de rendimiento:
@@ -407,6 +457,7 @@ export const RecipeManager = ({
                   <tbody>
                     {formData.components.map((component, index) => {
                       const itemObj = items.find((entry) => entry.id === component.item_id);
+                      const linePreview = preview.data?.breakdown.find(row => row.item_id === component.item_id);
                       const visibleItems = itemObj && !filteredItems.some((entry) => entry.id === itemObj.id)
                         ? [itemObj, ...filteredItems]
                         : filteredItems;
@@ -434,22 +485,20 @@ export const RecipeManager = ({
                               <option value="">Selecciona un insumo...</option>
                               {visibleItems.map((item) => (
                                 <option key={item.id} value={item.id}>
-                                  {item.name} · {item.unit_code} {item.last_unit_cost ? `($${Number(item.last_unit_cost).toFixed(2)}/${item.unit_code})` : ''}
+                                  {item.name} · {item.unit_code} {item.last_unit_cost ? `($${formatRecipeDecimal(item.last_unit_cost)}/${item.unit_code})` : ''}
                                 </option>
                               ))}
                             </select>
                           </td>
                           <td style={{ textAlign: 'right' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
-                              <Input
-                                aria-label={`Cantidad neta de ${itemObj?.name || `ingrediente ${index + 1}`}`}
-                                type="number"
-                                min="0.000001"
-                                step="any"
+                              <RecipeDecimalInput
+                                id={`recipe-net-${productId}-${index}`}
+                                label={`Cantidad neta de ${itemObj?.name || `ingrediente ${index + 1}`}`}
                                 value={component.net_quantity}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => update(index, 'net_quantity', e.target.value)}
-                                placeholder="0.000"
-                                style={{ width: 85, textAlign: 'right' }}
+                                input={component.net_quantity_input}
+                                onCapture={(exact, input) => updateFields(index, { net_quantity: exact, net_quantity_input: input })}
+                                onFormat={(input) => formatComponentInput(index, 'net_quantity_input', input)}
                               />
                               <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', minWidth: 32 }}>
                                 {itemObj?.unit_code || ''}
@@ -458,24 +507,24 @@ export const RecipeManager = ({
                           </td>
                           <td style={{ textAlign: 'right' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
-                              <Input
-                                aria-label={`Merma porcentual de ${itemObj?.name || `ingrediente ${index + 1}`}`}
-                                type="text"
-                                inputMode="decimal"
+                              <RecipeDecimalInput
+                                id={`recipe-waste-${productId}-${index}`}
+                                label={`Merma porcentual de ${itemObj?.name || `ingrediente ${index + 1}`}`}
                                 value={component.waste_percent ?? rateToPercent(component.waste_rate)}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateWastePercent(index, e.target.value)}
-                                placeholder="0"
-                                style={{ width: 80, textAlign: 'right' }}
+                                input={component.waste_percent_input}
+                                onCapture={(exact, input) => updateWastePercent(index, exact, input)}
+                                onFormat={(input) => formatComponentInput(index, 'waste_percent_input', input)}
+                                width={80}
                               />
                               <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>%</span>
                             </div>
                           </td>
                           <td style={{ textAlign: 'right', fontFamily: 'monospace', color: 'var(--color-text-muted)' }}>
-                            {preview.data?.breakdown.find(row => row.item_id === component.item_id)?.gross_quantity ?? '—'} {itemObj?.unit_code || ''}
+                            {formatRecipeDecimal(linePreview?.gross_quantity)} {itemObj?.unit_code || ''}
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--color-green)' }}>
-                            {preview.data?.breakdown.find(row => row.item_id === component.item_id)?.cost_source === 'unavailable'
-                              ? 'Pendiente' : preview.data?.breakdown.find(row => row.item_id === component.item_id)?.total_cost ?? 'Pendiente'}
+                            {linePreview?.cost_source === 'unavailable' || linePreview?.total_cost == null
+                              ? 'Pendiente' : formatRecipeDecimal(linePreview.total_cost)}
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <button
@@ -530,7 +579,7 @@ export const RecipeManager = ({
                 <Button variant="secondary" onClick={onClose}>Volver al producto</Button>
                 <Button
                   variant="primary"
-                  disabled={save.isPending || formData.components.length === 0 || requestedVersionChanged || hasVersionConflict || Boolean(branchId && !preview.data)}
+                  disabled={save.isPending || hasCaptureErrors || formData.components.length === 0 || requestedVersionChanged || hasVersionConflict || Boolean(branchId && !preview.data)}
                   onClick={() => save.mutate()}
                 >
                   {save.isPending ? 'Guardando Receta…' : 'Guardar Receta'}
