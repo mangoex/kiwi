@@ -282,7 +282,7 @@ cancelación nueva retirada; recorrido KDS enmendado corregido y probado en SQLi
 | PRD-NFR-009 | Observability | BDD-SC-023, BDD-SC-024 | TDD-TS-009, TDD-TS-013 | Scaffold |
 | PRD-NFR-010 | Maintainability and pull-request quality ratchet | BDD-SC-024, BDD-SC-195, BDD-SC-255, BDD-SC-261, BDD-SC-420 | TDD-TS-013, TDD-TS-061, TDD-TC-056, TDD-TS-075, TDD-TS-102, TDD-TC-220 | Scaffold |
 | PRD-NFR-011 | Portability | BDD-SC-024, BDD-SC-192, Docker/Easypanel | TDD-TS-013, TDD-TC-053, CI checks | Scaffold |
-| PRD-NFR-012 | Exact arithmetic; AUD-CORE-001 SDD §57: correcciones locales y regresiones verificadas; Linux/Docker/CI #343 verificados sobre f2a0afa, cierre Git en plan §12.1 | BDD-SC-008, BDD-SC-263, BDD-SC-615, BDD-SC-616, BDD-SC-619, BDD-SC-626 | TDD-TS-001, TDD-TC-071, TDD-TS-136, TDD-TC-332, TDD-TC-333, TDD-TC-336, TDD-TC-343 | Disenado |
+| PRD-NFR-012 | Exact arithmetic; AUD-CORE-001 SDD §57: correcciones locales y regresiones verificadas; Linux/Docker/CI #343 verificados sobre f2a0afa, cierre Git en plan §12.1; SDD-ADR-010: captura máximo dos decimales y visualización fija de dos, conservando precisión interna; ampliación UI diseñada, pendiente de implementación | BDD-SC-008, BDD-SC-263, BDD-SC-615, BDD-SC-616, BDD-SC-619, BDD-SC-626, BDD-SC-720, BDD-SC-721, BDD-SC-722 | TDD-TS-001, TDD-TC-071, TDD-TS-136, TDD-TC-332, TDD-TC-333, TDD-TC-336, TDD-TC-343, TDD-TS-150, TDD-TC-420, TDD-TC-421 | Disenado |
 | PRD-NFR-013 | Future multi-company | Organization module | TDD-TS-012 | Disenado |
 | PRD-NFR-014 | Privacy | Security design | TDD-TS-012 | Propuesto |
 | PRD-NFR-015 | Gateway compatibility | BDD-SC-018 | TDD-TS-011 | Disenado |

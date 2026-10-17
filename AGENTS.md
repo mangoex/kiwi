@@ -148,6 +148,13 @@ es obligatoria para R3 o cuando el usuario la solicite; para R0..R2 basta revisi
 - Timestamps en UTC; presentación en zona local.
 - Dinero en enteros de la unidad mínima o decimal exacto, nunca `float`.
 - Cantidades y conversiones con `Decimal`.
+- Captura manual de magnitudes decimales de negocio (costos, precios, inventarios y similares):
+  máximo dos decimales; visualización: siempre dos decimales. Conservar la precisión interna
+  vigente de cálculos, conversiones, almacenamiento y APIs. No usar el valor mostrado redondeado
+  para recalcular ni sobrescribir el original al guardar sin cambios. Aplicar PRD-NFR-012 y la
+  política de captura y visualización de SDD-ADR-010; rechazar entradas con más de dos decimales
+  sin redondearlas silenciosamente. La regla no convierte identificadores ni conteos enteros en
+  valores decimales.
 - No mezclar lógica de dominio con controladores HTTP.
 
 ## Estructura objetivo del monorepo

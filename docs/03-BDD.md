@@ -345,6 +345,37 @@ Feature: Rechazar ambigüedades estructurales del harness
     And falla cerrado cuando no puede resolver la base del pull request
 ```
 
+## BDD-FEAT-150 Captura y visualización de magnitudes decimales
+
+Estado: diseñado; aplicación en interfaces pendiente. Regido por PRD-NFR-012 y SDD-ADR-010.
+
+```gherkin
+@PRD-NFR-012 @ui @precision
+Feature: Usar dos decimales sin perder precisión interna
+
+  @BDD-SC-720
+  Scenario: Capturar un valor con hasta dos decimales
+    Given un campo de costo, precio o cantidad de inventario
+    When el usuario ingresa 12, 12.5 o 12.50
+    Then la captura admite el valor conforme a las demás validaciones del campo
+    And su visualización usa 12.00, 12.50 o 12.50 respectivamente
+
+  @BDD-SC-721
+  Scenario: Rechazar exceso de decimales en captura manual
+    Given un campo de magnitud decimal de negocio
+    When el usuario ingresa 12.345
+    Then ve un error que indica un máximo de dos decimales
+    And no se envía el formulario ni se redondea silenciosamente su entrada
+
+  @BDD-SC-722
+  Scenario: Mostrar dos decimales sin sobrescribir un valor interno exacto
+    Given un costo almacenado de 12.345678
+    When el usuario abre el formulario y lo guarda sin modificar ese campo
+    Then el costo se muestra como 12.35
+    And el valor original 12.345678 se conserva para cálculos y almacenamiento
+    And una modificación explícita válida a 12.34 usa el nuevo valor capturado
+```
+
 ## Regla de expansión
 
 Cada historia nueva deberá incluir:

@@ -476,3 +476,23 @@ Sustituye el identificador no canónico SUPPLIER-EXT.
 
 Cobertura existente PRD-FR-093/095/096: `apps/api/tests/test_real_catalog_loader.py` y
 `test_insumos_and_presentations_sync.py`. Sustituye el identificador no canónico CATALOG-REAL.
+
+## TDD-TS-150 Captura y visualización con dos decimales
+
+PRD-NFR-012; SDD-ADR-010; BDD-SC-720..722. Diseño de verificación pendiente de automatización e
+implementación; la prueba de trazabilidad sólo comprueba integridad documental.
+
+### TDD-TC-420 Captura manual limitada a dos decimales
+
+Probar campos representativos de costo, precio e inventario: aceptar `12`, `12.5` y `12.50`;
+rechazar escritura o pegado de `12.345`, mostrar error y comprobar cero envíos. Conservar las
+validaciones de signo, rango y obligatoriedad propias de cada campo.
+
+### TDD-TC-421 Formato decimal sin pérdida del valor original
+
+Comprobar `12` -> `12.00`, `12.5` -> `12.50` y `12.345678` -> `12.35`, incluyendo empates
+`12.345` -> `12.35` y negativos cuando el contrato los permita. Abrir, enfocar y guardar sin editar
+debe conservar `12.345678` en el comando o dejar el campo sin modificación; editar a `12.34` debe
+enviar exactamente ese nuevo valor. Verificar que los cálculos usan el valor original, que APIs y
+persistencia retienen su precisión y que conteos/identificadores no reciben formato decimal.
+Ejecutar pruebas semánticas y typecheck focales al implementar cada interfaz.

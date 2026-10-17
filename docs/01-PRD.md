@@ -1383,7 +1383,12 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
   salvo una excepción local explícitamente justificada; la deuda histórica no modificada no falla el
   gate y los hallazgos no exponen el contenido de la línea.
 - `PRD-NFR-011 Portabilidad`: Despliegue por contenedores en Easypanel.
-- `PRD-NFR-012 Precisión`: Dinero y cantidades con aritmética decimal exacta.
+- `PRD-NFR-012 Precisión`: Dinero y cantidades con aritmética decimal exacta. La captura manual
+  de magnitudes decimales de negocio (costos, precios, cantidades de inventario y similares)
+  admite como máximo dos decimales; su visualización usa exactamente dos. Los cálculos,
+  conversiones, almacenamiento y APIs conservan su precisión vigente. Mostrar un valor redondeado
+  no debe modificar el original ni sobrescribirlo al guardar sin cambios. Esta ampliación de captura
+  y visualización está diseñada, pendiente de aplicación y verificación en las interfaces existentes.
 - `PRD-NFR-013 Evolución`: Preparación para multiempresa futura sin exponer autoservicio.
 - `PRD-NFR-014 Privacidad`: Minimización y protección de datos personales.
 - `PRD-NFR-015 Compatibilidad`: Navegadores modernos y Windows en gateways.

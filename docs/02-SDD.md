@@ -76,6 +76,26 @@ Ledger de movimientos; existencia calculada y materializada para lectura.
 ### SDD-ADR-010 Dinero y cantidades
 `Decimal` en Python y tipos exactos en PostgreSQL.
 
+#### Política de captura y visualización de dos decimales
+
+PRD-NFR-012 limita a dos decimales la captura manual de magnitudes decimales de negocio y exige
+dos decimales en su presentación, incluidos costos, precios y cantidades de inventario. La captura
+acepta enteros o uno/dos decimales; una entrada con más decimales muestra un error y bloquea el
+envío, sin truncarla ni redondearla silenciosamente. El formato añade ceros al mostrar, por ejemplo
+`12` como `12.00` y `12.5` como `12.50`.
+
+Para presentar valores con mayor precisión se aplica `ROUND_HALF_UP` a `0.01` sobre su representación
+decimal exacta: `12.345678` se muestra como `12.35`, manteniendo el valor original. El formato no es
+autoridad de cálculo ni se reutiliza para totales, conversiones, valuación o persistencia.
+
+El formulario conserva por separado el valor exacto recibido y el texto visible: abrir, enfocar o
+guardar sin modificar el campo conserva el original; sólo una modificación explícita válida genera
+un nuevo valor capturado. Si el campo cambia, se envía el valor ingresado conforme al contrato
+exacto existente. El formato no altera APIs, escala de columnas, centavos, precisión interna de seis
+decimales, historial, payloads externos ni sincronización. Identificadores, conteos enteros, fechas
+y valores técnicos ajenos a magnitudes de negocio conservan su representación propia.
+Estado: diseñado; implementación de interfaces pendiente.
+
 ### SDD-ADR-011 Impresión
 Agente Windows local con spooler, ESC/POS opcional y colas persistentes.
 
