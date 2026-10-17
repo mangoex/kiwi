@@ -44,6 +44,23 @@ assert.equal(decimalModule.percentToRate('99.9999'), '0.999999');
 assert.equal(decimalModule.percentToRate(''), '');
 assert.equal(decimalModule.percentToRate('-1'), '');
 assert.equal(decimalModule.percentToRate('1e2'), '');
+
+assert.equal(typeof decimalModule.formatRecipeDecimal, 'function', 'La receta necesita formato de dos decimales exacto');
+for (const [raw, displayed] of [
+  ['45.586562', '45.59'], ['12', '12.00'], ['12.5', '12.50'],
+  ['0.100000', '0.10'], ['1.005', '1.01'], ['-1.005', '-1.01'],
+  ['0.004999', '0.00'], ['-0.004999', '0.00'], ['0.005', '0.01'],
+  ['999999999999.999999', '1000000000000.00'], ['12,345', '12.35'],
+]) assert.equal(decimalModule.formatRecipeDecimal(raw), displayed, raw);
+for (const raw of ['', 'NaN', 'Infinity', '1e2', undefined, null]) {
+  assert.equal(decimalModule.formatRecipeDecimal(raw), '—', 'No inventar valores ante datos inválidos');
+}
+for (const raw of [undefined, '12', '12.5', '12.50', '12,50', '0']) {
+  assert.equal(decimalModule.recipeCaptureError(raw), '', `Captura admitida: ${raw}`);
+}
+for (const raw of ['12.345', '12.500', '', '-1', '1e2', 'NaN', '12.']) {
+  assert.ok(decimalModule.recipeCaptureError(raw), `Captura inválida: ${raw}`);
+}
 assert.match(recipe, /placeholder="Filtrar insumos por nombre o unidad"/,
   'Los insumos se pueden filtrar');
 assert.match(recipe, /Rendimiento[\s\S]*Unidad de rendimiento/,

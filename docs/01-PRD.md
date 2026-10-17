@@ -1387,8 +1387,8 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
   de magnitudes decimales de negocio (costos, precios, cantidades de inventario y similares)
   admite como máximo dos decimales; su visualización usa exactamente dos. Los cálculos,
   conversiones, almacenamiento y APIs conservan su precisión vigente. Mostrar un valor redondeado
-  no debe modificar el original ni sobrescribirlo al guardar sin cambios. Esta ampliación de captura
-  y visualización está diseñada, pendiente de aplicación y verificación en las interfaces existentes.
+  no debe modificar el original ni sobrescribirlo al guardar sin cambios. La ampliación se aplica
+  en el editor canónico de recetas (RECIPES-DEC-001); su extensión a las demás interfaces sigue pendiente.
 - `PRD-NFR-013 Evolución`: Preparación para multiempresa futura sin exponer autoservicio.
 - `PRD-NFR-014 Privacidad`: Minimización y protección de datos personales.
 - `PRD-NFR-015 Compatibilidad`: Navegadores modernos y Windows en gateways.

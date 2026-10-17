@@ -479,8 +479,11 @@ Cobertura existente PRD-FR-093/095/096: `apps/api/tests/test_real_catalog_loader
 
 ## TDD-TS-150 Captura y visualización con dos decimales
 
-PRD-NFR-012; SDD-ADR-010; BDD-SC-720..722. Diseño de verificación pendiente de automatización e
-implementación; la prueba de trazabilidad sólo comprueba integridad documental.
+PRD-NFR-012; SDD-ADR-010; BDD-SC-720..722. En recetas, automatizar el formato decimal exacto y
+la validación manual en `tests/frontend/test_recipe_product_flow.mjs`, y el recorrido real del
+editor en `tests/browser/test_recipe_product_flow.mjs`: valores recibidos con seis decimales,
+guardado sin edición, modificación explícita, errores de captura y preview sin redondear. La
+extensión a las demás interfaces permanece pendiente; trazabilidad sólo comprueba integridad documental.
 
 ### TDD-TC-420 Captura manual limitada a dos decimales
 

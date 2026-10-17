@@ -19,3 +19,21 @@ const shiftDecimalPoint = (rawValue: string, places: number): string => {
 
 export const rateToPercent = (rate: string): string => shiftDecimalPoint(rate, 2);
 export const percentToRate = (percent: string): string => shiftDecimalPoint(percent, -2);
+
+// Presentation only: keep the source string for previews and commands.
+export const formatRecipeDecimal = (value: string | number | null | undefined): string => {
+  const match = String(value ?? '').trim().replace(',', '.').match(/^(-?)(\d+)(?:\.(\d+))?$/);
+  if (!match) return '—';
+  const [, sign, whole, fraction = ''] = match;
+  let hundredths = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0').slice(0, 2));
+  if (fraction.length > 2 && fraction[2] >= '5') hundredths += 1n;
+  return `${sign && hundredths !== 0n ? '-' : ''}${hundredths / 100n}.${String(hundredths % 100n).padStart(2, '0')}`;
+};
+
+// Undefined means an untouched server/AI value, whose internal precision is retained.
+export const recipeCaptureError = (input: string | undefined): string => {
+  if (input === undefined) return '';
+  if (!input.trim()) return 'Ingresa un valor con máximo 2 decimales.';
+  return /^\d+(?:[.,]\d{1,2})?$/.test(input.trim())
+    ? '' : 'Usa máximo 2 decimales, sin signos ni exponentes.';
+};

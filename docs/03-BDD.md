@@ -347,7 +347,8 @@ Feature: Rechazar ambigüedades estructurales del harness
 
 ## BDD-FEAT-150 Captura y visualización de magnitudes decimales
 
-Estado: diseñado; aplicación en interfaces pendiente. Regido por PRD-NFR-012 y SDD-ADR-010.
+Aplicado en el editor canónico de recetas mediante RECIPES-DEC-001; extensión a las demás interfaces
+pendiente. Regido por PRD-NFR-012 y SDD-ADR-010.
 
 ```gherkin
 @PRD-NFR-012 @ui @precision
