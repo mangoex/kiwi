@@ -165,10 +165,16 @@ try {
   console.log('Real API inventory/threshold flow passed at 1440, 1024 and 390px');
 } catch (error) {
   if (activePage && !activePage.isClosed()) await activePage.screenshot({ path: `${output}/failure.png`, fullPage: true });
+  if (activePage && !activePage.isClosed()) console.error(await activePage.locator('body').innerText());
+  console.error(serverOutput);
   throw error;
 } finally {
   if (browser) await browser.close();
-  await fetch(`${api}/__inventory_shutdown`, { method: 'POST' }).catch(() => {});
-  server.kill();
+  await fetch(`${api}/__inventory_shutdown`, { method: 'POST', signal: AbortSignal.timeout(5000) }).catch(() => {});
+  await new Promise(resolve => {
+    if (server.exitCode !== null || server.signalCode !== null) return resolve();
+    const timeout = setTimeout(() => server.kill(), 5000);
+    server.once('close', () => { clearTimeout(timeout); resolve(); });
+  });
   server.stdout.destroy(); server.stderr.destroy();
 }
