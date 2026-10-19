@@ -10,6 +10,9 @@ Autoridad: PRD-FR-279/280, SDD §68, BDD-FEAT-151/152.
 Pruebas: `apps/api/tests/test_inventory_overview.py` y
 `apps/api/tests/test_inventory_overview_postgres.py`. La segunda está conectada a base/env propia
 y al verificador obligatorio de ejecución PG en CI; no contar skips como aprobación.
+El DDL de fixtures PostgreSQL se crea desde metadatos copiados; una regresión compara el DDL
+SQLite canónico antes/después y exige conservar la FK de aceptación de pedidos públicos.
+El fixture navegador usa SQLite temporal con conexiones independientes por request.
 
 ### TDD-TC-422 Alcance y autorización desde el servidor
 

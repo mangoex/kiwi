@@ -8,10 +8,31 @@ import pytest
 import sqlalchemy as sa
 from restaurant_os import inventory_overview as service
 from restaurant_os import models
+from sqlalchemy.dialects import sqlite
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 from test_inventory_overview import ITEM, movement
 from test_platform_api import ADMIN_USER_ID, BRANCH_ID, _seed
+
+
+def _create_fixture_tables(engine):
+    # PostgreSQL emits cyclic FKs via ALTER TABLE; SQLAlchemy may mark the
+    # emitted constraints on their MetaData. Never change the shared model used
+    # by subsequent SQLite fixtures in the same pytest process.
+    fixture_metadata = sa.MetaData()
+    for table in models.metadata.tables.values():
+        table.to_metadata(fixture_metadata)
+    fixture_metadata.create_all(engine)
+
+
+def test_fixture_ddl_preserves_shared_sqlite_constraints():
+    before = str(sa.schema.CreateTable(models.orders).compile(dialect=sqlite.dialect()))
+    postgres = sa.create_mock_engine("postgresql://", lambda *_args, **_kwargs: None)
+    _create_fixture_tables(postgres)
+    after = str(sa.schema.CreateTable(models.orders).compile(dialect=sqlite.dialect()))
+    assert "fk_orders_public_order_intent_accepted" in before
+    assert "fk_orders_public_order_intent_accepted" in after
+    assert after == before, "PostgreSQL fixture DDL must not mutate shared SQLite constraints"
 
 
 @pytest.fixture
@@ -38,7 +59,7 @@ def overview_engine():
         },
     )
     try:
-        models.metadata.create_all(engine)
+        _create_fixture_tables(engine)
         with Session(engine) as session:
             _seed(session)
         yield engine
