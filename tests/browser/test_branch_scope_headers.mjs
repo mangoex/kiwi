@@ -70,6 +70,7 @@ const branchAdminSession = () => {
     roles: [{ id: 'branch-qa', name: 'Jefe de sucursal', scope: 'branch', branch_id: branches[0].id }],
     scope: { level: 'branch', assigned_branch_id: branches[0].id, allowed_branch_ids: [branches[0].id] },
     allowed_branches: [branches[0]],
+    inventory_query_capabilities: { organization_read: false, branches: [branches[0]] },
   };
 };
 

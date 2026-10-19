@@ -8,6 +8,7 @@ export function corporateAdminSession(user, branchId, branches = [{ id: branchId
     'orders.read', 'reports.sales.read', 'reports.ingredient_sales.read', 'reports.expenses.read'];
   return { user: { ...user, status: 'active' }, roles: [{ id: 'corporate-qa', name: 'Administrador corporativo', scope: 'organization', branch_id: null }],
     permissions: codes, admin_capabilities: Object.fromEntries(codes.map(code => [code, true])),
+    inventory_query_capabilities: { organization_read: true, branches: canonicalBranches },
     scope: { level: 'organization', assigned_branch_id: branchId, allowed_branch_ids: branches.map(branch => branch.id) },
     active_branch: canonicalBranches.find(branch => branch.id === branchId), allowed_branches: canonicalBranches };
 }

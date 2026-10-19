@@ -118,7 +118,7 @@
     {
       "path": "tests/browser/test_admin_retro.mjs",
       "provenance": "restaurantos-admin-retro-browser-v1",
-      "sha256": "87fea318f13d5c15029a53ddf32e204013fa8ba7120294d1d6bff4e29fd502de"
+      "sha256": "08969bdb43f2137f8e1c73b1b6c7d3fd81b5b5809daa05397a20ba40d2e0e04e"
     },
     {
       "path": "tests/browser/test_compound_product_admin.mjs",
