@@ -131,7 +131,7 @@ def inventory_overview(
         models.inventory_units,
         models.inventory_movements,
     )
-    warehouses = list(
+    warehouses: list[str] = list(
         session.execute(
             sa.select(w.c.branch_id).where(
                 w.c.organization_id == ORGANIZATION_ID,
