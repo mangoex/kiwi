@@ -60,6 +60,7 @@ const CATEGORY_CONFIGS: CategoryNavConfig[] = [
     hubPath: '/inventory',
     categoryTitle: 'Inventario y Almacén',
     items: [
+      { path: '/inventory/stock', label: 'Existencias' },
       { path: '/inventory/items', label: 'Insumos' },
       {
         path: '/warehouses',

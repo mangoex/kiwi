@@ -42,7 +42,7 @@ assert.match(bulk, /Después/);
 assert.doesNotMatch(bulk, /toFixed\(|parseFloat\(|Number\(/);
 
 assert.match(thresholds, /\/admin-catalog\/stock-thresholds/);
-assert.match(thresholds, /expected_version/);
+assert.match(thresholds, /thresholdPayload\(editing\.row, draft, editing\.row\.version\)/);
 assert.match(thresholds, /quantity_on_hand/);
 assert.doesNotMatch(thresholds, /parseFloat\(|Number\(/);
 

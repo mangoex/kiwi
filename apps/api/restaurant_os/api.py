@@ -14,7 +14,7 @@ import uuid
 from uuid import UUID
 
 # ruff: noqa: E501, E402, I001
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
@@ -1775,6 +1775,47 @@ def get_catalog_product_pos_preview(
     return _business_response(
         lambda: get_product_pos_preview(session, product_id, branch_id, actor_id)
     )
+
+
+@router.get("/inventory/overview")
+def get_inventory_overview(
+    session: SessionDep,
+    response: Response,
+    scope: Literal["organization", "branch"],
+    branch_id: UUID | None = None,
+    q: str = Query(default="", max_length=120),
+    availability: Literal["all", "positive", "zero", "negative"] = "all",
+    unit_id: UUID | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.inventory_overview import inventory_overview
+
+    if (scope == "branch") != (branch_id is not None):
+        raise HTTPException(status_code=422, detail="Explicit inventory scope and destination required")
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    def operation() -> dict[str, Any]:
+        try:
+            result = inventory_overview(
+                session, actor, scope=scope, branch_id=str(branch_id) if branch_id else None,
+                q=q, availability=availability, unit_id=str(unit_id) if unit_id else None,
+                limit=limit, offset=offset,
+            )
+            return dict(_serialize_api_value(result))
+        except SQLAlchemyError:
+            session.rollback()
+            logger.warning("inventory.overview", extra={"metric": "inventory.overview", "result": "database_unavailable", "scope": scope})
+            raise HTTPException(status_code=503, detail={
+                "code": "inventory_overview_unavailable", "message": "No fue posible consultar el inventario. Reintenta más tarde.",
+            }, headers={"Cache-Control": "no-store"}) from None
+        except BusinessError as error:
+            logger.info("inventory.overview", extra={"metric": "inventory.overview", "result": "denied" if isinstance(error, AuthorizationError) else "invalid_destination", "scope": scope})
+            raise
+
+    return _business_response(operation)
 
 
 @router.get("/inventory/stock")
