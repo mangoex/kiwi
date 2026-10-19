@@ -5,6 +5,7 @@ import { beginBranchWorkspaceRequest, ensureBranchWorkspace, clearBranchWorkspac
 import { quarantineWorkspaceSnapshots } from '@restaurantos/ui';
 import { useResetSessionQueries } from '../components/AdminQueryProvider';
 import { publishAdminSession, setCanonicalBranchId } from './branchContext';
+import { initialInventoryScope, inventoryScopeAllowed, type InventoryCapabilities, type InventoryQueryScope } from '../features/inventory/inventoryQueryState';
 
 export interface AdminSession extends AdministrativeSession, Omit<BranchWorkspaceProfile,'scope'|'active_branch'|'user'> {
   organization_id?: string;
@@ -15,6 +16,7 @@ export interface AdminSession extends AdministrativeSession, Omit<BranchWorkspac
   active_branch: { id: string; name: string; code: string; timezone: string };
   admin_capabilities: Record<string, boolean>;
   allowed_branches: {id:string;name:string;code:string;status:string}[];
+  inventory_query_capabilities?: InventoryCapabilities;
 }
 export type ConfigurationScope =
   | {kind:'organization'; branch_id:null}
@@ -27,6 +29,8 @@ interface AdminSessionContext {
   selectConfigurationScope: (scope: ConfigurationScope) => void;
   dashboardBranchId: string | null;
   selectDashboardBranch: (branchId: string | null) => void;
+  inventoryQueryScope: InventoryQueryScope | null;
+  selectInventoryQueryScope: (scope: InventoryQueryScope) => void;
 }
 
 const Context = createContext<AdminSessionContext | null>(null);
@@ -44,6 +48,7 @@ export function sameAdministrativeAuthority(previous:AdminSession, next:AdminSes
     && previous.organization_id === next.organization_id
     && previous.active_branch.id === next.active_branch.id
     && previous.branch_workspace_context_id === next.branch_workspace_context_id
+    && JSON.stringify(previous.inventory_query_capabilities) === JSON.stringify(next.inventory_query_capabilities)
     && JSON.stringify(previous.scope) === JSON.stringify(next.scope)
     && JSON.stringify(Object.entries(previous.admin_capabilities).sort())
       === JSON.stringify(Object.entries(next.admin_capabilities).sort());
@@ -57,6 +62,7 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
     kind: 'organization', branch_id: null,
   });
   const [dashboardBranchId, setDashboardBranchId] = useState<string | null>(null);
+  const [inventoryQueryScope, setInventoryQueryScope] = useState<InventoryQueryScope | null>(null);
   const route = useRef(location.key); route.current = location.key;
   const request = useRef<AbortController | null>(null);
   const confirmed = useRef<AdminSession | null>(null);
@@ -101,6 +107,10 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
       confirmed.current = session;
       confirmedCredential.current = credential; confirmedRoute.current = routeKey;
       setCanonicalBranchId(session.active_branch.id); publishAdminSession(session);
+      setInventoryQueryScope(current => previous?.user.id === session.user.id
+        && previous.organization_id === session.organization_id && current
+        && inventoryScopeAllowed(session.inventory_query_capabilities, current)
+        ? current : initialInventoryScope(session.inventory_query_capabilities));
       if (session.scope.level !== 'organization') {
         setConfigurationScope({kind:'branch',branch_id:session.active_branch.id});
         setDashboardBranchId(session.active_branch.id);
@@ -172,7 +182,14 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
     }
     setDashboardBranchId(branchId);
   };
-  return <Context.Provider value={{session,assertCurrentAuthority,configurationScope,selectConfigurationScope,dashboardBranchId,selectDashboardBranch}}>
+  const selectInventoryQueryScope = (scope:InventoryQueryScope) => {
+    assertCurrentAuthority();
+    if (!inventoryScopeAllowed(session.inventory_query_capabilities, scope)) {
+      throw new ApiError(403, 'permission_denied', 'La consulta de inventario no está autorizada.');
+    }
+    setInventoryQueryScope(scope);
+  };
+  return <Context.Provider value={{session,assertCurrentAuthority,configurationScope,selectConfigurationScope,dashboardBranchId,selectDashboardBranch,inventoryQueryScope,selectInventoryQueryScope}}>
     {state.validating && <p role="status">Validando sesión y sucursal…</p>}
     <div key={`${session.user.id}:${session.active_branch.id}:${revision.current}`} inert={Boolean(state.validating)} aria-busy={Boolean(state.validating)}>{children}</div>
   </Context.Provider>;

@@ -9,6 +9,8 @@ assert.equal(canAccessAdminRoute(session('purchases.read'),'/purchases'),true);
 assert.equal(hasAdminCapability(session('purchases.read'),'purchases.manage'),false);
 assert.equal(canAccessAdminRoute(session('branch.admin.access'),'/inventory/items'),false);
 assert.equal(canAccessAdminRoute(session('inventory.waste'),'/inventory/waste'),false);
+assert.equal(canAccessAdminRoute({...session(), inventory_query_capabilities:{organization_read:false,branches:[{id:'other-authorized-branch'}]}},'/inventory/stock'),true,'Inventory query permission is independent from the active POS branch capability');
+assert.equal(canAccessAdminRoute({...session(), inventory_query_capabilities:{organization_read:false,branches:[]}},'/inventory/stock'),false);
 assert.equal(canAccessAdminRoute(session('inventory.read'),'/inventory/waste'),true);
 assert.equal(canAccessAdminRoute(session('inventory.transfer.receive','inventory.read'),'/inventory/transfers'),true);
 assert.equal(hasAdminCapability(session('inventory.transfer.send'),'inventory.transfer.receive'),false);
@@ -40,3 +42,4 @@ assert.equal(sameAdministrativeAuthority(session('purchases.read'),session()),fa
 assert.equal(sameAdministrativeAuthority(session('purchases.read'),{...session('purchases.read'),user:{id:'other'}}),false);
 assert.equal(sameAdministrativeAuthority(session('purchases.read'),{...session('purchases.read'),active_branch:{id:'other'}}),false);
 assert.equal(sameAdministrativeAuthority({...session('purchases.read'),organization_id:'org-a'},{...session('purchases.read'),organization_id:'org-b'}),false,'Organization changes must invalidate cached administrative authority');
+assert.equal(sameAdministrativeAuthority({...session(),inventory_query_capabilities:{organization_read:true,branches:[{id:'a'}]}},{...session(),inventory_query_capabilities:{organization_read:false,branches:[]}}),false,'Revoked inventory query scope must invalidate cached administrative authority');

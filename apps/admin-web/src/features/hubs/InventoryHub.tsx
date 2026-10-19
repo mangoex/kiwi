@@ -8,6 +8,14 @@ export const InventoryHub: React.FC = () => {
 
   const cards: HubCardItem[] = [
     {
+      title: 'Existencias',
+      description: 'Consulta por sucursal y almacén, con reservas y disponible por separado.',
+      icon: <Box size={26} />,
+      iconBg: '#f0fdf4',
+      iconColor: '#15803d',
+      path: '/inventory/stock',
+    },
+    {
       title: 'Insumos',
       description: 'Ingredientes base, empaques, costos unitarios y existencias de almacén.',
       icon: <Carrot size={26} />,

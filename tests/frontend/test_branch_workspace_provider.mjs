@@ -121,12 +121,14 @@ const router=mod('export const useLocation=()=>({key:"qa-admin-route",pathname:g
 const ui=mod('export const quarantineWorkspaceSnapshots=()=>{};');
 const queries=mod('export const useResetSessionQueries=()=>()=>{};');
 const branches=mod('export const publishAdminSession=session=>{globalThis.publishedAdmin=session;};export const setCanonicalBranchId=()=>{};');
+const inventoryQueryState=mod(readFileSync('apps/admin-web/src/features/inventory/inventoryQueryState.ts','utf8'));
 adminSource=adminSource.replaceAll("'react'",JSON.stringify(react))
   .replaceAll("'react-router-dom'",JSON.stringify(router))
   .replaceAll("'@restaurantos/api-client'",JSON.stringify(apiUrl))
   .replaceAll("'@restaurantos/ui'",JSON.stringify(ui))
   .replaceAll("'../components/AdminQueryProvider'",JSON.stringify(queries))
-  .replaceAll("'./branchContext'",JSON.stringify(branches));
+  .replaceAll("'./branchContext'",JSON.stringify(branches))
+  .replaceAll("'../features/inventory/inventoryQueryState'",JSON.stringify(inventoryQueryState));
 const {AdminSessionProvider}=await import(mod(adminSource));
 const adminProfile={...centralProfile,permissions:['catalog.manage'],
   admin_capabilities:{'catalog.manage':true,'pos.operate':false},allowed_branches:[{id:branch}],

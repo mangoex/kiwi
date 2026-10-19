@@ -6788,3 +6788,144 @@ La migración aditiva `0097_public_tracking_event_index` crea el índice de even
 modifica filas; el downgrade sólo retira el índice. La construcción requiere una ventana aprobada
 según volumen/bloqueo medido y autorización productiva separada. Una devolución posterior a
 DELIVERED se vuelve a consultar al recargar: la primera versión detiene ese estado terminal.
+
+## 68. INV-VIEW-001 — lectura administrativa independiente del POS
+
+Estado: implementado y probado localmente; evidencia y límites en el plan INV-VIEW-2026-10-19.
+Requisitos PRD-FR-279 y PRD-FR-280; CI y canary productivo pendientes.
+No introduce proveedor, dependencia crítica ni fuente de inventario nueva. Reutiliza PostgreSQL,
+RBAC, ledger, unidades, almacén canónico y política decimal de SDD-ADR-010.
+
+### 68.1 Tres contextos separados
+
+- `inventoryQueryScope`: estado de consulta Admin discriminado organization o branch con ID.
+  Se inicia global sólo con autoridad y permiso organizacional de inventario verificados; el
+  perfil local se inicia en su sucursal autorizada. No se infiere autoridad del nombre del rol.
+- `configurationScope`: conserva el contrato heredable de §58.1; no se reutiliza para existencias.
+- `active_branch` y workspace: conservan §58.2/58.3 para POS, caja y documentos operativos.
+
+Rutas nuevas propuestas `/admin/inventory/stock` (Existencias) y consulta separada en
+`/admin/inventory/thresholds`. Integrar en hub/subnavegación y `adminAccess`; Existencias requiere
+`inventory.read`, Umbrales conserva su guarda vigente `catalog.manage`, además de lectura
+autorizada en API. No ampliar permisos por mostrar el hub o por disponer de `pos.branch.select`.
+El encabezado en estas rutas ofrece **Consulta de inventario**, no **Alcance de configuración**;
+elimina la etiqueta POS redundante. El dashboard y los demás módulos conservan sus contratos.
+La selección no llama comandos de cambio de sucursal ni modifica almacenamiento POS/Admin de
+sucursal canónica. Es independiente de ambos flags BRANCH_SCOPE_V2 y debe funcionar con ellos apagados.
+
+Agregar de forma compatible a `/auth/session` una proyección `inventory_query_capabilities` con
+`organization_read` y `branches` (IDs/nombres/zonas autorizados para inventory.read), obtenida de
+permisos/autoridad persistidos, nunca de los nombres de rol. `allowed_branches` sigue siendo el
+contexto operativo existente y no prueba por sí mismo permiso global de inventario. La UI usa
+esta proyección para el valor inicial y opciones; la API vuelve a autorizar cada consulta.
+Si el backend aún no entrega la proyección, mostrar funcionalidad no disponible y no asumir
+alcance global ni degradar silenciosamente a Centro. Desplegar primero compatibilidad API.
+La proyección incluye nombre del almacén para identificar el destino de edición sin mostrar IDs
+técnicos. La guarda de Existencias acepta la capacidad de consulta proyectada de otra sucursal
+autorizada aunque `inventory.read` no sea efectiva en la sucursal POS activa; la API revalida.
+
+### 68.2 Contrato aditivo y autorización
+
+Diseñar `GET /api/v1/inventory/overview` sin modificar respuestas legacy de `/inventory/stock`,
+`/inventory/kardex` ni `/admin-catalog/stock-thresholds`.
+
+| Parámetro | Regla propuesta |
+| --- | --- |
+| `scope` | Obligatorio: organization o branch. Nunca fallback a primera sucursal. |
+| `branch_id` | UUID obligatorio para branch; prohibido para organization. |
+| `q` | Opcional, búsqueda por nombre/SKU; máximo 120 caracteres, consulta parametrizada. |
+| `availability` | all (predeterminado), positive, zero o negative sobre disponible. |
+| `unit_id` | UUID opcional de unidad base; no hace conversiones. |
+| `limit`, `offset` | Enteros; limit 1..100, predeterminado 50; offset >= 0. |
+
+Resolver actor y organización desde autenticación. Para organization exigir la autoridad y el
+permiso organizacionales existentes, y resolver sucursales activas autorizadas en servidor; un
+permiso de una sucursal no se convierte en lectura global. Para branch validar sucursal activa,
+organización y permiso `inventory.read` del destino en cada petición. UUID inválido o combinación
+ambigua -> 422; autoridad insuficiente -> 403 estable sin revelar datos; sesión inválida -> 401.
+Un perfil sólo local no consulta otra sucursal mediante URL ni almacenamiento manipulado.
+
+Respuesta: `scope`, `as_of` UTC del servidor, `items`, `total_rows`, `limit`, `offset` y conteos
+de filas por disponibilidad para el conjunto filtrado completo, no sólo la página. Una fila es
+un par item/sucursal/almacén e incluye IDs, SKU/nombre, tipo vigente, unidad ID/código,
+sucursal ID/nombre/zona IANA, almacén ID/nombre, `physical_quantity`, `reserved_quantity`,
+`available_quantity` como cadenas decimales y `last_movement_at` nullable. No incluir costos,
+identidad de actores de movimientos ni datos de pedidos. Orden estable por nombre, item ID,
+sucursal ID y almacén ID; la UI explica que una fila no equivale a un insumo distinto.
+
+Construir pares de artículos activos aplicables por su catálogo global/local y almacén canónico
+de cada sucursal activa; LEFT JOIN agregado acotado conserva ceros sin movimientos. Validar
+organización, pertenencia branch/warehouse y alcance local del artículo en cada join. Una sucursal
+sin almacén canónico válido produce error de configuración y no un cero ni omisión silenciosa.
+No reutilizar directamente la consulta legacy global: sus joins no generan todos los pares cero.
+
+### 68.3 Cantidades y consistencia
+
+Reutilizar reglas existentes y probar su equivalencia: física teórica suma movimientos excluyendo
+SALE_RESERVATION/RESERVATION_RELEASE; reserva pendiente es el negativo de la suma de esos dos tipos;
+disponible suma el ledger completo, igual a física teórica menos reserva pendiente. No cambiar
+signos, status, compensaciones ni semántica de movimientos para hacer coincidir pantallas.
+No truncar negativos ni redondear antes de filtrar. Una reserva negativa incoherente se identifica
+como inconsistencia a investigar, no se corrige ni se oculta mediante clamp.
+
+Umbrales sigue comparando contra física teórica, conforme a su contrato vigente; la etiqueta
+explica **Existencia teórica antes de reservas**. Disponible es cantidad comprometible según
+movimientos, no promesa de existencia física contada. Mantener valores internos exactos; formatear
+visualización a dos decimales sin convertir la cadena en float para cálculos o envíos.
+
+Una lectura global obtiene filas, conteos y cantidades en un mismo snapshot PostgreSQL consistente
+(aislamiento REPEATABLE READ desde la primera lectura de autoridad, READ ONLY tras autorizar).
+La negativa se audita antes de READ ONLY; un destino inválido se registra con branch_id nulo
+para no insertar una FK inexistente ni revelar la sucursal solicitada. Proyección agregada
+de lectura sin locks de inventario por artículo; no llamar `_physical_inventory_quantity` en bucle,
+pues adquiere advisory locks. No generar movimientos, selección workspace ni escrituras de dominio.
+Las negativas de autorización conservan auditoría de seguridad existente. Timestamp de consulta
+no representa hora del último movimiento ni snapshot permanente entre páginas; Actualizar inicia
+una consulta nueva y se muestra la hora de esa respuesta. No anunciar tiempo real continuo.
+
+### 68.4 UI y edición de umbrales
+
+Usar componentes compartidos Input, Select, Button, Modal, Badge y formato decimal exacto existente.
+Existencias ofrece búsqueda, sucursal, filtro de disponibilidad, unidad, paginación y Actualizar.
+En global, las columnas identifican sucursal/almacén; no hay total de cantidades heterogéneas,
+edición de stock ni acciones masivas. Estado inicial, carga, vacío, error, falta de permisos y
+sesión vencida son explícitos. Una respuesta vieja no pisa otra selección: AbortController más
+clave de caché por identidad, organización, scope y filtros; revalidar tras cambio de autoridad.
+Limpiar/ocultar datos previos durante cambio de identidad; no mostrar datos viejos como actuales.
+Admin continúa requiriendo conexión; no almacenar esta vista como inventario operativo offline.
+
+Umbrales global se presenta como consulta/enlace a Existencias; para editar se elige sucursal
+concreta y se usa GET/PUT/DELETE vigente con `branch_id` explícito y versión esperada. El modal
+congela y muestra destino sucursal/almacén/unidad; no migra de destino si cambia el filtro.
+Conflicto 409 exige refrescar y revisar; no reintenta sobrescribiendo. Guardar conserva auditoría
+y stock. Captura nueva limita dos decimales con error visible; un umbral legacy más preciso se
+conserva si el campo no fue modificado, aunque se presente a dos decimales. API mantiene precisión
+y validaciones previas; no reducir su escala ni cambiar clientes existentes.
+
+Fechas: consulta global en UTC explícito; último movimiento/detalle en zona IANA de su sucursal
+con etiqueta de zona. Tabla con encabezados semánticos, teclado/foco visible, acciones con nombre,
+campos con label/error y modal recuperando foco. QA a 390, 1024 y 1440 px; scroll horizontal
+contenido a la tabla y acciones alcanzables, sin truncar sucursal ni unidades esenciales.
+
+### 68.5 Operación y compatibilidad
+
+No se prevé migración ni cambio de persistencia. Medir SQL con datos representativos antes de
+decidir índices; cualquier índice necesario activa migración, reversión y autorización separada.
+Consultas agregadas acotadas y paginación en servidor, sin N+1 ni descargar toda la cadena para
+filtrar en navegador. Cabecera Cache-Control no-store; caché privada de UI separada por actor/alcance.
+La latencia/paginación y conteos se validan con EXPLAIN ANALYZE en PostgreSQL aislado.
+El fixture de siete sucursales/1000 artículos adicionales exige menos de 30 sentencias y una
+lectura menor a 2 s local/5 s CI. Son presupuestos de regresión de ese fixture, no un SLA
+productivo; hace falta medir ledger histórico representativo antes del release.
+
+Preguntas operativas: ¿qué alcance y fecha respaldan lo visible? DTO/UI scope y as_of.
+¿falla por permisos, configuración o base? códigos estables y métrica de resultado acotado.
+¿la consulta global afecta la operación? latencia, tiempo SQL y cantidad de filas/sucursales;
+sin SQL crudo, bearer, cuerpos ni cantidades de inventario en logs. Emitir sólo señales que
+respondan esas preguntas; umbrales operativos de rendimiento se fijan con baseline previo al release.
+
+El rollout POS es entrega independiente de PRD-FR-267/§58. No activar flags, emitir adopción,
+cambiar permisos ni ejecutar migraciones por implementar este módulo. Una reversión de consulta
+restaura rutas/UI anteriores sin deshacer historial; conservar posibilidad de recuperar comandos
+de umbrales ya confirmados. La reversión de movilidad POS sigue su drenado/recovery_only, nunca
+apagar el flag con operaciones pendientes suponiendo que eso revierte datos.

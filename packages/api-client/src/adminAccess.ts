@@ -5,6 +5,7 @@ export interface AdministrativeSession {
   admin_capabilities?: Record<string, boolean>;
   active_branch: { id: string } | null;
   scope: { allowed_branch_ids: string[]; level: string };
+  inventory_query_capabilities?: { organization_read: boolean; branches: { id: string }[] };
 }
 export const hasAdminCapability = (session: AdministrativeSession | null, code: string): boolean =>
   session?.admin_capabilities?.[code] === true;
@@ -18,6 +19,7 @@ const routeRules: Record<string, string[][]> = {
   '/categories': [['catalog.manage']], '/category-options': [['catalog.manage']],
   '/category-priorities': [['catalog.manage']], '/warehouses': [['catalog.manage']],
   '/inventory/items': [['inventory.read']], '/inventory/units': [['inventory.read']],
+  '/inventory/stock': [['inventory.read']],
   '/inventory/thresholds': [['catalog.manage']], '/production': [['production.manage']],
   '/inventory/waste': [['inventory.read']], '/inventory/transfers': [['inventory.read']],
   '/inventory/counts': [['inventory.count.capture'], ['inventory.count.review']],
@@ -31,13 +33,14 @@ const routeRules: Record<string, string[][]> = {
 };
 const hubRoutes: Record<string, string[]> = {
   '/catalog': ['/products','/recipes','/categories','/variations','/modifiers','/ingredient-extras','/category-priorities'],
-  '/inventory': ['/inventory/items','/production','/inventory/waste','/inventory/transfers','/inventory/counts','/inventory/units','/warehouses','/inventory/thresholds'],
+  '/inventory': ['/inventory/stock','/inventory/items','/production','/inventory/waste','/inventory/transfers','/inventory/counts','/inventory/units','/warehouses','/inventory/thresholds'],
   '/purchasing': ['/purchases','/suppliers','/purchase-presentations','/expenses','/expense-concepts'],
   '/branches-hub': ['/branches','/drivers','/integrations','/cash-concepts'],
   '/reports-hub': ['/reports','/analytics'], '/admin-access-hub': ['/users','/roles','/customers','/imports'],
 };
 export function canAccessAdminRoute(session: AdministrativeSession | null, path: string): boolean {
   if (!session?.active_branch || !session.scope.allowed_branch_ids.includes(session.active_branch.id)) return false;
+  if (path === '/inventory/stock' && session.inventory_query_capabilities?.branches.length) return true;
   if (path === '/modifiers' && session.scope.level !== 'organization') return false;
   if (hubRoutes[path]) return hubRoutes[path].some(route => canAccessAdminRoute(session, route));
   return (routeRules[path] || []).some(codes => codes.every(code => hasAdminCapability(session, code)));

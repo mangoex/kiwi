@@ -240,6 +240,7 @@ async function verifyViewport(browser, viewport) {
     assert.deepEqual(state.prioritySave.print_category_ids, ['cat-drinks', 'cat-food']);
     await page.goto(`${baseUrl}/inventory/thresholds`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'Umbrales de existencias' }).waitFor();
+    await page.getByLabel('Consulta de inventario', { exact: true }).selectOption(branchId);
     checkpoint('Thresholds loaded');
     await page.getByRole('button', { name: 'Editar umbrales de Harina de prueba' }).click();
     await page.getByLabel('Mínimo').fill('11');

@@ -1,0 +1,32 @@
+.inventory-visibility { display: grid; gap: 22px; max-width: 1500px; margin: 0 auto; }
+.inventory-visibility h1 { margin: 0 0 8px; letter-spacing: -.025em; font-size: clamp(1.6rem, 3vw, 2rem); }
+.inventory-visibility p { margin: 0; color: #5f6664; line-height: 1.55; }
+.inventory-scope { display: grid; gap: 7px; max-width: 400px; }
+.inventory-scope label { font-size: .85rem; font-weight: 650; }
+.inventory-scope span, .inventory-caption { font-size: .8rem; color: #69736e; }
+.inventory-toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+.inventory-toolbar label { display: grid; gap: 6px; font-size: .85rem; flex: 1 1 170px; }
+.inventory-toolbar .inventory-search { flex: 2 1 260px; }
+.inventory-summary { display: flex; gap: 10px; flex-wrap: wrap; }
+.inventory-summary span { border: 1px solid #e0e6e2; background: #fff; border-radius: 12px; padding: 10px 14px; font-size: .85rem; }
+.inventory-summary strong { margin-right: 6px; }
+.inventory-table-wrap { overflow-x: auto; border: 1px solid #e1e7e3; border-radius: 16px; background: #fff; }
+.inventory-table { width: 100%; border-collapse: collapse; text-align: left; font-size: .86rem; }
+.inventory-table th { background: #f4f7f5; font-weight: 600; color: #58645d; }
+.inventory-table td, .inventory-table th { padding: 14px 16px; border-bottom: 1px solid #edf0ee; vertical-align: middle; }
+.inventory-table tbody tr:last-child td { border-bottom: 0; }
+.inventory-table td small { display: block; color: #6e7771; margin-top: 4px; }
+.inventory-table .inventory-quantity { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.inventory-negative { color: #ad3434; }
+.inventory-state { padding: 24px; background: #f4f7f5; border-radius: 12px; }
+.inventory-state[role=alert] { background: #fff3f0; color: #8f3327; }
+.inventory-pagination { display: flex; align-items: center; gap: 14px; justify-content: flex-end; flex-wrap: wrap; }
+.inventory-modal-fields { display: grid; gap: 18px; }
+.inventory-modal-fields label { display: grid; gap: 7px; }
+.inventory-modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 8px; }
+@media (max-width: 600px) {
+  .inventory-toolbar { align-items: stretch; }
+  .inventory-toolbar > button { width: 100%; }
+  .inventory-table td, .inventory-table th { padding: 12px; }
+  .inventory-pagination { justify-content: flex-start; }
+}

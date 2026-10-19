@@ -98,6 +98,7 @@ try {
 
   await page.goto(`${baseUrl}/inventory/thresholds`, { waitUntil: 'domcontentloaded' });
   await page.getByRole('heading', { name: 'Umbrales de existencias' }).waitFor();
+  await page.getByLabel('Consulta de inventario', { exact: true }).selectOption(manifest.branch_id);
   await page.getByRole('button', { name: /Editar umbrales de/ }).first().click();
   await page.getByLabel('Mínimo').fill('1');
   await page.getByLabel('Máximo').fill('5');
@@ -105,8 +106,9 @@ try {
   await page.getByText('Umbrales guardados. La existencia se conserva sin cambios.').waitFor();
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByRole('heading', { name: 'Umbrales de existencias' }).waitFor();
-  assert.match(await page.locator('.premium-table tbody').innerText(), /\b1\b/);
-  assert.match(await page.locator('.premium-table tbody').innerText(), /\b5\b/);
+  await page.getByLabel('Consulta de inventario', { exact: true }).selectOption(manifest.branch_id);
+  assert.match(await page.locator('.inventory-table tbody').innerText(), /\b1\.00\b/);
+  assert.match(await page.locator('.inventory-table tbody').innerText(), /\b5\.00\b/);
 
   await page.goto(`${baseUrl}/inventory/items`, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Recetas con este insumo', exact: true }).click();

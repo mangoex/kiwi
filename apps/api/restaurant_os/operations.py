@@ -26217,6 +26217,10 @@ def build_session_profile(
         else "permission_denied"
     )
 
+    from restaurant_os.inventory_overview import inventory_query_capabilities
+
+    inventory_capabilities = inventory_query_capabilities(session, actor)
+
     # A projection of existing checks, never a new grant or role-name inference.
     capability_codes = (
         "pos.operate", "dashboard.read", "admin.manage", "catalog.manage", "recipes.manage",
@@ -26252,6 +26256,7 @@ def build_session_profile(
         "organization_id": user["organization_id"],
         "permissions": permissions,
         "admin_capabilities": admin_capabilities,
+        "inventory_query_capabilities": inventory_capabilities,
         "allowed_branches": [
             dict(row)
             for row in session.execute(

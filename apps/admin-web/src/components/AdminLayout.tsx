@@ -115,6 +115,7 @@ const AdminLayout = () => {
     '/purchase-presentations', '/purchases',
   ].some((prefix) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`));
   const hideRedundantTopbarScope = location.pathname === '/inventory'
+    || ['/inventory/stock', '/inventory/thresholds'].includes(location.pathname)
     || (!isDashboard && globalOnlyRoute && !(branchScopeV2Enabled && configurationRoute));
   const localConfigurationBlocked = branchScopeV2Enabled && configurationRoute && configurationScope.kind === 'branch';
   const changeConfigurationScope = (id:string):boolean => {

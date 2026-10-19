@@ -28,6 +28,7 @@ import IntegrationsHub from './features/integrations/IntegrationsHub';
 import CategoryPriorities from './features/admin-catalog/CategoryPriorities';
 import BulkRecipeWorkspace from './features/admin-catalog/BulkRecipeWorkspace';
 import StockThresholds from './features/admin-catalog/StockThresholds';
+import InventoryStock from './features/inventory/InventoryStock';
 import { CatalogHub } from './features/hubs/CatalogHub';
 import { InventoryHub } from './features/hubs/InventoryHub';
 import { PurchasingHub } from './features/hubs/PurchasingHub';
@@ -89,6 +90,7 @@ export const App = () => {
           <Route path="inventory/counts" element={<PhysicalCountList />} />
           <Route path="inventory/units" element={<UnitsList />} />
           <Route path="inventory/thresholds" element={<StockThresholds />} />
+          <Route path="inventory/stock" element={<InventoryStock />} />
 
           {/* Subroutes: Compras y Proveedores */}
           <Route path="purchases" element={<PurchasesList />} />

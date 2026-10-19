@@ -1360,6 +1360,30 @@ Estado: implementado localmente, riesgo R3; evidencia en plan EXP-001. Es indepe
   revocación; emisión, selección y reasignación comparten el mismo lock de autoridad para impedir una
   carrera. Los grants legacy deben expirar o quedar invalidados antes de habilitar la reasignación.
 
+### 4.29 INV-VIEW-001 — consulta administrativa de existencias
+
+Estado: implementado y probado localmente; CI y habilitación productiva pendientes. Complementa
+PRD-FR-060..070, PRD-FR-240, PRD-FR-266 y PRD-FR-267; no sustituye sus invariantes.
+
+- `PRD-FR-279`: Un actor con autoridad y permiso organizacional de lectura de inventario debe abrir
+  **Existencias** en **Todas las sucursales** activas autorizadas y filtrar una sucursal sin cambiar
+  `active_branch`, caja, turno, carrito, workspace POS ni alcance de configuración corporativa.
+  Un actor de alcance local sólo consulta su sucursal autorizada. La vista desglosa por insumo,
+  unidad base, sucursal y almacén canónico; incluye insumos aplicables sin movimientos con cero,
+  búsqueda, filtros y paginación. Distingue existencia teórica antes de reservas, reserva pendiente
+  y disponible derivadas del mismo libro, sin alterar fórmulas ni confundirlas con conteo físico.
+  No suma insumos o unidades heterogéneos ni calcula valoración monetaria en este incremento.
+  Identifica alcance, fecha de consulta y errores; una consulta incompleta nunca se presenta como
+  inventario total ni un fallo como cero. El contexto se revalida en el servidor y respuestas
+  tardías o datos de otra identidad no sustituyen la consulta vigente.
+- `PRD-FR-280`: **Umbrales de existencias** conserva la configuración por insumo, sucursal y
+  almacén de PRD-FR-240. Usa un selector administrativo independiente del POS y permite editar sólo
+  con permiso vigente, destino explícito y versión esperada; Todas las sucursales es consulta,
+  nunca edición masiva. Desde Existencias se abre el destino concreto. La pantalla diferencia
+  Sin umbrales de Sin existencia; usa controles compartidos accesibles, cantidades a dos decimales
+  y fechas legibles en la zona de cada sucursal, preservando precisión interna y valores sin
+  modificar según PRD-NFR-012. No cambia stock, auditoría ni historial al configurar umbrales.
+
 ## 5. Requisitos no funcionales
 
 - `PRD-NFR-001 Disponibilidad`: Operación local durante falla de internet.
