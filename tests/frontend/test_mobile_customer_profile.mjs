@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 
 const root = process.cwd();
 // Stay inside the repository so compiled React resolves the workspace dependencies.
+mkdirSync(join(root, 'output'), { recursive: true });
 const scratch = mkdtempSync(join(root, 'output', 'mobile-profile-test-'));
 const require = createRequire(join(root, 'apps/mobile-web/package.json'));
 symlinkSync(join(root, 'apps/mobile-web/node_modules'), join(scratch, 'node_modules'), 'junction');

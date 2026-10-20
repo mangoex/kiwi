@@ -85,3 +85,10 @@ El usuario autorizó commit, merge y push después del cierre local. Rama de imp
 `codex/mobile-customer-profile`, destino `main`, con CI de PR antes de integrar. El runbook
 Easypanel previo, su hash y tmp/ quedan fuera del commit. Esta autorización no activa
 SMS, migraciones ni despliegue productivo. El SHA y resultado de publicación se informan en el cierre.
+
+
+CI inicial #396 detectó que la prueba semántica nueva asumía la carpeta ignorada output/.
+Se corrige creando explícitamente su raíz antes de mkdtemp, sin excluir ni omitir pruebas.
+El recorrido de seguimiento existente se adapta para autenticar al cliente por el puerto falso
+antes de abrir el menú y comprobar el contacto verificado de checkout (campos de sólo lectura).
+La verificación local de los cinco casos semánticos vuelve a pasar; el PR #84 reejecuta CI.
