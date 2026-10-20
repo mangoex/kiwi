@@ -57,4 +57,17 @@ Feature: Convertir presentaciones de compra a unidad base
     Given existe un artículo medido en masa
     When se intenta usar una unidad base incompatible sin equivalencia autorizada
     Then el sistema rechaza la presentación
+
+  @BDD-SC-739
+  Scenario: Corregir proveedor y unidad comercial de una presentación heredada
+    Given una presentación central pertenece a PROVEEDOR GENERAL y tiene compras con snapshot
+    When el administrador selecciona proveedor activo y unidad comercial de la organización
+    Then guarda las nuevas referencias con control de versión y auditoría antes y después
+    And conserva insumo, unidad base, código, compras, conteos, historial y costos de inventario
+    And una compra pendiente conserva su proveedor y conversión originales al confirmarse
+    And una edición desactualizada se rechaza sin efectos
+    And cambiar sólo el proveedor no modifica magnitudes ni recalcula el costo guardado
+    And una discrepancia heredada de contenido se señala y requiere corrección explícita
+    And el preview de edición coincide con el costo que se guardará
+    And los campos intactos conservan precisión interna y la captura manual admite dos decimales
 ```

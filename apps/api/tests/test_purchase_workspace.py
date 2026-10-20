@@ -242,6 +242,236 @@ def _purchase_payload(supplier_id: str, presentation_id: str):
     }
 
 
+def test_presentation_reassigns_supplier_and_commercial_unit_without_rewriting_history():
+    client, headers, suppliers = _workspace()
+    created = client.post(
+        "/api/v1/purchase-presentations", headers=headers,
+        json={**_presentation(suppliers[0]), "last_net_price": "91.05"},
+    ).json()
+    purchase = client.post(
+        "/api/v1/purchases", headers=headers,
+        json=_purchase_payload(suppliers[0], created["id"]),
+    )
+    assert purchase.status_code == 200, purchase.text
+    before = _effects(client)
+    response = client.put(
+        f"/api/v1/purchase-presentations/{created['id']}", headers=headers,
+        json={"supplier_id": suppliers[1], "commercial_unit_id": BASE_UNIT_ID,
+              "expected_updated_at": created["updated_at"]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["supplier_id"] == suppliers[1]
+    assert response.json()["commercial_unit_id"] == BASE_UNIT_ID
+    after = _effects(client)
+    for table in ("purchase_documents", "purchase_document_lines", "inventory_movements",
+                  "inventory_cost_states", "cash_movements", "recipes", "recipe_cost_calculations"):
+        assert after[table] == before[table], table
+    assert after["supplier_price_history"][:-1] == before["supplier_price_history"]
+    event = after["audit_events"][-1]["payload"]
+    assert event["before"]["supplier_id"] == suppliers[0]
+    assert event["after"]["supplier_id"] == suppliers[1]
+    confirmed = client.post(
+        f"/api/v1/purchases/{purchase.json()['id']}/confirm",
+        headers={**headers, "Idempotency-Key": "presentation-correction-history"}, json={},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["supplier_id"] == suppliers[0]
+    with _test_session_factory(client)() as session:
+        catalog = session.execute(sa.select(models.purchase_presentations).where(
+            models.purchase_presentations.c.id == created["id"]
+        )).mappings().one()
+        assert catalog["supplier_id"] == suppliers[1]
+        assert catalog["last_net_price"] == Decimal("91.05")
+        lines = session.execute(sa.select(models.purchase_document_lines)).mappings().all()
+        assert all(line["presentation_snapshot"]["supplier_id"] == suppliers[0] for line in lines)
+        assert all(line["presentation_snapshot"]["commercial_unit_id"] == PACKAGE_UNIT_ID
+                   for line in lines)
+
+
+def test_presentation_metadata_edit_preserves_legacy_cost_and_preview_matches_save():
+    client, headers, suppliers = _workspace()
+    created = client.post(
+        "/api/v1/purchase-presentations", headers=headers,
+        json={**_presentation(suppliers[0]), "usable_content": "1", "base_unit_yield": "0.45",
+              "last_net_price": "91.05"},
+    ).json()
+    with _test_session_factory(client)() as session:
+        session.execute(sa.update(models.purchase_presentations).where(
+            models.purchase_presentations.c.id == created["id"]
+        ).values(cost_per_base_unit=Decimal("202.333333")))
+        session.commit()
+    payload = {**_presentation(suppliers[1]), "presentation_id": created["id"],
+               "usable_content": "1", "base_unit_yield": "0.45", "last_net_price": "91.05"}
+    preview = client.post("/api/v1/purchase-presentations/preview", headers=headers, json=payload)
+    assert preview.status_code == 200, preview.text
+    assert Decimal(preview.json()["cost_per_base_unit"]) == Decimal("202.333333")
+    assert preview.json()["content_cost_mismatch"] is True
+    payload.pop("presentation_id")
+    payload["expected_updated_at"] = created["updated_at"]
+    saved = client.put(
+        f"/api/v1/purchase-presentations/{created['id']}", headers=headers, json=payload
+    )
+    assert saved.status_code == 200, saved.text
+    assert Decimal(str(saved.json()["cost_per_base_unit"])) == Decimal("202.333333")
+    corrected = client.put(
+        f"/api/v1/purchase-presentations/{created['id']}", headers=headers,
+        json={"usable_content": "0.45", "expected_updated_at": saved.json()["updated_at"]},
+    )
+    assert corrected.status_code == 200, corrected.text
+    assert Decimal(str(corrected.json()["cost_per_base_unit"])) == Decimal("202.333333")
+
+
+def test_legacy_purchase_snapshot_confirms_without_guessing_catalog_conversion():
+    client, headers, suppliers = _workspace()
+    created = client.post("/api/v1/purchase-presentations", headers=headers,
+                          json=_presentation(suppliers[0])).json()
+    purchase = client.post("/api/v1/purchases", headers=headers,
+                           json=_purchase_payload(suppliers[0], created["id"])).json()
+    with _test_session_factory(client)() as session:
+        session.execute(sa.update(models.purchase_document_lines).where(
+            models.purchase_document_lines.c.purchase_document_id == purchase["id"]
+        ).values(presentation_snapshot={
+            "base_unit_id": BASE_UNIT_ID, "usable_content": "5",
+            "commercial_unit_id": PACKAGE_UNIT_ID,
+        }))
+        session.commit()
+    confirmed = client.post(
+        f"/api/v1/purchases/{purchase['id']}/confirm",
+        headers={**headers, "Idempotency-Key": "legacy-presentation-confirm"}, json={},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    with _test_session_factory(client)() as session:
+        catalog_price = session.scalar(sa.select(models.purchase_presentations.c.last_net_price)
+            .where(models.purchase_presentations.c.id == created["id"]))
+        assert catalog_price == Decimal("0")
+        assert session.scalar(sa.select(sa.func.count()).select_from(
+            models.inventory_movements).where(
+                models.inventory_movements.c.source_id == purchase["id"])) == 3
+        snapshots = session.scalars(
+            sa.select(models.purchase_document_lines.c.presentation_snapshot).where(
+                models.purchase_document_lines.c.purchase_document_id == purchase["id"])
+        ).all()
+        assert all(snapshot == {"base_unit_id": BASE_UNIT_ID, "usable_content": "5",
+                                "commercial_unit_id": PACKAGE_UNIT_ID} for snapshot in snapshots)
+
+
+@pytest.mark.parametrize("version", [None, "2000-01-01T00:00:00Z", "invalid"])
+def test_presentation_reassignment_requires_current_version(version):
+    client, headers, suppliers = _workspace()
+    created = client.post("/api/v1/purchase-presentations", headers=headers,
+                          json=_presentation(suppliers[0])).json()
+    before = _effects(client)
+    response = client.put(
+        f"/api/v1/purchase-presentations/{created['id']}", headers=headers,
+        json={"supplier_id": suppliers[1], "expected_updated_at": version},
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "presentation_version_conflict"
+    assert _effects(client) == before
+
+
+@pytest.mark.parametrize("field,value", [
+    ("supplier_id", "missing"), ("commercial_unit_id", "missing"),
+    ("item_id", "missing"), ("base_unit_id", PACKAGE_UNIT_ID), ("code", "OTHER"),
+])
+def test_presentation_correction_rejects_invalid_references_atomically(field, value):
+    client, headers, suppliers = _workspace()
+    created = client.post("/api/v1/purchase-presentations", headers=headers,
+                          json=_presentation(suppliers[0])).json()
+    before = _effects(client)
+    response = client.put(
+        f"/api/v1/purchase-presentations/{created['id']}", headers=headers,
+        json={field: value, "expected_updated_at": created["updated_at"]},
+    )
+    assert response.status_code == 409, response.text
+    assert _effects(client) == before
+
+
+@pytest.mark.parametrize("status", ["inactive", "suspended"])
+def test_presentation_correction_rejects_unavailable_supplier(status):
+    client, headers, suppliers = _workspace()
+    created = client.post("/api/v1/purchase-presentations", headers=headers,
+                          json=_presentation(suppliers[0])).json()
+    with _test_session_factory(client)() as session:
+        session.execute(sa.update(models.suppliers).where(
+            models.suppliers.c.id == suppliers[1]).values(status=status))
+        session.commit()
+    before = _effects(client)
+    response = client.put(
+        f"/api/v1/purchase-presentations/{created['id']}", headers=headers,
+        json={"supplier_id": suppliers[1], "expected_updated_at": created["updated_at"]},
+    )
+    assert response.status_code == 409
+    assert _effects(client) == before
+
+
+def test_presentation_correction_rolls_back_if_audit_fails(monkeypatch):
+    from restaurant_os import operations
+
+    client, headers, suppliers = _workspace()
+    created = client.post("/api/v1/purchase-presentations", headers=headers,
+                          json=_presentation(suppliers[0])).json()
+    before = _effects(client)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("synthetic audit failure")
+
+    monkeypatch.setattr(operations, "_audit", fail)
+    with pytest.raises(RuntimeError, match="synthetic audit failure"):
+        client.put(f"/api/v1/purchase-presentations/{created['id']}", headers=headers,
+                   json={"supplier_id": suppliers[1], "expected_updated_at": created["updated_at"]})
+    assert _effects(client) == before
+
+
+def test_presentation_correction_preserves_internal_precision_and_rejects_stale_retry():
+    client, headers, suppliers = _workspace()
+    raw = {**_presentation(suppliers[0]), "last_net_price": "123.456789",
+           "usable_content": "0.456789", "base_unit_yield": "0.456789", "tax_rate": "0.123456"}
+    created = client.post("/api/v1/purchase-presentations", headers=headers, json=raw).json()
+    corrected = {**raw, "supplier_id": suppliers[1], "expected_updated_at": created["updated_at"]}
+    result = client.put(f"/api/v1/purchase-presentations/{created['id']}", headers=headers,
+                        json=corrected)
+    assert result.status_code == 200, result.text
+    for field in ("last_net_price", "usable_content", "base_unit_yield", "tax_rate",
+                  "cost_per_base_unit"):
+        assert Decimal(str(result.json()[field])) == Decimal(str(created[field]))
+    before = _effects(client)
+    retry = client.put(f"/api/v1/purchase-presentations/{created['id']}", headers=headers,
+                       json=corrected)
+    assert retry.status_code == 409
+    assert _effects(client) == before
+
+
+@pytest.mark.parametrize("foreign", ["supplier", "unit", "disabled_branch"])
+def test_presentation_correction_enforces_organization_and_branch_references(foreign):
+    client, headers, suppliers = _workspace()
+    created = client.post("/api/v1/purchase-presentations", headers=headers,
+                          json=_presentation(suppliers[0])).json()
+    with _test_session_factory(client)() as session:
+        original = dict(session.execute(sa.select(models.organizations)).mappings().first())
+        other_org = "018f6f73-2d0a-74f0-8f1c-000000009999"
+        session.execute(models.organizations.insert().values(**{**original, "id": other_org}))
+        if foreign == "supplier":
+            session.execute(sa.update(models.suppliers).where(
+                models.suppliers.c.id == suppliers[1]).values(organization_id=other_org))
+        elif foreign == "unit":
+            session.execute(sa.update(models.inventory_units).where(
+                models.inventory_units.c.id == BASE_UNIT_ID).values(organization_id=other_org))
+        else:
+            session.execute(models.supplier_branch_terms.insert().values(
+                supplier_id=suppliers[1], branch_id=BRANCH_ID,
+                is_enabled=False, updated_at=original["updated_at"]))
+        session.commit()
+    before = _effects(client)
+    response = client.put(
+        f"/api/v1/purchase-presentations/{created['id']}", headers=headers,
+        json={"supplier_id": suppliers[1], "branch_id": BRANCH_ID,
+              "commercial_unit_id": BASE_UNIT_ID, "expected_updated_at": created["updated_at"]},
+    )
+    assert response.status_code == 409, response.text
+    assert _effects(client) == before
+
+
 def test_supplier_catalog_exception_is_explicit_audited_and_does_not_reprice_catalog():
     client, headers, suppliers = _workspace()
     first_payload = _presentation(suppliers[0])

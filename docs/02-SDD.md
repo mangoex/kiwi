@@ -5129,6 +5129,21 @@ nueva escribe ese historial y una proyección local; otra sucursal sólo ve su p
 baseline corporativo claramente identificado. Los valores legacy globales se tratan como baseline
 hasta su migración, nunca como evidencia de una compra local. Cálculos usan `Decimal`, no `float`.
 
+#### Corrección central de presentaciones
+
+La corrección central (`admin.manage`) admite `supplier_id` y `commercial_unit_id`, validados contra
+proveedor activo y unidades de la organización. Insumo, unidad base y código permanecen inmutables.
+El escritor bloquea la fila en PostgreSQL y exige `expected_updated_at` al cambiar referencias;
+usa comparación condicional también en SQLite. No actualiza compras, órdenes corporativas,
+conteos, movimientos ni filas de historial anteriores. Cada operación conserva su snapshot y
+proveedor originales, incluso si se confirma después. La auditoría `purchase_presentation.updated`
+conserva antes/después de referencias y magnitudes.
+Preview de edición y escritor comparten normalización: conservan costo interno si precio y contenido
+útil no cambiaron; al corregirlos calculan `precio / contenido útil` con Decimal. El editor muestra dos
+decimales conservando el valor interno de campos intactos, rechaza capturas de más de dos decimales
+y ofrece usar el rendimiento como contenido útil sólo por acción explícita ante discrepancias
+heredadas. No hay reparación masiva ni migración de datos.
+
 ### 58.2 Autoridad de selección de sucursal
 
 Se agregan los permisos `pos.branch.select` y `staff.branch.reassign`. Los perfiles canónicos

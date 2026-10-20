@@ -21003,7 +21003,7 @@ def update_purchase_presentation(
             sa.select(models.purchase_presentations).where(
                 models.purchase_presentations.c.id == presentation_id,
                 models.purchase_presentations.c.organization_id == ORGANIZATION_ID,
-            )
+            ).with_for_update()
         )
         .mappings()
         .first()
@@ -21013,12 +21013,27 @@ def update_purchase_presentation(
             "purchase_presentation_not_found", "Purchase presentation was not found"
         )
 
-    from restaurant_os.presentation_rules import presentation_values
+    from restaurant_os.presentation_rules import presentation_update_values
 
-    normalized_payload = dict(payload)
-    if "net_price" in payload and "last_net_price" not in payload:
-        normalized_payload["last_net_price"] = payload["net_price"]
-    validated = presentation_values(session, normalized_payload, None, dict(current))
+    references_changed = any(
+        field in payload and str(payload[field]) != str(current[field])
+        for field in ("supplier_id", "commercial_unit_id")
+    )
+    if references_changed or "expected_updated_at" in payload:
+        try:
+            observed = _product_configuration_datetime(payload.get("expected_updated_at"))
+        except BusinessError:
+            observed = None
+        if observed != _product_configuration_datetime(current["updated_at"]):
+            raise BusinessError(
+                "presentation_version_conflict",
+                "La presentación cambió. Cierra el editor, actualiza el listado y vuelve a intentar.",
+            )
+    branch_id = (
+        authorize_branch_scope(session, actor_id, "admin.manage", payload["branch_id"])
+        if payload.get("branch_id") else None
+    )
+    validated = presentation_update_values(session, payload, dict(current), branch_id)
     name = str(payload["name"] if "name" in payload else current["name"]).strip()
     if not name or len(name) > 180:
         raise BusinessError("invalid_purchase_presentation", "Invalid presentation name")
@@ -21030,6 +21045,8 @@ def update_purchase_presentation(
     now = _now()
     updated = {
         **dict(current),
+        "supplier_id": validated["supplier_id"],
+        "commercial_unit_id": validated["commercial_unit_id"],
         "name": name,
         "base_unit_yield": base_yield,
         "usable_content": usable,
@@ -21038,10 +21055,15 @@ def update_purchase_presentation(
         "tax_rate": tax_rate,
         "updated_at": now,
     }
-    session.execute(
+    result = session.execute(
         sa.update(models.purchase_presentations)
-        .where(models.purchase_presentations.c.id == presentation_id)
+        .where(
+            models.purchase_presentations.c.id == presentation_id,
+            models.purchase_presentations.c.updated_at == current["updated_at"],
+        )
         .values(
+            supplier_id=validated["supplier_id"],
+            commercial_unit_id=validated["commercial_unit_id"],
             name=name,
             base_unit_yield=base_yield,
             usable_content=usable,
@@ -21051,13 +21073,25 @@ def update_purchase_presentation(
             updated_at=now,
         )
     )
+    if cast(CursorResult[Any], result).rowcount != 1:
+        raise BusinessError(
+            "presentation_version_conflict", "La presentación cambió; actualiza el listado."
+        )
     _record_supplier_price(session, updated, actor_id, now)
+    audited_fields = (
+        "supplier_id", "commercial_unit_id", "name", "usable_content", "base_unit_yield",
+        "last_net_price", "cost_per_base_unit", "tax_rate",
+    )
     _audit(
         session,
         "purchase_presentation.updated",
         "purchase_presentation",
         presentation_id,
-        {"name": name, "net_price": str(net_price), "cost_per_base_unit": str(cost)},
+        {
+            "name": name, "net_price": str(net_price), "cost_per_base_unit": str(cost),
+            "before": {field: _sanitize_for_json(current[field]) for field in audited_fields},
+            "after": {field: _sanitize_for_json(updated[field]) for field in audited_fields},
+        },
         branch_id=None,
         actor_user_id=actor_id,
     )
@@ -21520,9 +21554,21 @@ def _confirm_purchase_document(
         else:
             session.execute(models.inventory_cost_states.insert().values(**state_values))
         if line["presentation_snapshot"].get("supplier_catalog_exception") is not True:
+            # Older documents may lack conversion metadata. Preserve their snapshot and
+            # history, but never guess a conversion in order to reprice today's catalog.
+            snapshot_yield = line["presentation_snapshot"].get("base_unit_yield")
             session.execute(
                 sa.update(models.purchase_presentations)
-                .where(models.purchase_presentations.c.id == line["presentation_id"])
+                .where(
+                    models.purchase_presentations.c.id == line["presentation_id"],
+                    models.purchase_presentations.c.supplier_id == purchase["supplier_id"],
+                    models.purchase_presentations.c.commercial_unit_id
+                    == line["presentation_snapshot"].get("commercial_unit_id"),
+                    models.purchase_presentations.c.usable_content
+                    == Decimal(str(line["presentation_snapshot"]["usable_content"])),
+                    models.purchase_presentations.c.base_unit_yield
+                    == (Decimal(str(snapshot_yield)) if snapshot_yield is not None else None),
+                )
                 .values(last_net_price=line["unit_price"], updated_at=now)
             )
             presentation_for_history = {

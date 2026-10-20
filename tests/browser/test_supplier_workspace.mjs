@@ -110,5 +110,116 @@ async function verify(width, canManage = true) {
     throw error;
   } finally { await context.close(); }
 }
-try { await verify(1440); await verify(390); await verify(1440, false); }
+async function verifyPresentation(width, canEdit = true) {
+  const context = await browser.newContext({ viewport: { width, height: 940 } });
+  const page = await context.newPage();
+  page.setDefaultTimeout(15_000);
+  await page.route('https://fonts.googleapis.com/**', route => route.abort());
+  await page.route('https://fonts.gstatic.com/**', route => route.abort());
+  let saved;
+  let failSave = false;
+  let previewPayload;
+  let presentation = { id: 'pres-qa', code: 'PRES-1001', name: 'Aceituna frasco 450 g',
+    item_id: 'olive-qa', supplier_id: 'general-qa', supplier_name: 'PROVEEDOR GENERAL',
+    item_name: 'Aceituna', base_unit_code: 'KILO', base_unit_yield: '0.450000',
+    usable_content: '1.000000', commercial_unit_id: 'kilo-qa', last_net_price: '91.050000',
+    cost_per_base_unit: '202.333333', tax_rate: '0.160000', status: 'active',
+    updated_at: '2026-10-20T12:00:00+00:00' };
+  await page.addInitScript(() => localStorage.setItem('auth_token', 'synthetic-supplier-workspace-token'));
+  await page.route('**/api/v1/**', async route => {
+    const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
+    if (path === '/auth/session') {
+      const session = corporateAdminSession(user, branchId);
+      session.admin_capabilities['admin.manage'] = canEdit;
+      return route.fulfill({ json: session });
+    }
+    if (path === '/purchase-presentations/preview') {
+      previewPayload = route.request().postDataJSON();
+      return route.fulfill({ json: { cost_per_base_unit: '202.333333',
+        content_cost_mismatch: previewPayload.usable_content === '1.000000' } });
+    }
+    if (path === '/purchase-presentations/pres-qa') {
+      saved = route.request().postDataJSON();
+      if (failSave) return route.fulfill({ status: 409, json: { detail: {
+        code: 'presentation_version_conflict', message: 'La presentación cambió; actualiza el listado.' } } });
+      presentation = { ...presentation, ...saved, supplier_name: 'Proveedor real QA' };
+      return route.fulfill({ json: presentation });
+    }
+    if (path === '/purchase-presentations') return route.fulfill({ json: [presentation] });
+    if (path === '/suppliers') return route.fulfill({ json: [
+      { id: 'general-qa', commercial_name: 'PROVEEDOR GENERAL', status: 'active' },
+      { id: 'real-qa', commercial_name: 'Proveedor real QA', status: 'active' },
+      { id: 'inactive-qa', commercial_name: 'Proveedor inactivo QA', status: 'inactive' },
+    ] });
+    if (path === '/inventory/items') return route.fulfill({ json: [
+      { id: 'olive-qa', name: 'Aceituna', sku: '1001', base_unit_id: 'kilo-qa', unit_code: 'KILO' },
+    ] });
+    if (path === '/inventory/units') return route.fulfill({ json: [
+      { id: 'kilo-qa', code: 'KILO' }, { id: 'jar-qa', code: 'FRASCO' },
+    ] });
+    return route.fulfill({ json: [] });
+  });
+  try {
+    await page.goto(`${baseUrl}/purchase-presentations`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.getByText(presentation.name, { exact: true }).waitFor();
+    const edit = page.getByRole('button', { name: `Editar ${presentation.name}`, exact: true });
+    if (!canEdit) { assert.equal(await edit.count(), 0); return; }
+    await edit.click();
+    const dialog = page.getByRole('dialog');
+    const save = dialog.getByRole('button', { name: 'Guardar Cambios', exact: true });
+    await dialog.getByText('Revisa el contenido heredado', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('Proveedor', { exact: true }).isEnabled(), true);
+    assert.equal(await page.getByLabel('Unidad comercial', { exact: true }).isEnabled(), true);
+    assert.equal(await page.getByLabel('Insumo base', { exact: true }).isDisabled(), true);
+    assert.equal(await page.getByLabel('Clave / Código', { exact: true }).isDisabled(), true);
+    assert.equal(await page.getByLabel('Precio de compra neto ($ MXN)', { exact: true }).inputValue(), '91.05');
+    assert.equal(await page.getByLabel('Impuesto (%)', { exact: true }).inputValue(), '16.00');
+    assert.match(await dialog.innerText(), /202\.33/);
+    assert.equal(previewPayload.presentation_id, presentation.id);
+    await page.getByLabel('Proveedor', { exact: true }).selectOption('real-qa');
+    await page.getByLabel('Unidad comercial', { exact: true }).selectOption('jar-qa');
+    assert.equal(await page.getByLabel('Proveedor', { exact: true }).locator('option[value="inactive-qa"]').count(), 0);
+    await save.click();
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(saved.supplier_id, 'real-qa');
+    assert.equal(saved.commercial_unit_id, 'jar-qa');
+    assert.equal(saved.expected_updated_at, presentation.updated_at);
+    assert.equal(saved.usable_content, '1.000000');
+    assert.equal(saved.base_unit_yield, '0.450000');
+    assert.equal(saved.last_net_price, '91.050000');
+    assert.equal(saved.tax_rate, '0.160000');
+    await page.getByText('Proveedor real QA', { exact: true }).waitFor();
+    await edit.click();
+    await dialog.getByText('Revisa el contenido heredado', { exact: true }).waitFor();
+    await dialog.getByRole('button', { name: 'Usar rendimiento como contenido útil', exact: true }).click();
+    await dialog.getByText('Revisa el contenido heredado', { exact: true }).waitFor({ state: 'hidden' });
+    assert.equal(await page.getByLabel('Contenido útil (KILO)', { exact: true }).inputValue(), '0.45');
+    await page.getByLabel('Precio de compra neto ($ MXN)', { exact: true }).fill('91.051');
+    await dialog.getByRole('alert').getByText('Usa máximo 2 decimales, sin signos ni exponentes.', { exact: true }).waitFor();
+    assert.equal(await save.isDisabled(), true);
+    await page.getByLabel('Precio de compra neto ($ MXN)', { exact: true }).fill('91.05');
+    failSave = true;
+    await save.click();
+    await dialog.getByRole('alert').getByText(/La presentación cambió/).waitFor();
+    assert.equal(await page.getByLabel('Contenido útil (KILO)', { exact: true }).inputValue(), '0.45');
+    failSave = false;
+    await page.screenshot({ path: `${screenshotDir}/presentation-editor-${width}.png` });
+    const layout = await dialog.evaluate(element => ({ width: element.clientWidth,
+      scroll: element.scrollWidth, viewport: window.innerWidth, left: element.getBoundingClientRect().left }));
+    assert.ok(layout.scroll <= layout.width + 1 && layout.left >= 0 && layout.width <= layout.viewport);
+    await save.click();
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(saved.usable_content, '0.450000');
+    console.log(`Presentation correction: ${width}px, provider/unit, legacy cost, precision, explicit content and errors passed`);
+  } catch (error) {
+    console.error(error.message);
+    console.error((await page.locator('body').innerText()).slice(-2400));
+    await page.screenshot({ path: `${screenshotDir}/presentation-failure-${width}.png`, animations: 'disabled', timeout: 10000 });
+    throw error;
+  } finally { await context.close(); }
+}
+try { if (!process.env.SUPPLIER_PRESENTATION_ONLY) {
+    await verify(1440); await verify(390); await verify(1440, false);
+  }
+  await verifyPresentation(1440); await verifyPresentation(390); await verifyPresentation(1440, false); }
 finally { await browser.close(); }

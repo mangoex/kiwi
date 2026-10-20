@@ -1,0 +1,21 @@
+.presentation-editor { margin: 16px; }
+.presentation-form { display: grid; gap: 20px; }
+.presentation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 16px; }
+.presentation-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: .875rem; font-weight: 500; }
+.presentation-field select { width: 100%; min-height: 44px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font: inherit; }
+.presentation-field select:focus-visible { outline: 2px solid var(--color-text); outline-offset: 2px; }
+.presentation-field select:disabled { opacity: .7; }
+.presentation-help { margin: 0; color: var(--color-text-muted); font-size: .8125rem; line-height: 1.5; font-weight: 400; }
+.presentation-warning, .presentation-cost { border: 1px solid var(--color-border); border-radius: 12px; padding: 16px; display: grid; gap: 10px; }
+.presentation-warning { background: var(--color-bg); }
+.presentation-warning p { margin: 0; font-size: .875rem; line-height: 1.5; }
+.presentation-warning button { justify-self: start; white-space: normal; }
+.presentation-cost strong { font-size: 1.3rem; }
+.presentation-cost > span { color: var(--color-text-muted); font-size: .875rem; }
+.presentation-actions { display: flex; justify-content: flex-end; gap: 10px; position: sticky; bottom: -24px; margin: 0 -24px -24px; padding: 16px 24px; background: var(--color-surface); border-top: 1px solid var(--color-border); }
+.presentation-supplier-name { display: block; margin-top: 5px; color: var(--color-text-muted); font-size: .8rem; font-weight: 400; }
+@media (max-width: 600px) {
+  .presentation-grid { grid-template-columns: minmax(0, 1fr); }
+  .presentation-editor .ui-modal-body { padding: 20px; }
+  .presentation-actions { flex-wrap: wrap; bottom: -20px; margin: 0 -20px -20px; padding: 16px 20px; }
+}
