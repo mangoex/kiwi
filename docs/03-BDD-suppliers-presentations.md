@@ -29,6 +29,7 @@ Feature: Administrar proveedores y contactos operativos
     And puede expandir o contraer las secciones aun en modo de consulta
     And los campos tienen etiquetas separadas y se adaptan a una columna en móvil
     And conserva los días de crédito registrados aunque su valor sea cero
+    And distingue los proveedores activos, inactivos y suspendidos en el listado y el detalle
     And no muestra facturas, saldos, vencimientos ni proyecciones de demostración
     And distingue información financiera no disponible de una deuda igual a cero
     And un error de consulta ofrece reintento sin presentarse como un catálogo vacío

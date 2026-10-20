@@ -215,6 +215,7 @@ jobs:
       - name: Verify Admin retro in browser
         env:
           ADMINRETRO_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
+          SUPPLIER_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
           ADMINRETRO_BASE_URL: http://127.0.0.1:3002/admin
         run: |
           pnpm --filter @restaurantos/admin-web exec vite preview --host 127.0.0.1 --port 3002 > "$RUNNER_TEMP/adminretro-preview.log" 2>&1 &
@@ -231,6 +232,7 @@ jobs:
           node tests/browser/test_shared_modifier_workspace.mjs
           node tests/browser/test_admin_session_recovery.mjs
           node tests/browser/test_corporate_purchase_remediation.mjs
+          node tests/browser/test_supplier_workspace.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

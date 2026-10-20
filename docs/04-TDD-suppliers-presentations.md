@@ -39,6 +39,7 @@ And sólo el formulario editable queda deshabilitado en consulta
 And las secciones conservan sus controles interactivos
 And el crédito cero no se reemplaza por quince al consultar ni al guardar otro campo
 And guardar un contacto conserva el límite de crédito interno sin redondearlo
+And los estados activo, inactivo y suspendido conservan etiquetas distintas en listado y detalle
 And no se asignan ciudades, facturas, saldos, semáforos, DPO o proyecciones de ejemplo
 And un fallo de API se distingue de una colección vacía y permite reintentar
 And los permisos de consulta no habilitan alta ni edición.
@@ -46,6 +47,8 @@ And los permisos de consulta no habilitan alta ni edición.
 Evidencia automatizada dirigida: `tests/frontend/test_supplier_fast_tab_layout.mjs` y
 `tests/browser/test_supplier_workspace.mjs` (fixtures sintéticos aislados, 390/1440 px,
 consulta/edición, guardado sin cambiar crédito cero, precios con dos decimales, errores y recuperación).
+La regresión de navegador está conectada al runtime aislado de Playwright del job frontend de CI;
+`tests/architecture/test_ci_gates.py` verifica su inclusión obligatoria.
 
 Alcance R2: presentación y fidelidad del catálogo; no modifica el cálculo ni la persistencia
 de cuentas por pagar. Preguntas operativas: ¿falló la consulta o el catálogo está vacío?

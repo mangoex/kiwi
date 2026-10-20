@@ -2,7 +2,7 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "e186bccbb81390ab89cf0023870ff4c02bde85e4a1d4dd1f115ce19f0a1547df",
+      "sha256": "56fa4b909ed6803de395c1bb67f484669c9190249728f560974f875fc9709038",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {

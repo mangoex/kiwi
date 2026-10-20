@@ -56,6 +56,15 @@ const supplierForm = (supplier?: Supplier) => ({
 });
 
 type SupplierForm = ReturnType<typeof supplierForm>;
+function supplierStatusLabel(status?: string): string {
+  switch (status) {
+    case 'active': return 'Activo';
+    case 'inactive': return 'Inactivo';
+    case 'suspended': return 'Suspendido';
+    default: return 'Sin estado';
+  }
+}
+
 const fields: { key: keyof SupplierForm; label: string; type?: string; wide?: boolean }[] = [
   { key: 'commercial_name', label: 'Nombre comercial', wide: true },
   { key: 'legal_name', label: 'Razón social', wide: true },
@@ -189,7 +198,7 @@ export function SuppliersList() {
                   {supplier.legal_name && supplier.legal_name !== supplier.commercial_name && <span className="supplier-secondary">{supplier.legal_name}</span>}</td>
                 <td>{supplier.tax_id || <span className="supplier-muted">Sin registrar</span>}</td>
                 <td>{supplier.credit_days} días</td>
-                <td><span className="supplier-status" data-active={supplier.status === 'active'}>{supplier.status === 'active' ? 'Activo' : 'Inactivo'}</span></td>
+                <td><span className="supplier-status" data-active={supplier.status === 'active'}>{supplierStatusLabel(supplier.status)}</span></td>
                 <td><div className="supplier-row-actions">
                   <button type="button" className="supplier-button supplier-button--small" onClick={() => handleSelectSupplier(supplier)} aria-label={`Ver ${supplier.commercial_name}`}>Ver ficha</button>
                   {canManageCatalog && <button type="button" className="supplier-button supplier-button--icon" onClick={() => handleSelectSupplier(supplier, true)} aria-label={`Editar ${supplier.commercial_name}`}><Edit size={16} /></button>}
@@ -212,7 +221,7 @@ export function SuppliersList() {
     <FastTabDrawer isOpen={isFastTabOpen} onClose={() => { if (!supplierMutation.isPending) setIsFastTabOpen(false); }} size="wide"
       title={selectedSupplier?.commercial_name || 'Nuevo proveedor'}
       subtitle={isEditing ? 'Edición de datos del proveedor' : 'Ficha del proveedor'}
-      badge={<span className="supplier-status" data-active={selectedSupplier?.status === 'active'}>{selectedSupplier?.status === 'active' ? 'Activo' : 'Inactivo'}</span>}
+      badge={<span className="supplier-status" data-active={selectedSupplier?.status === 'active'}>{supplierStatusLabel(selectedSupplier?.status)}</span>}
       footerActions={<div className="supplier-footer-actions">
         <button type="button" className="supplier-button" disabled={supplierMutation.isPending} onClick={() => setIsFastTabOpen(false)}>Cerrar</button>
         {canManageCatalog && isEditing && <button type="submit" form="supplier-form" className="supplier-button supplier-button--primary" disabled={supplierMutation.isPending}>

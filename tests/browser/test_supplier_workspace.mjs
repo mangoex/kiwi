@@ -31,7 +31,7 @@ async function verify(width, canManage = true) {
     }
     if (path === '/suppliers') {
       if (state.mode === 'error') return route.fulfill({ status: 503, json: { detail: { code: 'synthetic_failure', message: 'Error de prueba' } } });
-      return route.fulfill({ json: state.mode === 'empty' ? [] : [{ ...supplier, ...state.saved }, { ...supplier, id: 'supplier-other', code: 'P002', commercial_name: 'Proveedor de empaques QA', status: 'inactive', credit_days: 30 }] });
+      return route.fulfill({ json: state.mode === 'empty' ? [] : [{ ...supplier, ...state.saved }, { ...supplier, id: 'supplier-other', code: 'P002', commercial_name: 'Proveedor de empaques QA', status: 'inactive', credit_days: 30 }, { ...supplier, id: 'supplier-suspended', code: 'P003', commercial_name: 'Proveedor suspendido QA', status: 'suspended' }] });
     }
     if (path === '/purchase-presentations') {
       if (state.presentationError) return route.fulfill({ status: 503, json: { detail: { code: 'synthetic_failure', message: 'Error de prueba' } } });
@@ -67,6 +67,11 @@ async function verify(width, canManage = true) {
     await drawer.getByRole('button', { name: 'Cerrar', exact: true }).click();
     await page.getByText('Proveedor de empaques QA', { exact: true }).click();
     assert.equal(await page.getByLabel('Días de crédito', { exact: true }).inputValue(), '30', 'Cada ficha debe usar el crédito de su propio proveedor');
+    await drawer.getByRole('button', { name: 'Cerrar', exact: true }).click();
+    const suspendedRow = page.getByRole('row').filter({ hasText: 'Proveedor suspendido QA' });
+    assert.match(await suspendedRow.innerText(), /Suspendido/, 'Una suspensión debe distinguirse de una desactivación');
+    await page.getByText('Proveedor suspendido QA', { exact: true }).click();
+    await drawer.getByText('Suspendido', { exact: true }).waitFor();
     await drawer.getByRole('button', { name: 'Cerrar', exact: true }).click();
     if (canManage) {
       await page.getByRole('button', { name: `Editar ${supplier.commercial_name}`, exact: true }).click();
