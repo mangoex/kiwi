@@ -68,6 +68,14 @@ def _postgres_factory() -> tuple[sa.Engine, sessionmaker[Session]]:
         future=True,
         connect_args={"options": "-cstatement_timeout=15000 -clock_timeout=5000"},
     )
+    # Migrations bootstrap organization and permission rows. The deterministic
+    # fixture must start empty, while keeping Alembic's schema revision intact.
+    with engine.begin() as connection:
+        names = [
+            name for name in sa.inspect(connection).get_table_names() if name != "alembic_version"
+        ]
+        quoted = ", ".join(connection.dialect.identifier_preparer.quote(name) for name in names)
+        connection.execute(sa.text("TRUNCATE TABLE " + quoted + " RESTART IDENTITY CASCADE"))
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     with factory() as session:
         _seed(session)
