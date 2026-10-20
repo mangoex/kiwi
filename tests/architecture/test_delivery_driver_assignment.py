@@ -31,6 +31,13 @@ def test_assignment_is_validated_persisted_and_exposed_as_history() -> None:
     assert 'event_type="DRIVER_ASSIGNED"' in operations
     assert 'action="delivery.driver_assigned"' in operations
     assert '@router.get("/delivery/drivers/available")' in api
+    assert '@router.put("/orders/{order_id}/delivery-assignment")' in api
+    assert "assign_delivery_driver" in operations
+    assert "delivery_assignment_conflict" in operations
+    assert "_public_accept_command_snapshot" in operations
+    assert "_public_accept_replay_response" in operations
+    assert "sa.select(models.drivers)" in operations
+    assert ".with_for_update()" in operations
     assert '@router.get("/drivers/{driver_id}/deliveries")' in api
     assert "Cannot downgrade 0031 while delivery assignments exist" in migration
 
@@ -58,8 +65,34 @@ def test_delivery_assignment_specs_and_traceability_exist() -> None:
     operation = _read("docs/10-operacion-easypanel.md")
     for document in (prd, sdd, matrix, operation):
         assert "PRD-FR-211" in document
-    for scenario in range(243, 248):
+    for scenario in (*range(243, 248), 735, 736, 737, 738):
         assert f"BDD-SC-{scenario}" in bdd
         assert f"BDD-SC-{scenario}" in matrix
     assert "TDD-TS-072" in tdd and "TDD-TC-068" in tdd
     assert "TDD-TS-072" in matrix and "TDD-TC-068" in matrix
+    for test_case in (430, 431, 432, 433):
+        assert f"TDD-TC-{test_case}" in tdd
+        assert f"TDD-TC-{test_case}" in matrix
+
+
+def test_history_assigns_driver_to_public_and_unassigned_delivery_orders() -> None:
+    source = _read("apps/pos-web/src/features/history/History.tsx")
+    assert "delivery_assignment" in source
+    assert "Asignar repartidor" in source
+    assert "Repartidor seleccionado para aceptar" in source
+    assert "/delivery/drivers/available" in source
+    assert "/delivery-assignment" in source
+    assert "driver_id: selectedAssignmentDriverId" in source
+    assert "selected.status !== 'PENDING' || selected.is_public_intent === true" in source
+
+
+def test_delivery_assignment_postgresql_gate_is_mandatory_in_ci() -> None:
+    workflow = _read(".github/workflows/ci.yml")
+    evidence = _read("scripts/verify_postgres_evidence.py")
+    postgres_test = _read("apps/api/tests/test_delivery_driver_assignment_postgres.py")
+    assert "CREATE DATABASE delivery_assignment_ci" in workflow
+    assert "DELIVERY_ASSIGNMENT_TEST_POSTGRES_URL" in workflow
+    assert '"delivery_driver_assignment"' in evidence
+    assert "test_competing_first_assignments_have_one_winner_on_postgresql" in postgres_test
+    assert "test_assignment_rechecks_driver_after_concurrent_deactivation" in postgres_test
+    assert "test_assignment_and_dispatch_use_a_consistent_postgresql_lock_order" in postgres_test

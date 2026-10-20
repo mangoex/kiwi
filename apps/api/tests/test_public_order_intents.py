@@ -122,6 +122,30 @@ def _accept_effect_counts(client: TestClient) -> dict[str, int]:
         }
 
 
+def _create_active_driver(
+    client: TestClient,
+    *,
+    employee_code: str,
+    name: str,
+) -> dict[str, Any]:
+    response = client.post(
+        "/api/v1/drivers",
+        headers=_admin_headers(),
+        json={
+            "employee_code": employee_code,
+            "name": name,
+            "license_number": f"LIC-{employee_code}",
+            "motorcycle_plate": f"M-{employee_code}",
+            "branch_id": BRANCH_ID,
+            "phone": "6691234567",
+            "address": "Base de reparto",
+            "emergency_contact_name": "Contacto de prueba",
+        },
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
 def test_public_order_intent_requires_idempotency_key_and_strict_body() -> None:
     client = _client_with_seeded_database()
     _enable_public_order_capture(client)
@@ -644,6 +668,205 @@ def test_authenticated_acceptance_creates_canonical_order_once_without_cash_shif
         assert {row["action"] for row in audits} == {"public_order_intent.captured", "public_order_intent.accepted"}
         rendered = repr([row["payload"] for row in audits])
         assert "Cliente marcador" not in rendered and "+526141234567" not in rendered and "public-order-accept-001" not in rendered
+
+
+def test_delivery_public_acceptance_assigns_driver_atomically_and_replays() -> None:
+    client = _client_with_seeded_database()
+    _enable_public_order_capture(client)
+    driver = _create_active_driver(client, employee_code="DPA001", name="Repartidor Web")
+    other_driver = _create_active_driver(
+        client,
+        employee_code="DPA002",
+        name="Otro Repartidor Web",
+    )
+    created = _post_intent(
+        client,
+        _payload(
+            order_type="delivery",
+            delivery_address={"address_text": "Calle Web 123", "notes": "Portón verde"},
+        ),
+        key="public-delivery-assignment-create-001",
+    )
+    assert created.status_code == 201
+    intent_id = _intent_id(client, created.json()["public_reference"])
+    before = _accept_effect_counts(client)
+
+    unavailable = client.post(
+        f"/api/v1/order-intents/{intent_id}/accept",
+        headers={**_admin_headers(), "Idempotency-Key": "public-delivery-invalid-driver-001"},
+        json={
+            "expected_version": 1,
+            "driver_id": "018f6f73-2d0a-74f0-8f1c-000000009999",
+        },
+    )
+    assert unavailable.status_code == 409
+    assert unavailable.json()["detail"]["code"] == "delivery_driver_unavailable"
+    assert _accept_effect_counts(client) == before
+
+    headers = {
+        **_admin_headers(),
+        "Idempotency-Key": "public-delivery-assignment-accept-001",
+    }
+    accepted = client.post(
+        f"/api/v1/order-intents/{intent_id}/accept",
+        headers=headers,
+        json={"expected_version": 1, "driver_id": driver["id"]},
+    )
+    assert accepted.status_code == 201
+    assignment = accepted.json()["delivery_assignment"]
+    assert assignment["driver_id"] == driver["id"]
+    assert assignment["driver_name_snapshot"] == "Repartidor Web"
+    assert assignment["delivery_address_snapshot"]["address_text"] == "Calle Web 123"
+
+    assert client.delete(
+        f"/api/v1/drivers/{driver['id']}",
+        headers=_admin_headers(),
+    ).status_code == 200
+    replay = client.post(
+        f"/api/v1/order-intents/{intent_id}/accept",
+        headers=headers,
+        json={"expected_version": 1, "driver_id": driver["id"]},
+    )
+    assert replay.status_code == 200
+    assert replay.json() == accepted.json()
+    conflict = client.post(
+        f"/api/v1/order-intents/{intent_id}/accept",
+        headers=headers,
+        json={"expected_version": 1, "driver_id": other_driver["id"]},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "idempotency_conflict"
+
+    with _test_session_factory(client)() as session:
+        rows = session.execute(models.delivery_assignments.select()).mappings().all()
+        assert len(rows) == 1
+        assert rows[0]["order_id"] == accepted.json()["id"]
+        command = session.execute(
+            sa.select(models.public_order_intent_commands).where(
+                models.public_order_intent_commands.c.intent_id == intent_id,
+                models.public_order_intent_commands.c.command_type == "accept",
+            )
+        ).mappings().one()
+        assert command["result"]["delivery_assignment"] == {"id": assignment["id"]}
+        stored_result = str(command["result"])
+        assert "Repartidor Web" not in stored_result
+        assert "Calle Web 123" not in stored_result
+        assert "customer_name_snapshot" not in stored_result
+        assert "delivery_address_snapshot" not in stored_result
+        events = session.execute(
+            sa.select(models.order_events).where(
+                models.order_events.c.order_id == accepted.json()["id"],
+                models.order_events.c.event_type == "DRIVER_ASSIGNED",
+            )
+        ).mappings().all()
+        assert len(events) == 1
+
+
+def test_accepted_delivery_receives_only_one_idempotent_driver_assignment() -> None:
+    client = _client_with_seeded_database()
+    _enable_public_order_capture(client)
+    driver = _create_active_driver(client, employee_code="DPR001", name="Repartidor Recuperación")
+    other_driver = _create_active_driver(
+        client,
+        employee_code="DPR002",
+        name="Repartidor Conflicto",
+    )
+    created = _post_intent(
+        client,
+        _payload(
+            order_type="delivery",
+            delivery_address={"address_text": "Avenida Recuperación 5"},
+        ),
+        key="public-delivery-recovery-create-001",
+    )
+    intent_id = _intent_id(client, created.json()["public_reference"])
+    accepted = client.post(
+        f"/api/v1/orders/{intent_id}/accept",
+        headers=_admin_headers(),
+    )
+    assert accepted.status_code == 200
+    order_id = accepted.json()["id"]
+
+    assigned = client.put(
+        f"/api/v1/orders/{order_id}/delivery-assignment",
+        headers=_admin_headers(),
+        json={"driver_id": driver["id"]},
+    )
+    assert assigned.status_code == 200
+    assert assigned.json()["driver_id"] == driver["id"]
+    replay = client.put(
+        f"/api/v1/orders/{order_id}/delivery-assignment",
+        headers=_admin_headers(),
+        json={"driver_id": driver["id"]},
+    )
+    assert replay.status_code == 200
+    assert replay.json() == assigned.json()
+
+    conflict = client.put(
+        f"/api/v1/orders/{order_id}/delivery-assignment",
+        headers=_admin_headers(),
+        json={"driver_id": other_driver["id"]},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "delivery_assignment_conflict"
+
+    with _test_session_factory(client)() as session:
+        assignments = session.execute(
+            sa.select(models.delivery_assignments).where(
+                models.delivery_assignments.c.order_id == order_id
+            )
+        ).mappings().all()
+        assert len(assignments) == 1
+        events = session.execute(
+            sa.select(models.order_events).where(
+                models.order_events.c.order_id == order_id,
+                models.order_events.c.event_type == "DRIVER_ASSIGNED",
+            )
+        ).mappings().all()
+        assert len(events) == 1
+        audits = session.execute(
+            sa.select(models.audit_events).where(
+                models.audit_events.c.entity_id == assigned.json()["id"],
+                models.audit_events.c.action == "delivery.driver_assigned",
+            )
+        ).mappings().all()
+        assert len(audits) == 1
+
+
+def test_pos_accept_endpoint_forwards_selected_driver_to_public_acceptance() -> None:
+    client = _client_with_seeded_database()
+    _enable_public_order_capture(client)
+    driver = _create_active_driver(client, employee_code="DPW001", name="Repartidor POS Web")
+    created = _post_intent(
+        client,
+        _payload(
+            order_type="delivery",
+            delivery_address={"address_text": "Calle POS Web 8"},
+        ),
+        key="public-delivery-pos-wrapper-create-001",
+    )
+    intent_id = _intent_id(client, created.json()["public_reference"])
+
+    accepted = client.post(
+        f"/api/v1/orders/{intent_id}/accept",
+        headers=_admin_headers(),
+        json={"driver_id": driver["id"]},
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["delivery_assignment"]["driver_id"] == driver["id"]
+    replay = client.post(
+        f"/api/v1/orders/{intent_id}/accept",
+        headers=_admin_headers(),
+        json={"driver_id": driver["id"]},
+    )
+    assert replay.status_code == 200
+    assert replay.json() == accepted.json()
+    detail = client.get(
+        f"/api/v1/orders/{accepted.json()['id']}",
+        headers=_admin_headers(),
+    )
+    assert detail.status_code == 200
+    assert detail.json()["delivery_assignment"]["driver_name_snapshot"] == "Repartidor POS Web"
 
 
 def test_public_dine_in_intent_is_accepted() -> None:

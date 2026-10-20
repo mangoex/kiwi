@@ -461,18 +461,44 @@ desactivación lógica para preservar futuras referencias de rutas, entregas y l
 eventos de auditoría registran identificador, sucursal, acción y nombres de campos modificados; no
 repiten teléfono, domicilio, licencia ni placas en el payload.
 
-`DeliveryAssignment` se crea únicamente durante `create_local_order` para pedidos `delivery`.
-`driver_id` es opcional; si se proporciona, el repartidor debe estar activo y pertenecer a la misma
-sucursal autorizada del pedido. En la misma transacción se congela `driver_name_snapshot`,
+`DeliveryAssignment` se crea durante `create_local_order`, dentro de la aceptación autenticada de
+una intención pública o mediante la primera asignación explícita de un pedido `delivery` ya
+aceptado y todavía no despachado. `driver_id` es opcional al crear o aceptar; si se proporciona, el
+repartidor debe estar activo y pertenecer a la misma sucursal autorizada del pedido. En la misma
+transacción, la lectura del repartidor adquiere bloqueo de fila antes de congelar
+`driver_name_snapshot`,
 `customer_name_snapshot`, `delivery_address_snapshot`, `order_total_cents`, `currency`,
 `line_count`, `item_quantity`, `assigned_by` y `assigned_at`. La tabla tiene una asignación por
-pedido y no se actualiza ni elimina; una futura reasignación requerirá un evento compensatorio.
+pedido y no se actualiza ni elimina. `PUT /orders/{order_id}/delivery-assignment` es idempotente por
+estado: repetir el mismo `driver_id` devuelve la asignación existente, mientras otro repartidor,
+un pedido no delivery, un estado despachado/terminal o un conductor no disponible falla cerrado.
+Una futura reasignación requerirá un evento compensatorio.
+
+El comando idempotente de aceptación pública persiste sólo el `id` de la asignación dentro de su
+resultado; no duplica nombres, domicilio, cliente, actor ni identificador del conductor. Tanto la
+primera respuesta como el replay rehidratan esos campos desde `DeliveryAssignment`, que conserva el
+snapshot inmutable autoritativo.
 
 `GET /delivery/drivers/available?branch_id=...` usa `orders.create`, valida alcance y sólo devuelve
 repartidores activos de esa sucursal. El modal de cobro consume esa lectura únicamente cuando el
 tipo ya seleccionado es `delivery`; no vuelve a renderizar controles para cambiar tipo de pedido.
+Pedidos reutiliza la misma lectura para seleccionar al aceptar una intención pública o recuperar un
+pedido aceptado sin asignación. La aceptación y su asignación son atómicas; la recuperación bloquea
+el pedido y el repartidor validado, crea una sola fila, un evento `DRIVER_ASSIGNED` y auditoría sin
+duplicar PII. Una baja o cambio concurrente del conductor gana antes del bloqueo y hace fallar la
+asignación, o espera a que la asignación atómica termine; nunca confirma contra una lectura obsoleta.
+Para conservar paridad con preparación, cancelación y despacho, la recuperación respeta el orden
+global de bloqueos: fence de sucursal, pedido y finalmente repartidor.
 El administrador consulta `GET /drivers/{driver_id}/deliveries`, protegido por `admin.manage`, para
 ver folio, cliente, total, cantidades, sucursal, estado y fecha sin recalcular historia.
+
+Preguntas operativas: ¿qué actor y flujo (`pos_create`, `public_acceptance` u `order_recovery`)
+crearon la primera asignación?, respondida por `delivery.driver_assigned` y `DRIVER_ASSIGNED`; ¿un
+pedido web delivery permanece sin asignación antes del despacho?, respondida por la proyección de
+detalle y cuentas; ¿un reintento duplicó historia o intentó reemplazar al conductor?, respondida por
+la unicidad por pedido, el único evento/auditoría y los códigos `delivery_assignment_conflict` o
+`delivery_assignment_state_invalid`. Los payloads conservan IDs, fuente y conteos, no teléfono,
+domicilio ni notas del cliente.
 
 ### 5.12 Integrations (Channel Hub & Marketplaces)
 

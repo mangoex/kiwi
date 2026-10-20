@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Card, Modal } from '@restaurantos/ui';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
-import { Calendar, ChefHat, ChevronRight, Clock, CreditCard, Pencil, Printer, ReceiptText, RefreshCcw, Search, X } from 'lucide-react';
+import { Bike, Calendar, ChefHat, ChevronRight, Clock, CreditCard, Pencil, Printer, ReceiptText, RefreshCcw, Search, X } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { localDayUtcBounds } from '../reports/salesMonitorState';
 import { CashierPaymentDialog } from '../pos/CashierPaymentDialog';
@@ -43,11 +43,25 @@ interface OrderDetail extends OrderAccount {
   delivery_address?: string | null;
   delivery_notes?: string | null;
   channel?: string | null;
+  is_public_intent?: boolean;
+  delivery_assignment?: {
+    id: string;
+    driver_id: string;
+    driver_name_snapshot: string;
+    status: string;
+  } | null;
   lines: Array<{ id: string; product_id: string; product_name: string; quantity: number; unit_price_cents: number; line_total_cents: number; line_notes?: string | null; selected_modifiers?: Array<Record<string, unknown>> }>;
   production_tasks: Array<{ id: string; order_line_id: string; status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'; quantity: number; product_name: string }>;
   payments: Array<{ id: string; method: string; status: string; amount_cents: number }>;
   sales_operation_snapshots?: Array<{ id: string; quality_status?: string; captured_at?: string }>;
   corrections: Array<{ id: string; request_id: string; folio: string; corrected_total_cents: number; settlement_delta_cents: number; currency: string; applied_at: string }>;
+}
+
+interface DeliveryDriver {
+  id: string;
+  name: string;
+  phone: string;
+  motorcycle_plate: string;
 }
 
 interface OrderAccountsResponse { items: OrderAccount[]; next_cursor: string | null }
@@ -171,6 +185,12 @@ const History = () => {
   const [paymentOrder, setPaymentOrder] = useState<{ id: string; folio: string; method: string } | null>(null);
   const [listError, setListError] = useState('');
   const [detailError, setDetailError] = useState('');
+  const [assignmentDrivers, setAssignmentDrivers] = useState<DeliveryDriver[]>([]);
+  const [assignmentPickerOpen, setAssignmentPickerOpen] = useState(false);
+  const [assignmentDriversLoading, setAssignmentDriversLoading] = useState(false);
+  const [assignmentError, setAssignmentError] = useState('');
+  const [selectedAssignmentDriverId, setSelectedAssignmentDriverId] = useState('');
+  const [assignmentBusy, setAssignmentBusy] = useState(false);
   const [reopenReason, setReopenReason] = useState('');
   const [evidenceText, setEvidenceText] = useState('');
   const [reopenPending, setReopenPending] = useState(false);
@@ -309,6 +329,7 @@ const History = () => {
   const openOrder = useCallback(async (orderId: string) => {
     const sequence = ++detailRequestSequence.current;
     setActiveOrderId(orderId); setSelected(null); setDetailLoading(true); setDetailError('');
+    setAssignmentDrivers([]); setAssignmentPickerOpen(false); setAssignmentError(''); setSelectedAssignmentDriverId('');
     try {
       const detail = await requestOrder<OrderDetail>(`/orders/${encodeURIComponent(orderId)}`);
       if (sequence !== detailRequestSequence.current) return;
@@ -360,13 +381,50 @@ const History = () => {
     setAcceptPending(true);
     setDetailError('');
     try {
-      await fetchApi(`/orders/${encodeURIComponent(orderId)}/accept`, { method: 'POST' });
+      await fetchApi(`/orders/${encodeURIComponent(orderId)}/accept`, {
+        method: 'POST',
+        body: JSON.stringify(selectedAssignmentDriverId
+          ? { driver_id: selectedAssignmentDriverId }
+          : {}),
+      });
+      setSelectedAssignmentDriverId(''); setAssignmentPickerOpen(false); setAssignmentDrivers([]);
       window.dispatchEvent(new Event('pos:pending-orders-changed'));
       await Promise.all([loadAccounts(), refreshSelected()]);
     } catch (reason) {
       setDetailError(reason instanceof ApiError ? reason.message : 'No fue posible aceptar el pedido.');
     } finally {
       setAcceptPending(false);
+    }
+  };
+  const loadAssignmentDrivers = async () => {
+    if (!selected || selected.service_type !== 'delivery' || !branchId || localOrders) return;
+    setAssignmentPickerOpen(true); setAssignmentDriversLoading(true); setAssignmentError('');
+    try {
+      const drivers = await fetchApi<DeliveryDriver[]>(
+        `/delivery/drivers/available?branch_id=${encodeURIComponent(branchId)}`,
+      );
+      setAssignmentDrivers(Array.isArray(drivers) ? drivers : []);
+    } catch (reason) {
+      setAssignmentDrivers([]);
+      setAssignmentError(reason instanceof ApiError ? reason.message : 'No fue posible cargar los repartidores.');
+    } finally {
+      setAssignmentDriversLoading(false);
+    }
+  };
+  const assignSelectedDriver = async () => {
+    if (!selected || !selectedAssignmentDriverId || assignmentBusy || selected.status === 'PENDING') return;
+    setAssignmentBusy(true); setAssignmentError('');
+    try {
+      await fetchApi(`/orders/${encodeURIComponent(selected.id)}/delivery-assignment`, {
+        method: 'PUT',
+        body: JSON.stringify({ driver_id: selectedAssignmentDriverId }),
+      });
+      setSelectedAssignmentDriverId(''); setAssignmentPickerOpen(false); setAssignmentDrivers([]);
+      await Promise.all([loadAccounts(), refreshSelected()]);
+    } catch (reason) {
+      setAssignmentError(reason instanceof ApiError ? reason.message : 'No fue posible asignar el repartidor.');
+    } finally {
+      setAssignmentBusy(false);
     }
   };
   const submitReopenRequest = async () => {
@@ -574,6 +632,59 @@ const History = () => {
   const availableActions = selected ? cashierOrderActions(selected, new Set(['orders.fulfill', 'orders.cancel'].filter(hasPermission))) : null;
   const selectedSnapshotQuality = selected?.sales_operation_snapshots?.map((snapshot) => snapshot.quality_status || 'sin dato').join(', ') || 'Sin snapshot operativo';
   const today = useMemo(() => new Date().toLocaleDateString('en-CA', { timeZone: branchTimezone }), [branchTimezone]);
+  const selectedAssignmentDriver = assignmentDrivers.find((driver) => driver.id === selectedAssignmentDriverId) || null;
+  const canCreateDeliveryAssignment = Boolean(
+    selected
+    && selected.service_type === 'delivery'
+    && !selected.delivery_assignment
+    && ['PENDING', 'ACCEPTED', 'SENT_TO_PRODUCTION', 'IN_PRODUCTION', 'READY'].includes(selected.status)
+    && (selected.status !== 'PENDING' || selected.is_public_intent === true)
+    && !localOrders
+    && hasPermission('orders.create'),
+  );
+  const deliveryAssignmentPanel = selected?.service_type === 'delivery' ? (
+    <section style={{ margin: '10px 0', padding: 12, border: '1px solid #a7f3d0', borderRadius: 10, background: '#f0fdf4' }} aria-label="Asignación de repartidor">
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+        <div>
+          <strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Bike size={17} /> Repartidor</strong>
+          {selected.delivery_assignment ? (
+            <small style={{ color: '#047857' }}>{selected.delivery_assignment.driver_name_snapshot}</small>
+          ) : (
+            <small style={{ color: '#64748b' }}>Sin repartidor asignado</small>
+          )}
+        </div>
+        {canCreateDeliveryAssignment ? (
+          <Button variant="secondary" disabled={assignmentDriversLoading || assignmentBusy} onClick={() => void loadAssignmentDrivers()}>
+            Asignar repartidor
+          </Button>
+        ) : null}
+      </div>
+      {canCreateDeliveryAssignment && assignmentPickerOpen ? (
+        <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+          {assignmentDriversLoading ? <small role="status">Cargando repartidores…</small> : null}
+          {!assignmentDriversLoading && assignmentDrivers.length === 0 && !assignmentError ? <small>No hay repartidores activos en esta sucursal.</small> : null}
+          {assignmentDrivers.length > 0 ? (
+            <label style={{ display: 'grid', gap: 4 }}>
+              Selecciona repartidor
+              <select value={selectedAssignmentDriverId} onChange={(event) => { setSelectedAssignmentDriverId(event.target.value); setAssignmentError(''); }}>
+                <option value="">Seleccionar…</option>
+                {assignmentDrivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.name} · {driver.motorcycle_plate}</option>)}
+              </select>
+            </label>
+          ) : null}
+          {selected.status === 'PENDING' && selectedAssignmentDriver ? (
+            <small style={{ color: '#047857' }}>Repartidor seleccionado para aceptar: {selectedAssignmentDriver.name}</small>
+          ) : null}
+          {selected.status !== 'PENDING' && selectedAssignmentDriverId ? (
+            <Button disabled={assignmentBusy} onClick={() => void assignSelectedDriver()}>
+              {assignmentBusy ? 'Asignando…' : 'Confirmar asignación'}
+            </Button>
+          ) : null}
+          {assignmentError ? <small role="alert" style={{ color: '#b91c1c' }}>{assignmentError}</small> : null}
+        </div>
+      ) : null}
+    </section>
+  ) : null;
 
   return <div className="orders-history-page">
     <header className="orders-history-header"><div><h1>Pedidos — <span style={{ color: '#10b981' }}>{session?.user?.display_name || ''}</span></h1><p>Consulta, edita y confirma el pago de los pedidos de la sucursal <strong style={{ color: '#0f172a' }}>{session?.active_branch?.name || 'activa'}</strong>.</p></div>
@@ -591,7 +702,7 @@ const History = () => {
     {serviceType === 'delivery' && localOrders ? <p role="status" className="orders-history-offline-notice">La liquidación agrupada requiere conexión central; el gateway local conserva sus comandos operativos sin fallback.</p> : null}
     {listError ? <p role="alert" className="orders-history-error">{listError}</p> : null}
     <div className="orders-history-layout"><Card className="orders-history-list">{settlementEnabled ? <section className="orders-history-settlement" aria-live="polite"><div><strong>{selectedDriver?.name || 'Selecciona pedidos del repartidor'}</strong><span>{selectedSettlementOrders.length} pedido(s) · {formatCurrency(selectedSettlementTotal)}</span></div><Button disabled={selectedSettlementOrders.length === 0 || !configuredRegisterId} onClick={() => { setSettlementOpen(true); setSettlementResult(null); setSettlementError(''); }}>Recibir efectivo del repartidor</Button>{!configuredRegisterId ? <small role="alert">Configura Turno y Caja para liquidar.</small> : null}</section> : null}{loading ? <div className="orders-history-list-state"><RefreshCcw size={32} className="orders-history-spin" /><span>Cargando cuentas…</span></div> : <><div className="orders-history-table-scroll"><table><thead><tr>{settlementEnabled ? <th><input type="checkbox" aria-label="Seleccionar todos los pedidos elegibles cargados" checked={allSettlementOrdersSelected} disabled={settlementEligibleOrders.length === 0} onChange={toggleAllSettlementOrders} /></th> : null}<th>Folio</th><th>Cliente</th><th className="orders-history-type-cell">Tipo</th><th className="orders-history-date-cell">Fecha y hora</th><th>Estado</th><th>Total</th><th aria-label="Acciones" /></tr></thead><tbody>{orders.length === 0 ? <tr><td colSpan={settlementEnabled ? 8 : 7}><div className="orders-history-list-state"><Calendar size={42} /><span>No se encontraron cuentas.</span></div></td></tr> : orders.map((order) => { const status = getStatusConfig(order.status); const isSelected = selected?.id === order.id || activeOrderId === order.id; return <tr key={order.id} role="button" tabIndex={0} aria-selected={isSelected} className={isSelected ? 'is-selected' : ''} onClick={() => void openOrder(order.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openOrder(order.id); } }}>{settlementEnabled ? <td><input type="checkbox" aria-label={`Seleccionar pedido ${order.folio}`} checked={selectedSettlementOrderIds.has(order.id)} disabled={!order.settlement_eligible} title={order.settlement_eligible ? 'Cobro efectivo pendiente' : 'No elegible para liquidación en efectivo'} onClick={(event) => event.stopPropagation()} onChange={() => toggleSettlementOrder(order.id)} /></td> : null}<td className="orders-history-folio">{order.folio}</td><td><span>{order.customer_label || 'Cliente General'}</span><small className="orders-history-compact-meta">{order.driver_name ? `${order.driver_name} · ` : ''}{getTypeLabel(order.service_type)} · {new Date(order.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></td><td className="orders-history-type-cell">{getTypeLabel(order.service_type)}</td><td className="orders-history-date-cell"><Clock size={15} aria-hidden="true" />{new Date(order.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</td><td><span className="orders-history-status" style={{ background: status.bg, color: status.color, borderColor: status.border }}>{status.label}</span>{order.payment_status && <small className={`pos-cashier-payment-status ${order.payment_status === "CONFIRMED" ? "paid" : "pending"}`}>{order.payment_status === "CONFIRMED" ? "Pagado" : "Pago pendiente"}</small>}{order.payment_method_intent && <small>{order.payment_method_intent === 'cash' ? 'Efectivo' : 'No efectivo'}</small>}</td><td className="orders-history-total">{formatCurrency(order.total_cents)}</td><td><ChevronRight size={20} aria-hidden="true" /></td></tr>; })}</tbody></table></div>{nextCursor ? <div className="orders-history-pagination"><Button variant="secondary" onClick={() => void loadAccounts(nextCursor, true)}>Cargar más cuentas</Button></div> : null}</>}</Card>
-      <aside className="orders-history-detail" aria-label="Detalle del pedido">{detailLoading ? <div className="orders-history-detail-state" role="status"><RefreshCcw size={30} className="orders-history-spin" /><strong>Abriendo pedido…</strong><span>Estamos preparando el detalle.</span></div> : !selected ? <div className="orders-history-detail-state"><span className="orders-history-empty-icon"><ReceiptText size={30} /></span><strong>Selecciona un pedido para revisar su detalle</strong><span>Podrás consultar productos, editarlo o confirmar el pago cuando corresponda.</span>{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}</div> : <><div className="orders-history-detail-header"><div><span>Cuenta actual</span><h2>Detalle del pedido</h2></div><button type="button" onClick={closeDetail} aria-label="Cerrar detalle del pedido"><X size={20} /></button></div><div className="orders-history-detail-scroll"><section className="orders-history-order-meta"><div><span>Pedido</span><strong>{selected.folio}</strong></div><span className="orders-history-status" style={{ background: selectedStatus?.bg, color: selectedStatus?.color, borderColor: selectedStatus?.border }}>{selectedStatus?.label}</span><small className={`pos-cashier-payment-status ${selected.payment_status === "CONFIRMED" ? "paid" : "pending"}`}>{selected.payment_status === "CONFIRMED" ? "Pagado" : "Pago pendiente"}</small></section><section className="orders-history-customer"><strong>{selected.customer_label || 'Cliente General'}</strong>{selected.customer_phone ? <a href={`https://wa.me/${selected.customer_phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#16a34a', textDecoration: 'none', fontWeight: 600, fontSize: '0.88rem', margin: '4px 0' }} title="Contactar por WhatsApp">💬 WhatsApp: {selected.customer_phone}</a> : null}{selected.delivery_address ? <div style={{ fontSize: '0.82rem', color: '#334155', margin: '4px 0', background: '#f8fafc', padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>📍 <strong>Dirección:</strong> {selected.delivery_address}{selected.delivery_notes ? <small style={{ display: 'block', color: '#64748b', marginTop: '2px' }}>Ref: {selected.delivery_notes}</small> : null}</div> : null}<span>{getTypeLabel(selected.service_type)} {selected.channel === 'online_menu' ? '· 📱 Pedido Web' : ''}</span><small>{new Date(selected.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></section><section className="orders-history-snapshot"><details><summary>Información de auditoría</summary><strong>Calidad del snapshot operativo</strong><span>{selectedSnapshotQuality}</span></details></section><section className="orders-history-lines"><div className="orders-history-section-title"><span>Productos</span><small>{selected.lines.length} línea(s)</small></div>{selected.lines.map((line) => <div key={line.id} className="orders-history-line"><span className="orders-history-line-quantity">{line.quantity}</span><div><strong>{line.product_name}</strong><small>{line.quantity} × {formatCurrency(line.unit_price_cents)}</small>{line.line_notes && <small className="pos-cashier-line-note">Nota: {line.line_notes}</small>}{line.selected_modifiers?.map((selection, index) => <small key={index}>{String(selection.text || selection.kitchen_text || selection.name || "Complemento")}</small>)}</div><strong>{formatCurrency(line.line_total_cents)}</strong></div>)}</section><section className="orders-history-summary"><div><span>Subtotal</span><span>{formatCurrency(selected.total_cents)}</span></div><div className="orders-history-summary-total"><strong>Total</strong><strong>{formatCurrency(selected.total_cents)}</strong></div>{selected.payment_status === 'CONFIRMED' ? <div className="orders-history-paid-method"><CreditCard size={17} />Pago confirmado</div> : null}</section>{selected.corrections.length > 0 ? <section className="orders-history-corrections" aria-label="Correcciones enlazadas"><div className="orders-history-section-title"><span>Correcciones enlazadas</span><small>La venta original permanece sin cambios.</small></div>{selected.corrections.map((correction) => <article key={correction.id}><div><strong>{correction.folio}</strong><small>{new Date(correction.applied_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></div><div><span>{getCorrectionDeltaLabel(correction.settlement_delta_cents)}</span><strong>Total corregido: {formatCurrency(correction.corrected_total_cents)}</strong></div></article>)}</section> : null}{selected.status === 'PENDING' ? <section className="orders-history-pending-notice" style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '12px', padding: '12px 14px', margin: '10px 0', color: '#065f46', fontSize: '0.85rem' }}><strong>🔔 Pedido web por aceptar</strong><p style={{ marginTop: '3px', color: '#047857' }}>Revisa los productos. Al dar clic en <strong>Aceptar / Mandar a Cocina</strong> se iniciará la preparación para cobrarlo posteriormente.</p></section> : selected.payment_status === 'PENDING' && !['CANCELLED', 'CLOSED'].includes(selected.status) ? <p className="orders-history-block-reason">Cobrar confirma sólo el pago recibido. La preparación y entrega conservan su estado.</p> : null}{canRequestReopen && selected.reopen_eligible && !selected.active_reopen_request_status ? <section className="orders-history-reopen"><div className="orders-history-section-title"><span>Solicitar reapertura</span><small>Requiere autorización de Dueño</small></div><label>Motivo<textarea value={reopenReason} minLength={10} maxLength={500} onChange={(event) => setReopenReason(event.target.value)} /></label><label>Evidencia (una referencia por línea)<textarea value={evidenceText} maxLength={5000} onChange={(event) => setEvidenceText(event.target.value)} /></label><Button disabled={reopenPending} onClick={() => void submitReopenRequest()}>{reopenPending ? 'Enviando…' : 'Solicitar reapertura'}</Button>{reopenError ? <p role="alert" className="orders-history-inline-error">{reopenError}</p> : null}</section> : null}{selected.active_reopen_request_status ? <p className="orders-history-block-reason">Solicitud activa: {selected.active_reopen_request_status}.</p> : null}{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}{!selected.editable && selected.edit_block_reason ? <p className="orders-history-block-reason">{selected.edit_block_reason}</p> : null}</div><div className="orders-history-detail-actions">
+      <aside className="orders-history-detail" aria-label="Detalle del pedido">{detailLoading ? <div className="orders-history-detail-state" role="status"><RefreshCcw size={30} className="orders-history-spin" /><strong>Abriendo pedido…</strong><span>Estamos preparando el detalle.</span></div> : !selected ? <div className="orders-history-detail-state"><span className="orders-history-empty-icon"><ReceiptText size={30} /></span><strong>Selecciona un pedido para revisar su detalle</strong><span>Podrás consultar productos, editarlo o confirmar el pago cuando corresponda.</span>{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}</div> : <><div className="orders-history-detail-header"><div><span>Cuenta actual</span><h2>Detalle del pedido</h2></div><button type="button" onClick={closeDetail} aria-label="Cerrar detalle del pedido"><X size={20} /></button></div><div className="orders-history-detail-scroll"><section className="orders-history-order-meta"><div><span>Pedido</span><strong>{selected.folio}</strong></div><span className="orders-history-status" style={{ background: selectedStatus?.bg, color: selectedStatus?.color, borderColor: selectedStatus?.border }}>{selectedStatus?.label}</span><small className={`pos-cashier-payment-status ${selected.payment_status === "CONFIRMED" ? "paid" : "pending"}`}>{selected.payment_status === "CONFIRMED" ? "Pagado" : "Pago pendiente"}</small></section><section className="orders-history-customer"><strong>{selected.customer_label || 'Cliente General'}</strong>{selected.customer_phone ? <a href={`https://wa.me/${selected.customer_phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#16a34a', textDecoration: 'none', fontWeight: 600, fontSize: '0.88rem', margin: '4px 0' }} title="Contactar por WhatsApp">💬 WhatsApp: {selected.customer_phone}</a> : null}{selected.delivery_address ? <div style={{ fontSize: '0.82rem', color: '#334155', margin: '4px 0', background: '#f8fafc', padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>📍 <strong>Dirección:</strong> {selected.delivery_address}{selected.delivery_notes ? <small style={{ display: 'block', color: '#64748b', marginTop: '2px' }}>Ref: {selected.delivery_notes}</small> : null}</div> : null}<span>{getTypeLabel(selected.service_type)} {selected.channel === 'online_menu' ? '· 📱 Pedido Web' : ''}</span><small>{new Date(selected.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></section>{deliveryAssignmentPanel}<section className="orders-history-snapshot"><details><summary>Información de auditoría</summary><strong>Calidad del snapshot operativo</strong><span>{selectedSnapshotQuality}</span></details></section><section className="orders-history-lines"><div className="orders-history-section-title"><span>Productos</span><small>{selected.lines.length} línea(s)</small></div>{selected.lines.map((line) => <div key={line.id} className="orders-history-line"><span className="orders-history-line-quantity">{line.quantity}</span><div><strong>{line.product_name}</strong><small>{line.quantity} × {formatCurrency(line.unit_price_cents)}</small>{line.line_notes && <small className="pos-cashier-line-note">Nota: {line.line_notes}</small>}{line.selected_modifiers?.map((selection, index) => <small key={index}>{String(selection.text || selection.kitchen_text || selection.name || "Complemento")}</small>)}</div><strong>{formatCurrency(line.line_total_cents)}</strong></div>)}</section><section className="orders-history-summary"><div><span>Subtotal</span><span>{formatCurrency(selected.total_cents)}</span></div><div className="orders-history-summary-total"><strong>Total</strong><strong>{formatCurrency(selected.total_cents)}</strong></div>{selected.payment_status === 'CONFIRMED' ? <div className="orders-history-paid-method"><CreditCard size={17} />Pago confirmado</div> : null}</section>{selected.corrections.length > 0 ? <section className="orders-history-corrections" aria-label="Correcciones enlazadas"><div className="orders-history-section-title"><span>Correcciones enlazadas</span><small>La venta original permanece sin cambios.</small></div>{selected.corrections.map((correction) => <article key={correction.id}><div><strong>{correction.folio}</strong><small>{new Date(correction.applied_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></div><div><span>{getCorrectionDeltaLabel(correction.settlement_delta_cents)}</span><strong>Total corregido: {formatCurrency(correction.corrected_total_cents)}</strong></div></article>)}</section> : null}{selected.status === 'PENDING' ? <section className="orders-history-pending-notice" style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '12px', padding: '12px 14px', margin: '10px 0', color: '#065f46', fontSize: '0.85rem' }}><strong>🔔 Pedido web por aceptar</strong><p style={{ marginTop: '3px', color: '#047857' }}>Revisa los productos. Al dar clic en <strong>Aceptar / Mandar a Cocina</strong> se iniciará la preparación para cobrarlo posteriormente.</p></section> : selected.payment_status === 'PENDING' && !['CANCELLED', 'CLOSED'].includes(selected.status) ? <p className="orders-history-block-reason">Cobrar confirma sólo el pago recibido. La preparación y entrega conservan su estado.</p> : null}{canRequestReopen && selected.reopen_eligible && !selected.active_reopen_request_status ? <section className="orders-history-reopen"><div className="orders-history-section-title"><span>Solicitar reapertura</span><small>Requiere autorización de Dueño</small></div><label>Motivo<textarea value={reopenReason} minLength={10} maxLength={500} onChange={(event) => setReopenReason(event.target.value)} /></label><label>Evidencia (una referencia por línea)<textarea value={evidenceText} maxLength={5000} onChange={(event) => setEvidenceText(event.target.value)} /></label><Button disabled={reopenPending} onClick={() => void submitReopenRequest()}>{reopenPending ? 'Enviando…' : 'Solicitar reapertura'}</Button>{reopenError ? <p role="alert" className="orders-history-inline-error">{reopenError}</p> : null}</section> : null}{selected.active_reopen_request_status ? <p className="orders-history-block-reason">Solicitud activa: {selected.active_reopen_request_status}.</p> : null}{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}{!selected.editable && selected.edit_block_reason ? <p className="orders-history-block-reason">{selected.edit_block_reason}</p> : null}</div><div className="orders-history-detail-actions">
   {reprintMessage ? <p role="status" style={{ width: '100%', color: '#059669', fontSize: '0.85rem', fontWeight: 600, margin: '4px 0' }}>✓ {reprintMessage}</p> : null}
   {!localOrders && hasPermission('print.jobs.read') && hasPermission('print.jobs.retry') && <Button variant="secondary" disabled={printBusy} onClick={() => void handleReprint(selected.id)} title="Reintentar trabajos de impresión fallidos">
     <Printer size={17} /> Reintentar impresión
