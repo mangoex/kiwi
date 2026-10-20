@@ -106,6 +106,19 @@ jobs:
         env:
           MOBORD001_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/mobord001_ci
         run: RESTAURANTOS_DATABASE_URL="$MOBORD001_TEST_POSTGRES_URL" python -m alembic -c alembic.ini upgrade 0050_promote_recipes_to_global_scope
+      - name: Strict backend typecheck
+        run: python -m mypy apps/api/restaurant_os
+      - name: Strict offline gateway boundary typecheck
+        run: >-
+          python -m mypy
+          apps/edge-gateway/edge_gateway/grants.py
+          apps/edge-gateway/edge_gateway/local_api.py
+          apps/edge-gateway/edge_gateway/runtime.py
+          apps/edge-gateway/edge_gateway/order_service.py
+      - name: Ruff
+        run: python -m ruff check apps/api tests
+      - name: Offline gateway lint
+        run: python -m ruff check apps/edge-gateway/edge_gateway
       - name: Run tests
         env:
           PCO003_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco003_ci
@@ -153,19 +166,6 @@ jobs:
           path: |
             python-collection.txt
             python-tests.xml
-      - name: Strict backend typecheck
-        run: python -m mypy apps/api/restaurant_os
-      - name: Strict offline gateway boundary typecheck
-        run: >-
-          python -m mypy
-          apps/edge-gateway/edge_gateway/grants.py
-          apps/edge-gateway/edge_gateway/local_api.py
-          apps/edge-gateway/edge_gateway/runtime.py
-          apps/edge-gateway/edge_gateway/order_service.py
-      - name: Ruff
-        run: python -m ruff check apps/api tests
-      - name: Offline gateway lint
-        run: python -m ruff check apps/edge-gateway/edge_gateway
   docker:
     runs-on: ubuntu-latest
     steps:

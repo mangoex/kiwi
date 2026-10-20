@@ -24,7 +24,7 @@ Pruebas de dominio, API y migración:
   `DELIVERY_ASSIGNMENT_TEST_POSTGRES_URL` y rechaza el paquete si esos casos se omiten o saltan;
 - después de migrar, la fixture vacía las tablas de datos sólo dentro de esa base local validada,
   conserva `alembic_version` y aplica `_seed` una vez, sin duplicar la organización bootstrap;
-  CI ejecuta primero estos tres casos focales y después conserva la suite completa;
+  CI ejecuta los controles estáticos antes de estos tres casos focales y conserva la suite completa;
 - detalle y lista de pedidos exponen la asignación;
 - historial por repartidor exige `admin.manage` y conserva registros aunque el repartidor esté
   inactivo.
