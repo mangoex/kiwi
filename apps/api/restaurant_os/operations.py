@@ -21554,6 +21554,9 @@ def _confirm_purchase_document(
         else:
             session.execute(models.inventory_cost_states.insert().values(**state_values))
         if line["presentation_snapshot"].get("supplier_catalog_exception") is not True:
+            # Older documents may lack conversion metadata. Preserve their snapshot and
+            # history, but never guess a conversion in order to reprice today's catalog.
+            snapshot_yield = line["presentation_snapshot"].get("base_unit_yield")
             session.execute(
                 sa.update(models.purchase_presentations)
                 .where(
@@ -21564,7 +21567,7 @@ def _confirm_purchase_document(
                     models.purchase_presentations.c.usable_content
                     == Decimal(str(line["presentation_snapshot"]["usable_content"])),
                     models.purchase_presentations.c.base_unit_yield
-                    == Decimal(str(line["presentation_snapshot"]["base_unit_yield"])),
+                    == (Decimal(str(snapshot_yield)) if snapshot_yield is not None else None),
                 )
                 .values(last_net_price=line["unit_price"], updated_at=now)
             )

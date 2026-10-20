@@ -321,6 +321,40 @@ def test_presentation_metadata_edit_preserves_legacy_cost_and_preview_matches_sa
     assert Decimal(str(corrected.json()["cost_per_base_unit"])) == Decimal("202.333333")
 
 
+def test_legacy_purchase_snapshot_confirms_without_guessing_catalog_conversion():
+    client, headers, suppliers = _workspace()
+    created = client.post("/api/v1/purchase-presentations", headers=headers,
+                          json=_presentation(suppliers[0])).json()
+    purchase = client.post("/api/v1/purchases", headers=headers,
+                           json=_purchase_payload(suppliers[0], created["id"])).json()
+    with _test_session_factory(client)() as session:
+        session.execute(sa.update(models.purchase_document_lines).where(
+            models.purchase_document_lines.c.purchase_document_id == purchase["id"]
+        ).values(presentation_snapshot={
+            "base_unit_id": BASE_UNIT_ID, "usable_content": "5",
+            "commercial_unit_id": PACKAGE_UNIT_ID,
+        }))
+        session.commit()
+    confirmed = client.post(
+        f"/api/v1/purchases/{purchase['id']}/confirm",
+        headers={**headers, "Idempotency-Key": "legacy-presentation-confirm"}, json={},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    with _test_session_factory(client)() as session:
+        catalog_price = session.scalar(sa.select(models.purchase_presentations.c.last_net_price)
+            .where(models.purchase_presentations.c.id == created["id"]))
+        assert catalog_price == Decimal("0")
+        assert session.scalar(sa.select(sa.func.count()).select_from(
+            models.inventory_movements).where(
+                models.inventory_movements.c.source_id == purchase["id"])) == 3
+        snapshots = session.scalars(
+            sa.select(models.purchase_document_lines.c.presentation_snapshot).where(
+                models.purchase_document_lines.c.purchase_document_id == purchase["id"])
+        ).all()
+        assert all(snapshot == {"base_unit_id": BASE_UNIT_ID, "usable_content": "5",
+                                "commercial_unit_id": PACKAGE_UNIT_ID} for snapshot in snapshots)
+
+
 @pytest.mark.parametrize("version", [None, "2000-01-01T00:00:00Z", "invalid"])
 def test_presentation_reassignment_requires_current_version(version):
     client, headers, suppliers = _workspace()

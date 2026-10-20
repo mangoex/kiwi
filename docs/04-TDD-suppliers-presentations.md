@@ -58,6 +58,13 @@ unidad antes de confirmar; la actualización de precio compara proveedor, unidad
 mismo UPDATE. Resultado local: snapshots/costos originales conservados, catálogo corregido intacto.
 Riesgo residual: gate PostgreSQL concurrente pendiente (caso añadido al fixture CI existente).
 
+CI #394 verificó los tres casos PostgreSQL corporativos, incluido el nuevo ganador único, y
+detectó dos regresiones SQLite/PostgreSQL de caja al confirmar snapshots legacy sin rendimiento.
+La guarda corregida usa comparación SQL nula (sin coincidencia) para omitir sólo el repricing de
+catálogo cuando falta esa evidencia. No inventa conversión ni bloquea la confirmación o su historia.
+Regresión determinista adicional: `test_legacy_purchase_snapshot_confirms_without_guessing_catalog_conversion`;
+también se mantienen los casos existentes de carrera cierre de caja/compra en ambos dialectos.
+
 Afirmación: no hay escritura parcial ni sobrescritura de una edición desactualizada. Evidencia:
 versión observada, bloqueo/UPDATE condicional y auditoría transaccional. Refutación: replay, versión
 inválida, referencias ajenas/inactivas y fallo inyectado de auditoría; sin efectos parciales en SQLite.
