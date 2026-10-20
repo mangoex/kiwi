@@ -40,7 +40,7 @@ def presentation_values(
 ) -> dict[str, Any]:
     values = {**(current or {}), **payload}
     if current:
-        for field in ("supplier_id", "item_id", "base_unit_id", "commercial_unit_id", "code"):
+        for field in ("item_id", "base_unit_id", "code"):
             if field in payload and str(payload[field]) != str(current[field]):
                 raise BusinessError(
                     "presentation_identity_immutable",
@@ -138,3 +138,24 @@ def presentation_values(
         normalized["last_net_price"] / normalized["usable_content"], "cost_per_base_unit"
     )
     return normalized
+
+
+def presentation_update_values(
+    session: Session,
+    payload: dict[str, Any],
+    current: dict[str, Any],
+    branch_id: str | None = None,
+) -> dict[str, Any]:
+    """Preview and persist the same correction without repricing untouched legacy data."""
+    normalized_payload = dict(payload)
+    if "net_price" in payload and "last_net_price" not in payload:
+        normalized_payload["last_net_price"] = payload["net_price"]
+    values = presentation_values(session, normalized_payload, branch_id, current)
+    calculated = values["cost_per_base_unit"]
+    if all(
+        values[field] == Decimal(str(current[field]))
+        for field in ("last_net_price", "usable_content")
+    ):
+        values["cost_per_base_unit"] = Decimal(str(current["cost_per_base_unit"]))
+    values["content_cost_mismatch"] = values["cost_per_base_unit"] != calculated
+    return values

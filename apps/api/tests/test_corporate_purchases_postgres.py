@@ -23,6 +23,7 @@ from restaurant_os.operations import (
     BusinessError,
     create_purchase_presentation,
     create_supplier,
+    update_purchase_presentation,
 )
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
@@ -176,6 +177,42 @@ def _receipt_payload(order, allocation, quantity="2"):
         "received_at": "2026-10-12",
         "lines": [{"allocation_id": allocation["id"], "quantity": quantity}],
     }
+
+
+def test_concurrent_presentation_corrections_have_one_winner(pg_engine):
+    order, _ = _approved_order(pg_engine)
+    presentation_id = order["lines"][0]["presentation_id"]
+    with Session(pg_engine) as session:
+        current = dict(session.execute(sa.select(models.purchase_presentations).where(
+            models.purchase_presentations.c.id == presentation_id
+        )).mappings().one())
+        suppliers = [create_supplier(session, {"code": f"CORRECTION-{index}",
+                     "commercial_name": f"Corrección {index}"}, ADMIN_USER_ID)["id"]
+                     for index in range(2)]
+        snapshot_query = sa.select(models.corporate_purchase_order_lines)
+        history_query = sa.select(sa.func.count()).select_from(models.supplier_price_history)
+        snapshots = list(session.execute(snapshot_query).mappings())
+        history_count = session.scalar(history_query)
+    barrier = Barrier(2)
+
+    def correct(supplier_id):
+        with Session(pg_engine) as session:
+            barrier.wait(timeout=15)
+            try:
+                update_purchase_presentation(session, presentation_id,
+                    {"supplier_id": supplier_id, "expected_updated_at": current["updated_at"]},
+                    ADMIN_USER_ID)
+                return "updated"
+            except BusinessError as exc:
+                session.rollback()
+                return exc.code
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(correct, suppliers))
+    assert sorted(outcomes) == ["presentation_version_conflict", "updated"]
+    with Session(pg_engine) as session:
+        assert list(session.execute(snapshot_query).mappings()) == snapshots
+        assert session.scalar(history_query) == history_count + 1
 
 
 def test_concurrent_receipts_have_one_winner_and_no_duplicate_effects(pg_engine):

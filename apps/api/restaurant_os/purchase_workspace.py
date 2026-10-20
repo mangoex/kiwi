@@ -24,7 +24,11 @@ from restaurant_os.operations import (
     _sanitize_for_json,
     authorize_branch_scope,
 )
-from restaurant_os.presentation_rules import decimal_value, presentation_values
+from restaurant_os.presentation_rules import (
+    decimal_value,
+    presentation_update_values,
+    presentation_values,
+)
 
 MAX_LINES = 200
 
@@ -466,6 +470,7 @@ def preview_presentation(
     bounded_payload(
         payload,
         {
+            "presentation_id",
             "branch_id",
             "supplier_id",
             "item_id",
@@ -490,6 +495,16 @@ def preview_presentation(
     branch = authorize_branch_scope(
         session, _actor_user_id(actor_user_id), "purchases.manage", payload.get("branch_id")
     )
+    if payload.get("presentation_id"):
+        current = session.execute(sa.select(models.purchase_presentations).where(
+            models.purchase_presentations.c.id == payload["presentation_id"],
+            models.purchase_presentations.c.organization_id == ORGANIZATION_ID,
+        )).mappings().first()
+        if not current:
+            raise BusinessError(
+                "purchase_presentation_not_found", "Purchase presentation was not found"
+            )
+        return preview_result(presentation_update_values(session, payload, dict(current), branch))
     return preview_result(presentation_values(session, payload, branch))
 
 

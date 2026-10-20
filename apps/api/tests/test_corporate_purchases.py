@@ -239,6 +239,57 @@ def test_corporate_order_create_approve_and_replay_have_no_operational_effects()
     assert invalid_page.json()["detail"]["code"] == "corporate_purchase_pagination_invalid"
 
 
+def test_corporate_receipt_preserves_snapshot_after_catalog_supplier_and_unit_correction():
+    client, headers, supplier_id, presentation_id, warehouse_id = _corporate_workspace()
+    created = client.post(
+        "/api/v1/corporate-purchases", headers={**headers, "Idempotency-Key": "correction-create"},
+        json=_order_payload(supplier_id, presentation_id, warehouse_id),
+    ).json()
+    approved = client.post(
+        f"/api/v1/corporate-purchases/{created['id']}/approve",
+        headers={**headers, "Idempotency-Key": "correction-approve"},
+        json={"expected_version": 1},
+    ).json()
+    other = client.post("/api/v1/suppliers", headers=headers,
+                        json={"code": "NEW-SUP", "commercial_name": "Proveedor nuevo"}).json()
+    presentation = next(row for row in client.get(
+        "/api/v1/purchase-presentations", headers=headers).json() if row["id"] == presentation_id)
+    corrected = client.put(
+        f"/api/v1/purchase-presentations/{presentation_id}", headers=headers,
+        json={"supplier_id": other["id"], "commercial_unit_id": BASE_UNIT_ID,
+              "usable_content": "0.45", "base_unit_yield": "0.45",
+              "expected_updated_at": presentation["updated_at"]},
+    )
+    assert corrected.status_code == 200, corrected.text
+    north = next(row for row in approved["lines"][0]["allocations"]
+                 if row["branch_id"] == SECOND_BRANCH_ID)
+    received = client.post(
+        f"/api/v1/corporate-purchases/{created['id']}/receipts",
+        headers={**headers, "Idempotency-Key": "correction-receive"},
+        json={"expected_version": 2, "branch_id": SECOND_BRANCH_ID,
+              "warehouse_id": SECOND_WAREHOUSE_ID, "received_at": "2026-10-12",
+              "lines": [{"allocation_id": north["id"], "quantity": "1"}]},
+    )
+    assert received.status_code == 200, received.text
+    assert received.json()["order"]["supplier_id"] == supplier_id
+    assert received.json()["order"]["lines"][0]["presentation_snapshot"] == (
+        approved["lines"][0]["presentation_snapshot"])
+    with _test_session_factory(client)() as session:
+        movement = session.execute(sa.select(models.inventory_movements).where(
+            models.inventory_movements.c.source_type == "corporate_purchase_receipt"
+        )).mappings().one()
+        assert movement["quantity_delta"] == Decimal("5")
+        history = session.execute(sa.select(models.supplier_price_history).where(
+            models.supplier_price_history.c.branch_id == SECOND_BRANCH_ID
+        )).mappings().one()
+        assert history["supplier_id"] == supplier_id
+        catalog = session.execute(sa.select(models.purchase_presentations).where(
+            models.purchase_presentations.c.id == presentation_id
+        )).mappings().one()
+        assert catalog["supplier_id"] == other["id"]
+        assert catalog["usable_content"] == Decimal("0.45")
+
+
 def test_corporate_receipts_are_partial_idempotent_and_destination_scoped():
     client, headers, supplier_id, presentation_id, warehouse_id = _corporate_workspace()
     created = client.post(

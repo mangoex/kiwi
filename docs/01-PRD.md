@@ -343,6 +343,11 @@ funcional separada.
 - `PRD-FR-093`: Un artículo inventariable debe admitir presentaciones de compra específicas por
   proveedor, con unidad comercial, contenido bruto, neto y aprovechable, rendimiento en unidad
   base, impuestos, código de barras y sucursales habilitadas.
+  El administrador puede corregir proveedor y unidad comercial del catálogo central, conservando
+  insumo, unidad base y código. La corrección conserva los snapshots de compras/conteos, el historial
+  previo y los costos de inventario; registra antes/después y rechaza una edición desactualizada.
+  Una discrepancia heredada entre contenido y costo se informa y se corrige explícitamente;
+  cambiar sólo referencias o nombre no recalcula silenciosamente el costo guardado.
 - `PRD-FR-094`: Capturar o editar el precio base de una presentación debe conservar historial y
   calcular su equivalencia por unidad base. La recepción confirmada conserva precio/costo efectivo e
   historial en la sucursal de la compra y nunca cambia el valor efectivo de otra sucursal; donde no

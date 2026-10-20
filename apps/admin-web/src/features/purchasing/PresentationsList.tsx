@@ -1,5 +1,5 @@
 import { useAdminPermission } from '../../lib/adminSession';
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { Button, Badge, Modal, Input, usePythonPreview } from '@restaurantos/ui';
@@ -8,6 +8,8 @@ import { Package, Search, Plus, Edit } from 'lucide-react';
 import '../../premium-catalogs.css';
 import { readAdminAiSelection } from '../admin-ai/adminAiSelection';
 import { resolveBranchId } from '../../lib/branchContext';
+import { formatRecipeDecimal, recipeCaptureError, rateToPercent, percentToRate } from '../catalog/recipeDecimal';
+import './PresentationsList.css';
 
 interface PurchasePresentation {
   id: string;
@@ -18,14 +20,15 @@ interface PurchasePresentation {
   supplier_id: string;
   supplier_name?: string;
   package_type: string;
-  base_unit_yield: number;
+  base_unit_yield: string | number;
   base_unit_code?: string;
-  last_net_price: number;
-  cost_per_base_unit: number;
-  tax_rate: number;
+  last_net_price: string | number;
+  cost_per_base_unit: string | number;
+  tax_rate: string | number;
   commercial_unit_id: string;
   usable_content: string | number;
   status: string;
+  updated_at: string;
 }
 
 interface InventoryItem {
@@ -40,7 +43,10 @@ interface InventoryItem {
 interface Supplier {
   id: string;
   commercial_name: string;
+  status: string;
 }
+
+type DecimalField = 'base_unit_yield' | 'usable_content' | 'last_net_price' | 'tax_rate';
 
 const PresentationsList = () => {
   const canCreate = useAdminPermission('purchases.manage');
@@ -52,6 +58,7 @@ const PresentationsList = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<PurchasePresentation | null>(null);
+  const [decimalInputs, setDecimalInputs] = useState<Partial<Record<DecimalField, string>>>({});
 
   const [formData, setFormData] = useState({
     item_id: '',
@@ -76,7 +83,7 @@ const PresentationsList = () => {
     enabled: canReadInventory,
   });
 
-  const { data: suppliers = [] } = useQuery<Supplier[]>({
+  const { data: suppliers = [], error: supplierError } = useQuery<Supplier[]>({
     queryKey: ['suppliers', branchId],
     queryFn: () => fetchApi('/suppliers?branch_id=' + branchId),
   });
@@ -109,6 +116,7 @@ const PresentationsList = () => {
         usable_content: data.usable_content,
         last_net_price: data.last_net_price,
         tax_rate: data.tax_rate,
+        ...(editingItem ? { expected_updated_at: editingItem.updated_at } : {}),
       };
 
       if (editingItem ? !canEdit : !canCreate) throw new Error('No tienes permiso para guardar esta presentación.');
@@ -130,6 +138,8 @@ const PresentationsList = () => {
   });
 
   const openCreateModal = () => {
+    saveMutation.reset();
+    setDecimalInputs({});
     setEditingItem(null);
     const defaultItem = items.find((item) => assistantItemIds.includes(item.id)) || items[0];
     setFormData({
@@ -147,6 +157,8 @@ const PresentationsList = () => {
   };
 
   const openEditModal = (pres: PurchasePresentation) => {
+    saveMutation.reset();
+    setDecimalInputs({});
     setEditingItem(pres);
     setFormData({
       item_id: pres.item_id,
@@ -176,14 +188,29 @@ const PresentationsList = () => {
     const matchesAssistantSelection = !assistantSelection || assistantItemIds.includes(p.item_id);
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (p.item_name && p.item_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (p.supplier_name && p.supplier_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
       p.code.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesAssistantSelection && matchesSearch;
   });
 
   const selectedItemObj = items.find((it) => it.id === formData.item_id);
-  const { data: units = [] } = useQuery<{ id: string; code: string }[]>({ queryKey: ['inventory-units'], queryFn: () => fetchApi('/inventory/units') });
-  const preview = usePythonPreview<{ cost_per_base_unit: string }>(fetchApi, '/purchase-presentations/preview', { ...formData, branch_id: branchId, base_unit_id: selectedItemObj?.base_unit_id || '' }, isModalOpen);
+  const { data: units = [], error: unitError } = useQuery<{ id: string; code: string }[]>({ queryKey: ['inventory-units'], queryFn: () => fetchApi('/inventory/units') });
+  const captureError = Object.values(decimalInputs).map(recipeCaptureError).find(Boolean);
+  const preview = usePythonPreview<{ cost_per_base_unit: string; content_cost_mismatch?: boolean }>(fetchApi, '/purchase-presentations/preview', { ...formData, branch_id: branchId, base_unit_id: selectedItemObj?.base_unit_id || '', ...(editingItem ? { presentation_id: editingItem.id } : {}) }, isModalOpen && !captureError);
   const calculatedCostPerBase = preview.data?.cost_per_base_unit;
+  const decimalInput = (field: DecimalField, label: string) => (
+    <label className="presentation-field" htmlFor={`presentation-${field}`}>
+      {label}
+      <Input id={`presentation-${field}`} inputMode="decimal"
+        value={decimalInputs[field] ?? (formData[field] === '' ? '' : formatRecipeDecimal(field === 'tax_rate' ? rateToPercent(formData[field]) : formData[field]))}
+        aria-invalid={!!recipeCaptureError(decimalInputs[field])}
+        onChange={event => {
+          const value = event.target.value;
+          setDecimalInputs(previous => ({ ...previous, [field]: value }));
+          setFormData(previous => ({ ...previous, [field]: field === 'tax_rate' ? percentToRate(value) : value.replace(',', '.') }));
+        }} />
+    </label>
+  );
 
   return (
     <>
@@ -277,18 +304,18 @@ const PresentationsList = () => {
                         <div style={{ padding: 6, background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', borderRadius: 6 }}>
                           <Package size={16} />
                         </div>
-                        {item.name}
+                        <div><span>{item.name}</span><small className="presentation-supplier-name">{item.supplier_name}</small></div>
                       </div>
                     </td>
                     <td>{item.item_name || 'Insumo Base'}</td>
                     <td style={{ textAlign: 'right', fontWeight: 500 }}>
-                      {Number(item.base_unit_yield).toFixed(3)} {item.base_unit_code || 'UNIDAD'}
+                      {formatRecipeDecimal(item.base_unit_yield)} {item.base_unit_code || 'UNIDAD'}
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--color-text)' }}>
-                      ${Number(item.last_net_price).toFixed(2)}
+                      ${formatRecipeDecimal(item.last_net_price)}
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--color-green)' }}>
-                      ${Number(item.cost_per_base_unit).toFixed(2)} / {item.base_unit_code || 'u'}
+                      ${formatRecipeDecimal(item.cost_per_base_unit)} / {item.base_unit_code || 'u'}
                     </td>
                     <td>
                       <Badge variant={item.status === 'active' ? 'success' : 'default'}>
@@ -296,7 +323,7 @@ const PresentationsList = () => {
                       </Badge>
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      {canEdit && <button className="premium-action-btn edit" onClick={() => openEditModal(item)} title="Editar presentación">
+                      {canEdit && <button className="premium-action-btn edit" onClick={() => openEditModal(item)} title="Editar presentación" aria-label={`Editar ${item.name}`}>
                         <Edit size={16} />
                       </button>}
                     </td>
@@ -308,117 +335,59 @@ const PresentationsList = () => {
         )}
       </div>
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingItem ? "Editar Presentación de Compra" : "Nueva Presentación de Compra"}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>
-              Insumo Base Gastronómico
-            </label>
-            <select
-              value={formData.item_id}
-              onChange={(e) => onItemChange(e.target.value)}
-              disabled={!!editingItem}
-              style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
-            >
-              {items.map((it) => (
-                <option key={it.id} value={it.id}>
-                  {it.sku} - {it.name} ({it.unit_code || it.unit_name})
-                </option>
-              ))}
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} size="lg" contentClassName="presentation-editor" title={editingItem ? "Editar Presentación de Compra" : "Nueva Presentación de Compra"}>
+        <div className="presentation-form">
+          <p className="presentation-help">Asigna el proveedor y el empaque de compra. El insumo conserva su unidad base; las compras anteriores conservan sus datos originales.</p>
+          <div className="presentation-field"><label htmlFor="presentation-item">Insumo base</label>
+            <select id="presentation-item" value={formData.item_id} onChange={event => onItemChange(event.target.value)} disabled={!!editingItem}>
+              <option value="">Selecciona insumo</option>
+              {items.map(item => <option key={item.id} value={item.id}>{item.sku} · {item.name} ({item.unit_code || item.unit_name})</option>)}
             </select>
           </div>
-
-          <div>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>
-              Nombre de la Presentación Comercial
+          <label className="presentation-field" htmlFor="presentation-name">Nombre de la presentación comercial
+            <Input id="presentation-name" value={formData.name} onChange={event => setFormData({ ...formData, name: event.target.value })} />
+          </label>
+          <div className="presentation-grid">
+            <label className="presentation-field" htmlFor="presentation-code">Clave / Código
+              <Input id="presentation-code" value={formData.code} disabled={!!editingItem} onChange={event => setFormData({ ...formData, code: event.target.value })} />
             </label>
-            <Input
-              value={formData.name}
-              placeholder="Ej. Aceituna Frasco 450g, Mayonesa Bote 3.35kg..."
-              onChange={(e: any) => setFormData({ ...formData, name: e.target.value })}
-            />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>
-                Clave / Código
-              </label>
-              <Input
-                value={formData.code}
-                disabled={!!editingItem}
-                placeholder="PRES-1001"
-                onChange={(e: any) => setFormData({ ...formData, code: e.target.value })}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>
-                Proveedor
-              </label>
-              <select
-                value={formData.supplier_id}
-                disabled={!!editingItem}
-                onChange={(e) => setFormData({ ...formData, supplier_id: e.target.value })}
-                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
-              >
+            <div className="presentation-field"><label htmlFor="presentation-supplier">Proveedor</label>
+              <select id="presentation-supplier" value={formData.supplier_id} onChange={event => setFormData({ ...formData, supplier_id: event.target.value })}>
                 <option value="">Selecciona proveedor</option>
-                {suppliers.map((s) => (
-                  <option key={s.id} value={s.id}>{s.commercial_name}</option>
-                ))}
+                {suppliers.filter(supplier => supplier.status === 'active').map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.commercial_name}</option>)}
               </select>
             </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>
-                Rendimiento a Unidad Base ({selectedItemObj?.unit_code || 'Unidad'})
-              </label>
-              <Input
-                type="number"
-                step="0.001"
-                value={formData.base_unit_yield}
-                placeholder="Ej. 0.45, 3.35, 1.0"
-                onChange={(e: any) => setFormData({ ...formData, base_unit_yield: e.target.value })}
-              />
+            <div className="presentation-field"><label htmlFor="presentation-unit">Unidad comercial</label>
+              <select id="presentation-unit" aria-describedby="presentation-unit-help" value={formData.commercial_unit_id} onChange={event => setFormData({ ...formData, commercial_unit_id: event.target.value })}>
+                <option value="">Selecciona unidad</option>
+                {units.map(unit => <option key={unit.id} value={unit.id}>{unit.code}</option>)}
+              </select>
+              <span id="presentation-unit-help" className="presentation-help">El empaque que compras, por ejemplo frasco o caja.</span>
             </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>
-                Precio de Compra Neto ($ MXN)
-              </label>
-              <Input
-                type="number"
-                step="0.01"
-                value={formData.last_net_price}
-                placeholder="Ej. 91.05, 135.00"
-                onChange={(e: any) => setFormData({ ...formData, last_net_price: e.target.value })}
-              />
-            </div>
+            {decimalInput('base_unit_yield', `Rendimiento a unidad base (${selectedItemObj?.unit_code || 'unidad'})`)}
+            {decimalInput('usable_content', `Contenido útil (${selectedItemObj?.unit_code || 'unidad'})`)}
+            {decimalInput('last_net_price', 'Precio de compra neto ($ MXN)')}
+            {decimalInput('tax_rate', 'Impuesto (%)')}
           </div>
-
-          <label>Unidad comercial<select disabled={!!editingItem} value={formData.commercial_unit_id} onChange={e => setFormData({ ...formData, commercial_unit_id: e.target.value })}><option value="">Selecciona unidad</option>{units.map(unit => <option key={unit.id} value={unit.id}>{unit.code}</option>)}</select></label>
-          <label>Contenido útil en unidad base<Input value={formData.usable_content} onChange={e => setFormData({ ...formData, usable_content: e.target.value })} /></label>
-          <label>Tasa de impuesto (fracción; 0 permitido)<Input value={formData.tax_rate} onChange={e => setFormData({ ...formData, tax_rate: e.target.value })} /></label>
-          {(saveMutation.error || preview.error) && <p role="alert">{saveMutation.error?.message || preview.error}</p>}
-          <div style={{ padding: 12, borderRadius: 8, background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.2)' }}>
-            <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-green)' }}>
-              Costo Unitario Calculado: ${calculatedCostPerBase ?? 'Pendiente'} / {selectedItemObj?.unit_code || 'unidad'}
-            </p>
-            <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-              Costo informativo del catálogo. La recepción confirma el costo de inventario; las recetas conservan su versión y su fuente de costeo.
-            </p>
+          {preview.data?.content_cost_mismatch && <div className="presentation-warning" role="status">
+            <strong>Revisa el contenido heredado</strong>
+            <p>El contenido útil no corresponde al costo guardado. Asignar proveedor conserva ese costo. Verifica cuánto aporta realmente cada empaque antes de cambiar cantidades.</p>
+            <Button variant="secondary" onClick={() => {
+              setFormData(previous => ({ ...previous, usable_content: previous.base_unit_yield }));
+              setDecimalInputs(previous => { const next = { ...previous }; delete next.usable_content; return next; });
+            }}>Usar rendimiento como contenido útil</Button>
+          </div>}
+          {(supplierError || unitError) && <p role="alert">No pudimos cargar proveedores o unidades. Cierra el editor y vuelve a intentarlo.</p>}
+          {(captureError || saveMutation.error || preview.error) && <p role="alert">{captureError || saveMutation.error?.message || preview.error}</p>}
+          <div className="presentation-cost" aria-live="polite">
+            <span>Costo por unidad base al guardar</span>
+            <strong>{calculatedCostPerBase !== undefined ? `$${formatRecipeDecimal(calculatedCostPerBase)} / ${selectedItemObj?.unit_code || 'unidad'}` : 'Calculando…'}</strong>
+            <p className="presentation-help">Costo informativo del catálogo. La recepción confirma el costo de inventario; las recetas conservan su versión y fuente de costeo.</p>
           </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-            <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
-              Cancelar
-            </Button>
-            {(editingItem ? canEdit : canCreate) && <Button
-              variant="primary"
-              onClick={() => saveMutation.mutate(formData)}
-              disabled={saveMutation.isPending || !formData.name || !formData.item_id || !preview.data}
-            >
-              {editingItem ? "Guardar Cambios" : "Crear Presentación"}
+          <div className="presentation-actions">
+            <Button variant="secondary" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
+            {(editingItem ? canEdit : canCreate) && <Button variant="primary" onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending || !!captureError || !!supplierError || !!unitError || !formData.name.trim() || !formData.item_id || !formData.supplier_id || !formData.commercial_unit_id || !preview.data}>
+              {saveMutation.isPending ? 'Guardando…' : editingItem ? 'Guardar Cambios' : 'Crear Presentación'}
             </Button>}
           </div>
         </div>

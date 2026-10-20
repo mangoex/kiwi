@@ -29,6 +29,49 @@ When una recepción en A confirma otro precio
 Then el historial/proyección efectivos pertenecen a A
 And B conserva su historial propio o el baseline corporativo.
 
+## TDD-TC-434 Corrección central de proveedor y unidad comercial
+
+R3; verificación dirigida en `apps/api/tests/test_purchase_workspace.py`,
+`apps/api/tests/test_corporate_purchases.py` y `tests/browser/test_supplier_workspace.mjs`.
+Secuencia: contrato y regresión RED, escritor/preview compartidos, edición accesible, pruebas
+SQLite de referencias/permisos/atomicidad/snapshots, QA 390/1440 y auditoría independiente.
+PostgreSQL verifica versión concurrente usando el fixture aislado corporativo existente.
+Sin migraciones ni cambios productivos: catálogo actualizable, documentos e historial inmutables.
+Se prueba rollback ante referencia ajena/inactiva, versión ausente/obsoleta y fallo de auditoría;
+precio cero y precisión interna, discrepancia heredada y corrección explícita del contenido.
+
+Preguntas operativas: ¿quién corrigió qué? Auditoría antes/después con actor y UTC.
+¿Por qué no guardó? Errores estables de referencia/permisos/versión visibles en el formulario.
+¿Cambió el costo al asignar proveedor? Preview conservado y regresión de magnitudes/historia.
+
+Evidencia local del paquete (2026-10-20): RED inicial 5 casos por identidad inmutable/preview sin
+contexto; después 98 pruebas de workspace, compras locales/corporativas y proveedores verdes,
+3 de permisos, 3 de referencias organización/sucursal y 1 recepción corporativa posterior a
+corrección. Trazabilidad documental: 9 pruebas; API mypy (95 archivos), Ruff, typecheck Admin,
+build y QA de navegador 390/1440 verdes. El harness existente de proveedores, conectado a CI,
+incluye asignación, precisión, corrección explícita, error recuperable y permiso de lectura.
+Auditoría Sol independiente: sin hallazgos accionables en el diff revisado.
+
+Afirmación: corregir el catálogo conserva operaciones históricas y pendientes. Evidencia: comparación
+de tablas/snapshots y confirmación/recepción posterior. Refutación intentada: reasignar proveedor y
+unidad antes de confirmar; la actualización de precio compara proveedor, unidad y conversión en el
+mismo UPDATE. Resultado local: snapshots/costos originales conservados, catálogo corregido intacto.
+Riesgo residual: gate PostgreSQL concurrente pendiente (caso añadido al fixture CI existente).
+
+Afirmación: no hay escritura parcial ni sobrescritura de una edición desactualizada. Evidencia:
+versión observada, bloqueo/UPDATE condicional y auditoría transaccional. Refutación: replay, versión
+inválida, referencias ajenas/inactivas y fallo inyectado de auditoría; sin efectos parciales en SQLite.
+Resultado: rechazo estable y rollback. PostgreSQL no se certifica con SQLite.
+
+Afirmación: metadata no repricia datos heredados ni redondea campos intactos. Evidencia: normalizador
+compartido, strings originales y cálculo Decimal. Refutación: costo heredado 202.333333 con contenido
+1 y rendimiento 0.45; precisión de seis decimales y precio cero. Resultado: costo/precisión conservados
+hasta corrección explícita; preview de edición coincide con guardado.
+
+No se ejecutó suite completa local, CI ni canary productivo en este paquete. No se publicó ni
+modificó producción; el gate PostgreSQL real sigue pendiente antes de release. No hay cambio de
+esquema. Reversibilidad: nueva corrección auditada con valores anteriores, conservando toda historia.
+
 ## TDD-TC-406 Panel lateral completo de proveedor
 
 Given el detalle de proveedor contiene datos del catálogo y un aviso de información financiera no disponible
