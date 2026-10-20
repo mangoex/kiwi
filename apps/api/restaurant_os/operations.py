@@ -3293,6 +3293,100 @@ def recover_local_order_creation(
     return _order_create_replay_response(session, dict(command))
 
 
+def _active_delivery_driver(
+    session: Session,
+    driver_id: str,
+    branch_id: str,
+) -> dict[str, Any]:
+    driver = (
+        session.execute(
+            sa.select(models.drivers)
+            .where(
+                models.drivers.c.id == driver_id,
+                models.drivers.c.organization_id == ORGANIZATION_ID,
+                models.drivers.c.branch_id == branch_id,
+                models.drivers.c.status == "active",
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not driver:
+        raise BusinessError(
+            "delivery_driver_unavailable",
+            "Driver must be active and assigned to the order branch",
+        )
+    return dict(driver)
+
+
+def _create_delivery_assignment(
+    session: Session,
+    *,
+    order: dict[str, Any],
+    lines: Sequence[Mapping[str, Any]],
+    assigned_driver: Mapping[str, Any],
+    actor_user_id: str,
+    assigned_at: datetime,
+    assignment_source: Literal["pos_create", "public_acceptance", "order_recovery"],
+) -> dict[str, Any]:
+    assignment = {
+        "id": _id(),
+        "organization_id": order["organization_id"],
+        "branch_id": order["branch_id"],
+        "order_id": order["id"],
+        "driver_id": assigned_driver["id"],
+        "customer_id": order.get("customer_id"),
+        "driver_name_snapshot": assigned_driver["name"],
+        "customer_name_snapshot": str(
+            (order.get("customer_snapshot") or {}).get("name")
+            or order.get("owner_name")
+            or "Cliente General"
+        ),
+        "delivery_address_snapshot": order.get("delivery_address_snapshot") or {},
+        "order_total_cents": int(order["total_cents"]),
+        "currency": order["currency"],
+        "line_count": len(lines),
+        "item_quantity": sum(int(line["quantity"]) for line in lines),
+        "status": "ASSIGNED",
+        "assigned_by": actor_user_id,
+        "assigned_at": assigned_at,
+    }
+    session.execute(models.delivery_assignments.insert().values(**assignment))
+    session.execute(
+        models.order_events.insert().values(
+            id=_id(),
+            order_id=order["id"],
+            event_type="DRIVER_ASSIGNED",
+            payload={
+                "driver_id": assigned_driver["id"],
+                "driver_name": assigned_driver["name"],
+                "source": assignment_source,
+            },
+            created_at=assigned_at,
+        )
+    )
+    _audit(
+        session,
+        action="delivery.driver_assigned",
+        entity_type="delivery_assignment",
+        entity_id=assignment["id"],
+        branch_id=order["branch_id"],
+        organization_id=order["organization_id"],
+        actor_user_id=actor_user_id,
+        payload={
+            "order_id": order["id"],
+            "driver_id": assigned_driver["id"],
+            "customer_id": order.get("customer_id"),
+            "order_total_cents": int(order["total_cents"]),
+            "line_count": assignment["line_count"],
+            "item_quantity": assignment["item_quantity"],
+            "source": assignment_source,
+        },
+    )
+    return assignment
+
+
 def create_local_order(
     session: Session,
     lines: list[dict[str, Any]],
@@ -3383,23 +3477,11 @@ def create_local_order(
         )
     assigned_driver = None
     if normalized_driver_id:
-        assigned_driver = (
-            session.execute(
-                sa.select(models.drivers).where(
-                    models.drivers.c.id == normalized_driver_id,
-                    models.drivers.c.organization_id == ORGANIZATION_ID,
-                    models.drivers.c.branch_id == actual_branch_id,
-                    models.drivers.c.status == "active",
-                )
-            )
-            .mappings()
-            .first()
+        assigned_driver = _active_delivery_driver(
+            session,
+            normalized_driver_id,
+            actual_branch_id,
         )
-        if not assigned_driver:
-            raise BusinessError(
-                "delivery_driver_unavailable",
-                "Driver must be active and assigned to the order branch",
-            )
     shift = get_open_cash_shift(session, register_code=register_code, branch_id=actual_branch_id)
     if not shift:
         raise BusinessError("cash_shift_required", "Open cash shift is required")
@@ -3578,54 +3660,14 @@ def create_local_order(
 
     delivery_assignment = None
     if assigned_driver:
-        delivery_assignment = {
-            "id": _id(),
-            "organization_id": ORGANIZATION_ID,
-            "branch_id": actual_branch_id,
-            "order_id": order_id,
-            "driver_id": assigned_driver["id"],
-            "customer_id": customer_id,
-            "driver_name_snapshot": assigned_driver["name"],
-            "customer_name_snapshot": str(
-                (customer_snapshot or {}).get("name") or owner_name or "Cliente General"
-            ),
-            "delivery_address_snapshot": address_snapshot or {},
-            "order_total_cents": total_cents,
-            "currency": "MXN",
-            "line_count": len(order_lines_data),
-            "item_quantity": sum(int(line["quantity"]) for line in order_lines_data),
-            "status": "ASSIGNED",
-            "assigned_by": actor_id,
-            "assigned_at": now,
-        }
-        session.execute(models.delivery_assignments.insert().values(**delivery_assignment))
-        session.execute(
-            models.order_events.insert().values(
-                id=_id(),
-                order_id=order_id,
-                event_type="DRIVER_ASSIGNED",
-                payload={
-                    "driver_id": assigned_driver["id"],
-                    "driver_name": assigned_driver["name"],
-                },
-                created_at=now,
-            )
-        )
-        _audit(
+        delivery_assignment = _create_delivery_assignment(
             session,
-            action="delivery.driver_assigned",
-            entity_type="delivery_assignment",
-            entity_id=delivery_assignment["id"],
-            branch_id=actual_branch_id,
+            order=order,
+            lines=order_lines_data,
+            assigned_driver=assigned_driver,
             actor_user_id=actor_id,
-            payload={
-                "order_id": order_id,
-                "driver_id": assigned_driver["id"],
-                "customer_id": customer_id,
-                "order_total_cents": total_cents,
-                "line_count": delivery_assignment["line_count"],
-                "item_quantity": delivery_assignment["item_quantity"],
-            },
+            assigned_at=now,
+            assignment_source="pos_create",
         )
 
     session.execute(
@@ -4064,6 +4106,117 @@ def _delivery_assignment_for_order(
         .first()
     )
     return dict(row) if row else None
+
+
+def assign_delivery_driver(
+    session: Session,
+    order_id: str,
+    driver_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    observed_order = (
+        session.execute(
+            sa.select(models.orders).where(
+                models.orders.c.id == order_id,
+                models.orders.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not observed_order:
+        raise NotFoundError("order_not_found", "Order was not found")
+    branch_id = str(observed_order["branch_id"])
+    _require_order_write_fence(session, branch_id)
+    require_permission(session, actor_id, "orders.create", branch_id)
+    order = (
+        session.execute(
+            sa.select(models.orders)
+            .where(
+                models.orders.c.id == order_id,
+                models.orders.c.organization_id == ORGANIZATION_ID,
+                models.orders.c.branch_id == branch_id,
+            )
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not order:
+        raise BusinessError(
+            "delivery_assignment_order_changed",
+            "Delivery order changed while assignment authority was acquired",
+        )
+    order_data = dict(order)
+    normalized_driver_id = str(driver_id or "").strip()
+    if order_data["order_type"] != "delivery":
+        raise BusinessError(
+            "driver_assignment_delivery_only",
+            "A driver can only be assigned to a delivery order",
+        )
+    existing = _delivery_assignment_for_order(session, order_id)
+    if existing:
+        if existing["driver_id"] == normalized_driver_id:
+            return existing
+        raise BusinessError(
+            "delivery_assignment_conflict",
+            "Delivery order already has an immutable driver assignment",
+        )
+    if order_data["status"] not in {
+        "ACCEPTED",
+        "SENT_TO_PRODUCTION",
+        "IN_PRODUCTION",
+        "READY",
+    }:
+        raise BusinessError(
+            "delivery_assignment_state_invalid",
+            "Delivery driver can only be assigned before dispatch",
+        )
+    assigned_driver = _active_delivery_driver(session, normalized_driver_id, branch_id)
+    lines = [
+        dict(row)
+        for row in session.execute(
+            sa.select(models.order_lines).where(
+                models.order_lines.c.order_id == order_id,
+                models.order_lines.c.status == "active",
+            )
+        ).mappings()
+    ]
+    if not lines:
+        raise BusinessError(
+            "delivery_assignment_order_incomplete",
+            "Delivery order has no active lines",
+        )
+    try:
+        _create_delivery_assignment(
+            session,
+            order=order_data,
+            lines=lines,
+            assigned_driver=assigned_driver,
+            actor_user_id=actor_id,
+            assigned_at=_now(),
+            assignment_source="order_recovery",
+        )
+        session.commit()
+        persisted = _delivery_assignment_for_order(session, order_id)
+        if not persisted:
+            raise BusinessError(
+                "delivery_assignment_incomplete",
+                "Delivery assignment could not be reloaded after commit",
+            )
+        return persisted
+    except IntegrityError as exc:
+        session.rollback()
+        concurrent = _delivery_assignment_for_order(session, order_id)
+        if concurrent and concurrent["driver_id"] == normalized_driver_id:
+            return concurrent
+        if concurrent:
+            raise BusinessError(
+                "delivery_assignment_conflict",
+                "Delivery order already has an immutable driver assignment",
+            ) from exc
+        raise
 
 
 def get_order_detail(
@@ -27283,6 +27436,70 @@ def _public_intent_response(intent: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _public_accept_command_snapshot(result: dict[str, Any]) -> dict[str, Any]:
+    """Persist only the assignment reference; immutable snapshots remain authoritative."""
+    sanitized = _sanitize_for_json(result)
+    if not isinstance(sanitized, dict):
+        raise BusinessError(
+            "public_order_acceptance_result_invalid",
+            "Public order acceptance result is invalid",
+        )
+    snapshot = cast(dict[str, Any], sanitized)
+    assignment = snapshot.get("delivery_assignment")
+    if isinstance(assignment, dict):
+        assignment_id = assignment.get("id")
+        if not isinstance(assignment_id, str) or not assignment_id:
+            raise BusinessError(
+                "public_order_acceptance_result_invalid",
+                "Public order delivery assignment reference is invalid",
+            )
+        snapshot["delivery_assignment"] = {"id": assignment_id}
+    return snapshot
+
+
+def _public_accept_replay_response(
+    session: Session,
+    command: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Rehydrate assignment snapshots from their immutable authoritative row."""
+    sanitized = _sanitize_for_json(command["result"])
+    if not isinstance(sanitized, dict):
+        raise BusinessError(
+            "public_order_acceptance_replay_incomplete",
+            "Public order acceptance replay is incomplete",
+        )
+    response = cast(dict[str, Any], sanitized)
+    assignment = response.get("delivery_assignment")
+    if assignment is None:
+        return response
+    if not isinstance(assignment, dict):
+        raise BusinessError(
+            "public_order_acceptance_replay_incomplete",
+            "Public order delivery assignment replay is incomplete",
+        )
+    if set(assignment) != {"id"}:
+        # Backward-compatible replay for commands written before minimization.
+        return response
+    persisted = (
+        session.execute(
+            sa.select(models.delivery_assignments).where(
+                models.delivery_assignments.c.id == assignment["id"],
+                models.delivery_assignments.c.order_id == response.get("id"),
+                models.delivery_assignments.c.organization_id == command["organization_id"],
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not persisted:
+        raise BusinessError(
+            "public_order_acceptance_replay_incomplete",
+            "Public order delivery assignment replay is incomplete",
+        )
+    response["delivery_assignment"] = _sanitize_for_json(dict(persisted))
+    return response
+
+
 def _recover_public_order_command(
     session: Session,
     organization_id: str,
@@ -27307,6 +27524,8 @@ def _recover_public_order_command(
         return None
     if prior["request_hash"] != request_hash:
         raise BusinessError("idempotency_conflict", "Idempotency key was used with another request")
+    if command_type == "accept":
+        return _public_accept_replay_response(session, prior), False
     return dict(prior["result"]), False
 
 
@@ -27704,6 +27923,7 @@ def accept_public_order_intent(
     expected_version: int,
     idempotency_key: str,
     actor_user_id: str,
+    driver_id: str | None = None,
 ) -> tuple[dict[str, Any], bool]:
     key = str(idempotency_key or "").strip()
     if not 12 <= len(key) <= 160:
@@ -27721,7 +27941,27 @@ def accept_public_order_intent(
         raise NotFoundError("public_order_not_found", "Public order intent was not found")
     _require_order_write_fence(session, str(intent["branch_id"]))
     require_permission(session, actor_user_id, "orders.create", intent["branch_id"])
-    digest = hashlib.sha256(f"{intent_id}:{expected_version}".encode()).hexdigest()
+    normalized_driver_id = str(driver_id or "").strip() or None
+    if normalized_driver_id and intent["order_type"] != "delivery":
+        raise BusinessError(
+            "driver_assignment_delivery_only",
+            "A driver can only be assigned to a delivery order",
+        )
+    digest = (
+        hashlib.sha256(f"{intent_id}:{expected_version}".encode()).hexdigest()
+        if normalized_driver_id is None
+        else hashlib.sha256(
+            json.dumps(
+                {
+                    "driver_id": normalized_driver_id,
+                    "expected_version": expected_version,
+                    "intent_id": intent_id,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+    )
     prior = (
         session.execute(
             sa.select(models.public_order_intent_commands).where(
@@ -27738,12 +27978,21 @@ def accept_public_order_intent(
             raise BusinessError(
                 "idempotency_conflict", "Idempotency key was used with another request"
             )
-        return dict(prior["result"]), False
+        return _public_accept_replay_response(session, prior), False
     if intent["status"] != "PENDING_REVIEW" or int(intent["version"]) != expected_version:
         raise BusinessError(
             "public_order_transition_invalid", "Public order intent cannot be accepted"
         )
     _revalidate_public_intent_operationally(session, dict(intent))
+    assigned_driver = (
+        _active_delivery_driver(
+            session,
+            normalized_driver_id,
+            str(intent["branch_id"]),
+        )
+        if normalized_driver_id
+        else None
+    )
     now, order_id = _now(), _id()
     folio = _next_unique_folio(session, intent["branch_id"])
     changed = cast(
@@ -27866,6 +28115,17 @@ def accept_public_order_intent(
             created_at=now,
             source_type="order",
         )
+    delivery_assignment = None
+    if assigned_driver:
+        delivery_assignment = _create_delivery_assignment(
+            session,
+            order=order,
+            lines=[dict(line) for line in lines],
+            assigned_driver=assigned_driver,
+            actor_user_id=actor_user_id,
+            assigned_at=now,
+            assignment_source="public_acceptance",
+        )
     session.execute(
         models.order_events.insert().values(
             id=_id(),
@@ -27908,7 +28168,9 @@ def accept_public_order_intent(
         "cash_shift_id": None,
         "status": "ACCEPTED",
         "total_cents": int(intent["total_cents"]),
+        "delivery_assignment": _sanitize_for_json(delivery_assignment),
     }
+    command_result = _public_accept_command_snapshot(result)
     try:
         session.execute(
             models.public_order_intent_commands.insert().values(
@@ -27918,7 +28180,7 @@ def accept_public_order_intent(
                 command_type="accept",
                 idempotency_key=key,
                 request_hash=digest,
-                result=result,
+                result=command_result,
                 actor_user_id=actor_user_id,
                 created_at=now,
             )
@@ -27941,7 +28203,13 @@ def accept_public_order_intent(
         actor_user_id,
     )
     session.commit()
-    return result, True
+    return _public_accept_replay_response(
+        session,
+        {
+            "organization_id": intent["organization_id"],
+            "result": command_result,
+        },
+    ), True
 
 
 def reject_public_order_intent(

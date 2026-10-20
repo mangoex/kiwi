@@ -42,4 +42,35 @@ Feature: Cajero asigna un repartidor al pedido a domicilio
     When el Administrador abre su historial
     Then ve folio, cliente, importe, líneas, unidades, estado y fecha de cada pedido
     And desactivar el repartidor no elimina asignaciones anteriores
+
+  @BDD-SC-735
+  Scenario: Aceptación web crea pedido y asignación en una transacción
+    Given una intención PENDING_REVIEW de tipo A domicilio
+    And un repartidor activo de la misma sucursal
+    When el Cajero lo selecciona y acepta el pedido web
+    Then el pedido operativo y su única asignación quedan confirmados juntos
+    And un repartidor inactivo, ajeno o inexistente no deja pedido ni efectos operativos parciales
+
+  @BDD-SC-736
+  Scenario: Pedido aceptado sin repartidor recibe su primera asignación
+    Given un pedido A domicilio aceptado, todavía no despachado y sin asignación
+    When el Cajero selecciona un repartidor activo de la sucursal desde el detalle de Pedidos
+    Then se crea una asignación inmutable con evento y auditoría
+    And repetir el mismo repartidor devuelve la misma asignación sin duplicarla
+    But elegir otro repartidor no sobrescribe la historia existente
+
+  @BDD-SC-737
+  Scenario: Baja concurrente del repartidor no deja una asignación obsoleta
+    Given un pedido A domicilio elegible y un repartidor activo de su sucursal
+    When la baja del repartidor compite con la primera asignación
+    Then ambas operaciones se serializan sobre el registro del repartidor
+    And si la baja confirma primero la asignación falla sin evento ni auditoría parcial
+    And si la asignación confirma primero conserva su snapshot histórico
+
+  @BDD-SC-738
+  Scenario: Despacho concurrente no interbloquea la primera asignación
+    Given un pedido A domicilio listo y todavía sin repartidor
+    When iniciar reparto compite con su primera asignación
+    Then ambas operaciones respetan el orden de bloqueo sucursal, pedido y repartidor
+    And si iniciar reparto confirma primero la asignación falla por estado sin efecto parcial
 ```
