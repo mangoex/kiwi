@@ -3375,6 +3375,8 @@ def _create_public_order_intent_with_runtime(
     idempotency_key: str,
     response: Response,
     request: Request,
+    *, customer_id: str | None = None,
+    mobile_request: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not bool(getattr(request.app.state, "public_order_intents_enabled", False)):
         raise HTTPException(
@@ -3445,7 +3447,10 @@ def _create_public_order_intent_with_runtime(
     logger.info(
         "public_order_rate_limit", extra={"metric": "public_order_rate_limit", "result": "allowed"}
     )
-    result, created = create_public_order_intent(session, public_key, payload, idempotency_key)
+    result, created = create_public_order_intent(
+        session, public_key, payload, idempotency_key, customer_id=customer_id,
+        mobile_request=mobile_request,
+    )
     response.status_code = 201 if created else 200
     hook = getattr(request.app.state, "public_order_after_commit_hook", None)
     if hook:
@@ -6136,6 +6141,7 @@ def post_customer(
             list(payload.get("phones", [])),
             authorized_branch,
             actor_id,
+            birthday=payload,
         )
 
     return _business_response(operation)

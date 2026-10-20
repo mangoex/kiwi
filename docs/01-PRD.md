@@ -1583,3 +1583,17 @@ La versión 1 podrá declararse operativa cuando una sucursal piloto pueda:
 8. Preparar reparto y rutas.
 9. Exportar un lote validado.
 10. Producir auditoría completa.
+
+
+## CRM-MOBILE-001 Registro y perfil del menú digital
+
+- `PRD-FR-281`: Sólo la web app móvil del menú digital exige acceso antes de consultar
+  el menú o pedir. El alta mínima solicita nombre, teléfono mexicano y cumpleaños (día y mes;
+  año opcional). La identidad se acredita por código al teléfono; capturarlo no da acceso al CRM.
+  El perfil permite completar y editar nombre, cumpleaños, correo y domicilios; cambiar teléfono
+  exige verificar el nuevo. No cambia el acceso de Admin, POS, KDS ni integraciones existentes.
+- `PRD-FR-282`: El CRM conserva cumpleaños parcial sin inventar año y reutiliza domicilios
+  estructurados. Tras verificar teléfono se vincula una coincidencia activa única de la misma
+  organización; coincidencias múltiples se bloquean para resolución administrativa, sin fusionar.
+  Delivery móvil exige correo y domicilio propio completo. Los pedidos aceptados se vinculan al
+  ID del cliente para consumo; los snapshots históricos no cambian al editar perfil.

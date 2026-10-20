@@ -30,6 +30,7 @@ class WorkspaceBodyLimitMiddleware:
         agent_covered = path.startswith(
             ("/api/v1/agent-auth/", "/api/v1/agent-tools/", "/api/v1/integrations/grokbot/")
         )
+        mobile_covered = path.startswith("/api/v1/mobile/")
         workspace_covered = (
             path.startswith("/api/v1/purchases")
             or path.startswith("/api/v1/operational-intents")
@@ -42,12 +43,14 @@ class WorkspaceBodyLimitMiddleware:
             )
             or (path.startswith("/api/v1/inventory/items/") and path.endswith("/cost-preview"))
         )
-        covered = agent_covered or workspace_covered
+        covered = agent_covered or workspace_covered or mobile_covered
         if scope["type"] != "http" or scope.get("method") not in {"POST", "PUT"} or not covered:
             await self.app(scope, receive, send)
             return
 
-        max_bytes = MAX_AGENT_BODY_BYTES if agent_covered else MAX_WORKSPACE_BODY_BYTES
+        max_bytes = (
+            MAX_AGENT_BODY_BYTES if agent_covered or mobile_covered else MAX_WORKSPACE_BODY_BYTES
+        )
         chunks = []
         size = 0
         while True:
@@ -57,7 +60,13 @@ class WorkspaceBodyLimitMiddleware:
             body = message.get("body", b"")
             size += len(body)
             if size > max_bytes:
-                code = "agent_schema_invalid" if agent_covered else "workspace_payload_too_large"
+                code = (
+                    "mobile_payload_too_large"
+                    if mobile_covered
+                    else "agent_schema_invalid"
+                    if agent_covered
+                    else "workspace_payload_too_large"
+                )
                 detail: dict[str, object] = {
                     "code": code,
                     "message": f"Request exceeds {max_bytes} bytes",

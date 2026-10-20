@@ -6970,3 +6970,61 @@ cambiar permisos ni ejecutar migraciones por implementar este módulo. Una rever
 restaura rutas/UI anteriores sin deshacer historial; conservar posibilidad de recuperar comandos
 de umbrales ya confirmados. La reversión de movilidad POS sigue su drenado/recovery_only, nunca
 apagar el flag con operaciones pendientes suponiendo que eso revierte datos.
+
+
+## 69. CRM-MOBILE-001 — identidad verificada y enriquecimiento progresivo
+
+### SDD-ADR-046 Acceso móvil separado y proveedor de verificación
+
+Riesgo R3: datos personales, autenticación, persistencia y frontera externa. Se agregan
+birthday_day/month/year nullable a customers y una identidad móvil única por organización/teléfono.
+Día/mes forman un par real validado (29/02 permitido sin año; con año se valida calendario y futuro).
+La administración puede dejar cumpleaños vacío; la entrada móvil requiere completarlo.
+No se reinterpretan clientes históricos ni se fusionan coincidencias telefónicas múltiples.
+La vinculación, materialización móvil y alta CRM se serializan por organización en PostgreSQL.
+La identidad se relee bajo bloqueo tras el I/O; cambios de teléfono obsoletos se rechazan.
+Los escritores de domicilios CRM y móvil comparten bloqueo de cliente para el predeterminado.
+
+El dominio usa un puerto PhoneVerifier, con adaptador Twilio Verify por HTTPS, host fijo,
+timeout, sin reintento ciego ni códigos/logs de PII. Referencias oficiales:
+https://www.twilio.com/docs/verify/api/verification y
+https://www.twilio.com/docs/verify/api/verification-check . No hay nueva dependencia crítica.
+RESTAURANTOS_MOBILE_CUSTOMER_ACCESS_ENABLED es false por defecto. Activar exige proveedor
+configurado; credenciales TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_VERIFY_SERVICE_SID
+bajo prefijo RESTAURANTOS_. Configuración/despliegue y envío productivo requieren autorización
+separada. No se habilita bypass local de OTP en runtime; pruebas inyectan un puerto falso.
+
+Rutas versionadas /api/v1/mobile/branches/{public_key}: access/start, access/verify,
+profile (GET/PUT), logout, catalog y order-intents. El public_key activo resuelve organización;
+ningún body acepta customer_id, organización, permisos ni precio. La cookie móvil opaca tiene
+hash persistido, expiración de 30 días, HttpOnly, SameSite=Strict, Secure en producción y revocación.
+Toda escritura exige X-Mobile-Request: 1. La sesión móvil no concede permisos de empleado.
+OTP vence en 10 minutos, admite 5 comprobaciones y se consume una vez; cada intento se reserva
+en BD antes de I/O. Los límites por peer y teléfono usan el limitador público compartido y fallan
+cerrados si no está disponible. El proveedor recibe el SID de verificación, no uno aportado por
+el navegador. Sin identidad válida y perfil mínimo completo no hay catálogo ni pedido móvil.
+Los endpoints públicos existentes conservan su contrato para otros consumidores.
+
+El perfil devuelve sólo campos de autoservicio y domicilios activos propios, nunca notas CRM,
+datos fiscales, segmentación o perfiles ajenos. Email se valida sin asumir verificación de correo.
+Un domicilio completo usa el esquema mexicano existente; creation_key estable deriva un ID
+por cliente y permite reintentar sin duplicar, saved_address_id reconcilia el editor; las modificaciones se serializan con
+el cliente, conservan una única dirección predeterminada y no reescriben pedidos anteriores.
+Cambiar teléfono usa un desafío ligado a la identidad actual y exige verificar el nuevo teléfono;
+no permite apropiarse de otra identidad ni de un teléfono ligado a otro cliente.
+
+La captura móvil pasa customer_id como argumento interno al servicio de intenciones. La huella
+idempotente incluye esa identidad; se persiste el vínculo antes de éxito y se propaga al pedido al
+aceptarlo. La huella móvil usa el body original y el ID del cliente, sin contacto mutable; replay recupera
+antes de rederivar perfil/domicilio. Los datos de contacto/domicilio se congelan al capturar. No se crea consumo por simples
+visitas ni se confunde intención pendiente con venta. El carrito se conserva ante error/expiración.
+
+Migración 0098 aditiva; downgrade bloqueado si hay perfiles/identidades/intenciones vinculadas,
+para evitar pérdida de PII/historia. No se migra producción durante desarrollo.
+
+Operación: ¿se envían y verifican códigos?, ¿hay límites/fallo del proveedor?, ¿hay colisiones CRM?
+Auditoría mobile.access_verified, mobile.profile_updated, mobile.phone_changed y mobile.logout
+sólo con IDs/campos modificados; errores SQL móviles devuelven 503 sin parámetros ni traceback;
+requests móviles se limitan a 64 KiB antes del parseo; logs de proveedor sólo resultado estable, sin teléfono/código/token.
+Contadores de límites existentes responden a la segunda pregunta; colisión tiene código estable
+mobile_customer_ambiguous, sin publicar candidatos ni datos personales.

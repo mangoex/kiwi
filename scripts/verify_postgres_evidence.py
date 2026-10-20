@@ -24,8 +24,11 @@ MODULES = (
     "public_tracking_index",
     "inventory_overview",
     "delivery_driver_assignment",
+    "mobile_customer",
 )
-PATHS = tuple(f"apps/api/tests/test_{name}_postgres.py" for name in MODULES)
+PATHS = tuple(f"apps/api/tests/test_{name}_postgres.py" for name in MODULES) + (
+    "apps/api/tests/test_mobile_customer_migration.py",
+)
 
 
 def verify(collection: Path, junit: Path) -> dict[str, int]:

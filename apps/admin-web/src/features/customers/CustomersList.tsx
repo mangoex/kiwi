@@ -44,6 +44,9 @@ interface Customer {
   id: string;
   name: string;
   email?: string | null;
+  birthday_day?: number | null;
+  birthday_month?: number | null;
+  birthday_year?: number | null;
   origin_branch_id?: string | null;
   phones: CustomerPhone[];
   addresses: CustomerAddress[];
@@ -78,6 +81,7 @@ const emptyCustomerForm = {
   name: '',
   email: '',
   phone: '',
+  birthday_day: '', birthday_month: '', birthday_year: '',
   branch_id: '',
 };
 
@@ -219,6 +223,9 @@ export const CustomersList: React.FC = () => {
           method: 'PUT',
           body: JSON.stringify({
             name: customerForm.name.trim(),
+            birthday_day: customerForm.birthday_day ? Number(customerForm.birthday_day) : null,
+            birthday_month: customerForm.birthday_month ? Number(customerForm.birthday_month) : null,
+            birthday_year: customerForm.birthday_year ? Number(customerForm.birthday_year) : null,
             email: customerForm.email.trim() || null,
             branch_id: customerForm.branch_id || selectedBranchId || branches[0]?.id || undefined,
           }),
@@ -228,6 +235,9 @@ export const CustomersList: React.FC = () => {
           method: 'POST',
           body: JSON.stringify({
             name: customerForm.name.trim(),
+            birthday_day: customerForm.birthday_day ? Number(customerForm.birthday_day) : null,
+            birthday_month: customerForm.birthday_month ? Number(customerForm.birthday_month) : null,
+            birthday_year: customerForm.birthday_year ? Number(customerForm.birthday_year) : null,
             email: customerForm.email.trim() || undefined,
             branch_id: customerForm.branch_id || selectedBranchId || branches[0]?.id || undefined,
             phones: customerForm.phone.trim()
@@ -310,6 +320,9 @@ export const CustomersList: React.FC = () => {
       name: customer.name,
       email: customer.email || '',
       phone: primaryPhone,
+      birthday_day: String(customer.birthday_day || ''),
+      birthday_month: String(customer.birthday_month || ''),
+      birthday_year: String(customer.birthday_year || ''),
       branch_id: customer.origin_branch_id || '',
     });
     setFormError('');
@@ -582,6 +595,9 @@ export const CustomersList: React.FC = () => {
                             </div>
                             <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
                               ID: {customer.id.slice(0, 8)}...
+                              {customer.birthday_day && customer.birthday_month && <span style={{ display: 'block' }}>
+                                Cumpleaños: {String(customer.birthday_day).padStart(2, '0')}/{String(customer.birthday_month).padStart(2, '0')}{customer.birthday_year ? `/${customer.birthday_year}` : ''}
+                              </span>}
                             </span>
                           </div>
                         </div>
@@ -816,6 +832,17 @@ export const CustomersList: React.FC = () => {
               placeholder="Ej. 6691234567"
             />
           </label>
+
+          <fieldset style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: 12 }}>
+            <legend>Cumpleaños (año opcional)</legend>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.5fr', gap: 8 }}>
+              {(['birthday_day', 'birthday_month', 'birthday_year'] as const).map((field, index) => <label key={field}>
+                {['Día', 'Mes', 'Año opcional'][index]}
+                <Input type="number" min={index === 2 ? 1900 : 1} max={index === 0 ? 31 : index === 1 ? 12 : new Date().getFullYear()}
+                  value={customerForm[field]} onChange={e => setCustomerForm({ ...customerForm, [field]: e.target.value })} />
+              </label>)}
+            </div>
+          </fieldset>
 
           <label style={{ display: 'grid', gap: '4px' }}>
             <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#334155' }}>Correo Electrónico</span>

@@ -15,6 +15,8 @@ import { BranchSelectorModal } from './components/BranchSelectorModal';
 import { detectProductSize } from './imageMap';
 import { usePublicOrderTracking } from './hooks/usePublicOrderTracking';
 import { ActiveOrderTracker } from './components/ActiveOrderTracker';
+import { CustomerAccess, ProfileEditor, PhoneChange } from './components/CustomerProfile';
+import { CustomerProfile, customerRequest, CustomerAccessError, accessErrorMessage } from './customerProfile';
 
 const EXCLUDED_CATEGORY_KEYWORDS = [
   'servicio a domicilio',
@@ -55,6 +57,26 @@ export const App: React.FC = () => {
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [customerCoords, setCustomerCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [returnToCartAfterBranch, setReturnToCartAfterBranch] = useState(false);
+  const [profile, setProfile] = useState<CustomerProfile | null>(null);
+  const [profileBranchKey, setProfileBranchKey] = useState<string | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [accessError, setAccessError] = useState('');
+  const [returnToCartAfterProfile, setReturnToCartAfterProfile] = useState(false);
+  const [accessRevision, setAccessRevision] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setProfile(null); setProfileBranchKey(null); setProfileLoading(true); setAccessError('');
+    const key = selectedBranch?.public_key;
+    if (!key) { setProfileLoading(false); return; }
+    customerRequest<CustomerProfile>(key, 'profile', undefined, 'GET').then(value => {
+      if (active) { setProfile(value); setProfileBranchKey(key); }
+    }).catch(error => {
+      if (active && !(error instanceof CustomerAccessError && error.status === 401)) {
+        setAccessError(accessErrorMessage(error));
+      }
+    }).finally(() => { if (active) setProfileLoading(false); });
+    return () => { active = false; };
+  }, [selectedBranch?.public_key, accessRevision]);
 
   // Favorites state with localStorage
   const [likedProductIds, setLikedProductIds] = useState<Set<string>>(() => {
@@ -152,17 +174,26 @@ export const App: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
-    fetchMobileMenu(selectedBranch?.public_key).then(({ products: prods, categories: cats }) => {
+    if (!profile?.complete || profileBranchKey !== selectedBranch?.public_key) {
+      setProducts([]); setCategories([]); setLoading(false); return;
+    }
+    fetchMobileMenu(selectedBranch?.public_key, true).then(({ products: prods, categories: cats }) => {
       if (isMounted) {
         setProducts(prods);
         setCategories(cats);
         setLoading(false);
       }
+    }).catch((error: unknown) => {
+      if (!isMounted) return;
+      setLoading(false);
+      const status = (error as { status?: number }).status;
+      if (status === 401) { setProfile(null); setIsCartOpen(false); }
+      setAccessError(status === 401 ? 'Tu sesión venció. Verifica tu teléfono para continuar.' : 'No pudimos cargar el menú. Reintenta en un momento.');
     });
     return () => {
       isMounted = false;
     };
-  }, [selectedBranch?.public_key]);
+  }, [selectedBranch?.public_key, profile?.complete, profileBranchKey]);
 
   const handleSelectBranch = (branch: BranchInfo) => {
     setSelectedBranch(branch);
@@ -276,6 +307,7 @@ export const App: React.FC = () => {
         selectedBranch?.name,
         customerCoords || undefined,
         selectedBranch?.public_key,
+        true,
       );
       if (result.kind === 'public_order_intent' && selectedBranch) {
         tracking.remember(result.public_reference, selectedBranch.id);
@@ -288,7 +320,13 @@ export const App: React.FC = () => {
     } catch (err: unknown) {
       const errorObj = err as { status?: number; code?: string };
       let friendlyMessage = 'No fue posible confirmar el pedido. Conservamos tu carrito para que puedas reintentar.';
-      if (errorObj?.code === 'product_unavailable') {
+      if (errorObj?.status === 401) {
+        setProfile(null); setIsCartOpen(false);
+        setAccessError('Tu sesión venció. Verifica tu teléfono para continuar; tu carrito está guardado.');
+      }
+      if (errorObj?.code === 'mobile_delivery_profile_required') {
+        friendlyMessage = 'Completa tu correo y domicilio desde Mi perfil para solicitar delivery.';
+      } else if (errorObj?.code === 'product_unavailable') {
         friendlyMessage = 'Uno de los productos seleccionados no está disponible. Revisa tu carrito antes de reintentar.';
       } else if (errorObj?.code === 'public_order_rate_limited' || errorObj?.status === 429) {
         friendlyMessage = 'Demasiados intentos en poco tiempo. Conservamos tu carrito; espera un momento antes de reintentar.';
@@ -402,8 +440,27 @@ export const App: React.FC = () => {
   const totalCartCents = cart.reduce((sum, item) => sum + item.line_total_cents, 0);
   const currentCategory = visibleCategories.find((c) => c.id === activeCategoryId);
 
+  const acceptProfile = (value: CustomerProfile) => {
+    setProfile(value); setProfileBranchKey(selectedBranch?.public_key || null); setAccessError('');
+  };
+  if (profileLoading || isLoadingLocation) {
+    return <main className="customer-access"><p role="status">Preparando tu acceso a Kiwi…</p></main>;
+  }
+  if (!selectedBranch?.public_key) {
+    return <main className="customer-access"><div className="customer-access-card"><h1>Kiwi</h1>
+      <p role="alert">El acceso al menú no está disponible en esta sucursal por ahora.</p>
+      <button onClick={() => detectLocationAndFetchBranches(false)}>Reintentar</button>
+    </div></main>;
+  }
+  if (!profile?.complete || profileBranchKey !== selectedBranch.public_key) {
+    return <>{accessError && <p role="alert" className="customer-error">{accessError}</p>}
+      <CustomerAccess key={selectedBranch.public_key} publicKey={selectedBranch.public_key} profile={profile} onSaved={acceptProfile} onSessionExpired={() => setProfile(null)} />
+    </>;
+  }
+
   return (
     <div className="mobile-app-shell">
+      {accessError && currentTab !== 'profile' && <p role="alert">{accessError}</p>}
       {tracking.references.length > 0 && <div className="public-tracking-slot">
         <ActiveOrderTracker tracking={tracking} branchPhone={selectedBranch?.phone} />
       </div>}
@@ -491,6 +548,28 @@ export const App: React.FC = () => {
         </main>
       )}
 
+      {currentTab === 'profile' && <main className="customer-profile-page">
+        <ProfileEditor key={profile.id + profile.phone} publicKey={selectedBranch.public_key} profile={profile} onSessionExpired={() => setProfile(null)} onSaved={value => {
+          acceptProfile(value);
+          if (returnToCartAfterProfile) {
+            setReturnToCartAfterProfile(false); setCurrentTab('explore'); setIsCartOpen(true);
+          }
+        }} />
+        <PhoneChange publicKey={selectedBranch.public_key} onSaved={acceptProfile} onSessionExpired={() => setProfile(null)} />
+        {accessError && <p role="alert">{accessError}</p>}
+        <button type="button" onClick={async () => {
+          try {
+            await customerRequest(selectedBranch.public_key!, 'logout');
+            setProfile(null); setCart([]); setIsCartOpen(false);
+            tracking.references.forEach(ref => tracking.dismiss(ref.public_reference)); setCurrentTab('explore');
+            setAccessRevision(value => value + 1);
+          } catch (error) {
+            if (error instanceof CustomerAccessError && error.status === 401) setProfile(null);
+            setAccessError(accessErrorMessage(error));
+          }
+        }}>Cerrar sesión</button>
+      </main>}
+
       {currentTab === 'favorites' && (
         <main className="mobile-main-content">
           <FavoritesView
@@ -505,7 +584,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Floating Cart Bar on Feed when cart has items */}
-      {!isCartOpen && (
+      {!isCartOpen && currentTab !== 'profile' && (
         <FloatingCartBar
           totalCount={totalCartCount}
           totalCents={totalCartCents}
@@ -527,6 +606,11 @@ export const App: React.FC = () => {
       {/* Cart & Checkout Sheet */}
       {isCartOpen && (
         <CartDrawer
+          profile={profile}
+          onOrderTypeChange={setOrderType}
+          onEditProfile={() => {
+            setReturnToCartAfterProfile(true); setIsCartOpen(false); setCurrentTab('profile');
+          }}
           items={cart}
           allProducts={products}
           orderType={orderType}

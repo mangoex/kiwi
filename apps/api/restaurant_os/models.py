@@ -7,6 +7,7 @@ from restaurant_os.fiscal_command_schema import ORDER_SCOPE_INDEX
 from restaurant_os.fiscal_command_schema import tables as fiscal_command_tables
 from restaurant_os.fiscal_emitter_schema import LEGAL_ENTITY_INDEX
 from restaurant_os.fiscal_emitter_schema import tables as fiscal_emitter_tables
+from restaurant_os.mobile_customer_schema import mobile_tables as _mobile_tables
 from restaurant_os.offline_authorization_schema import USER_SCOPE_INDEX
 from restaurant_os.offline_authorization_schema import tables as offline_authorization_tables
 from restaurant_os.offline_cutover_schema import table as offline_cutover_table
@@ -2120,6 +2121,9 @@ customers = sa.Table(
     sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
     sa.Column("name", sa.String(160), nullable=False),
     sa.Column("email", sa.String(180), nullable=True),
+    sa.Column("birthday_day", sa.Integer(), nullable=True),
+    sa.Column("birthday_month", sa.Integer(), nullable=True),
+    sa.Column("birthday_year", sa.Integer(), nullable=True),
     sa.Column("customer_type", sa.String(24), nullable=False, server_default="person"),
     sa.Column("customer_segment", sa.String(48), nullable=True),
     sa.Column("notes", sa.String(600), nullable=True),
@@ -2332,6 +2336,7 @@ public_order_intents = sa.Table(
     sa.Column("correlation_id", sa.String(64), nullable=False, unique=True),
     sa.Column("status", sa.String(24), nullable=False, server_default="PENDING_REVIEW"),
     sa.Column("customer_snapshot", sa.JSON(), nullable=False),
+    sa.Column("customer_id", sa.String(36), sa.ForeignKey("customers.id"), nullable=True),
     sa.Column("delivery_address_snapshot", sa.JSON(), nullable=True),
     sa.Column("order_type", sa.String(32), nullable=False),
     sa.Column("order_notes", sa.String(500), nullable=True),
@@ -4068,3 +4073,9 @@ sa.Index(WORKSPACE_SCOPE_INDEX, branch_workspace_sessions.c.organization_id,
          branch_workspace_sessions.c.actor_user_id, branch_workspace_sessions.c.branch_id,
          branch_workspace_sessions.c.id, unique=True)
 operational_command_intents = operational_intent_table(metadata, cash_lifecycle=True)
+
+
+
+(mobile_customer_identities, mobile_access_challenges, mobile_customer_sessions) = (
+    _mobile_tables(metadata)
+)

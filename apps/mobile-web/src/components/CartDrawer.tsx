@@ -3,6 +3,7 @@ import { X, Plus, Minus, Trash2, Banknote, CreditCard, ArrowRightLeft, Send, Sho
 import { CartItem, CustomerOrderInfo, OrderType, PaymentMethod, BranchInfo, Product } from '../types';
 import { formatMoney, fetchOrderUpsellRecommendations } from '../api';
 import { getProductIconMeta } from '../imageMap';
+import { CustomerProfile } from '../customerProfile';
 
 const getRecommendationIcon = (product: Product, size: number = 38) => {
   const category = (product.category_name || '').toLowerCase();
@@ -41,6 +42,9 @@ const getRecommendationIcon = (product: Product, size: number = 38) => {
 };
 
 interface CartDrawerProps {
+  profile?: CustomerProfile;
+  onEditProfile?: () => void;
+  onOrderTypeChange?: (value: OrderType) => void;
   items: CartItem[];
   allProducts?: Product[];
   orderType: OrderType;
@@ -57,6 +61,7 @@ interface CartDrawerProps {
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
   items,
+  profile, onEditProfile, onOrderTypeChange,
   allProducts = [],
   orderType: initialOrderType,
   selectedBranch,
@@ -70,8 +75,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   submitError,
 }) => {
   const [orderType, setOrderType] = useState<OrderType>(initialOrderType);
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [name, setName] = useState(profile?.name || '');
+  const [phone, setPhone] = useState(profile?.phone || '');
+  const [addressId, setAddressId] = useState(profile?.addresses[0]?.id || '');
   const [street, setStreet] = useState('');
   const [number, setNumber] = useState('');
   const [neighborhood, setNeighborhood] = useState('');
@@ -126,21 +132,27 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       setFormError('Por favor ingresa un número de teléfono celular válido.');
       return;
     }
-    if (orderType === 'delivery') {
+    if (orderType === 'delivery' && profile && (!profile.email || !addressId)) {
+      setFormError('Completa tu correo y domicilio desde Mi perfil para solicitar delivery.'); return;
+    }
+    if (orderType === 'delivery' && !profile) {
       if (!street.trim() || !number.trim() || !neighborhood.trim()) {
         setFormError('Para entrega a domicilio, ingresa calle, número y colonia.');
         return;
       }
     }
 
+    const selectedAddress = profile?.addresses.find(address => address.id === addressId);
     const orderInfo: CustomerOrderInfo = {
+      address_id: selectedAddress?.id,
+      email: profile?.email || undefined,
       name: name.trim(),
       phone: phone.trim(),
       order_type: orderType,
-      address_street: street.trim(),
-      address_number: number.trim(),
-      address_neighborhood: neighborhood.trim(),
-      address_notes: addressNotes.trim(),
+      address_street: selectedAddress?.street || street.trim(),
+      address_number: selectedAddress?.exterior_number || number.trim(),
+      address_neighborhood: selectedAddress?.neighborhood || neighborhood.trim(),
+      address_notes: selectedAddress?.references || addressNotes.trim(),
       payment_method: paymentMethod,
       cash_amount: paymentMethod === 'cash' ? cashAmount.trim() : undefined,
       order_notes: orderNotes.trim(),
@@ -362,7 +374,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <button
                     type="button"
                     className={`social-mode-card-btn ${orderType === 'dine-in' ? 'active' : ''}`}
-                    onClick={() => setOrderType('dine-in')}
+                    onClick={() => { setOrderType('dine-in'); onOrderTypeChange?.('dine-in'); }}
                     role="tab"
                     aria-selected={orderType === 'dine-in'}
                   >
@@ -375,7 +387,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <button
                     type="button"
                     className={`social-mode-card-btn ${orderType === 'takeaway' ? 'active' : ''}`}
-                    onClick={() => setOrderType('takeaway')}
+                    onClick={() => { setOrderType('takeaway'); onOrderTypeChange?.('takeaway'); }}
                     role="tab"
                     aria-selected={orderType === 'takeaway'}
                   >
@@ -388,7 +400,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <button
                     type="button"
                     className={`social-mode-card-btn ${orderType === 'delivery' ? 'active' : ''}`}
-                    onClick={() => setOrderType('delivery')}
+                    onClick={() => { setOrderType('delivery'); onOrderTypeChange?.('delivery'); }}
                     role="tab"
                     aria-selected={orderType === 'delivery'}
                   >
@@ -411,6 +423,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       className="cart-input-field"
                       placeholder="Tu nombre completo *"
                       value={name}
+                      readOnly={Boolean(profile)}
                       onChange={(e) => setName(e.target.value)}
                       required
                     />
@@ -423,6 +436,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       className="cart-input-field"
                       placeholder="Teléfono Celular *"
                       value={phone}
+                      readOnly={Boolean(profile)}
                       onChange={(e) => setPhone(e.target.value)}
                       required
                     />
@@ -431,7 +445,19 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
 
               {/* Delivery Address if delivery mode */}
-              {orderType === 'delivery' && (
+              {profile && <button type="button" onClick={onEditProfile}>Editar o completar mis datos</button>}
+              {orderType === 'delivery' && profile && <section className="cart-form-section">
+                <label htmlFor="mobile-delivery-address">Domicilio de entrega</label>
+                <select id="mobile-delivery-address" className="cart-input-field no-icon" value={addressId} onChange={e => setAddressId(e.target.value)}>
+                  <option value="">Selecciona un domicilio</option>
+                  {profile.addresses.map(address => <option key={address.id} value={address.id}>
+                    {address.alias}: {address.street} {address.exterior_number}, {address.neighborhood}
+                  </option>)}
+                </select>
+                <p>{profile.email || 'Falta tu correo electrónico para entrega a domicilio.'}</p>
+                <button type="button" onClick={onEditProfile}>Agregar o editar domicilio y correo</button>
+              </section>}
+              {orderType === 'delivery' && !profile && (
                 <div className="cart-form-section">
                   <label className="cart-form-section-label">Dirección de Entrega</label>
                   <div className="cart-form-fields-grid">

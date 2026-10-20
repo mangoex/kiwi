@@ -34,9 +34,11 @@ const DEFAULT_CATEGORIES: Category[] = [
 
 let activeBranchId: string | undefined = undefined;
 
-export async function fetchMobileMenu(publicKey?: string | null): Promise<{ products: Product[]; categories: Category[] }> {
+export async function fetchMobileMenu(publicKey?: string | null, authenticated = false): Promise<{ products: Product[]; categories: Category[] }> {
   try {
-    const catalogUrl = publicKey
+    const catalogUrl = authenticated && publicKey
+      ? `${API_BASE_URL}/mobile/branches/${encodeURIComponent(publicKey)}/catalog`
+      : publicKey
       ? `${API_BASE_URL}/public/branches/${publicKey}/catalog`
       : `${API_BASE_URL}/public/catalog`;
     const res = await fetch(catalogUrl, {
@@ -44,7 +46,9 @@ export async function fetchMobileMenu(publicKey?: string | null): Promise<{ prod
     });
 
     if (!res.ok) {
-      throw new Error(`Public catalog HTTP ${res.status}`);
+      const error = new Error(`Public catalog HTTP ${res.status}`) as Error & { status: number };
+      error.status = res.status;
+      throw error;
     }
 
     const data = await res.json();
@@ -120,6 +124,7 @@ export async function fetchMobileMenu(publicKey?: string | null): Promise<{ prod
     return { products, categories };
   } catch (err) {
     console.warn('Public catalog unavailable:', err);
+    if (authenticated) throw err;
     return { products: [], categories: DEFAULT_CATEGORIES };
   }
 }
@@ -191,6 +196,7 @@ export async function submitMobileOrder(
   branchName?: string,
   customerCoords?: { lat: number; lng: number },
   publicKey?: string | null,
+  authenticated = false,
 ): Promise<CreatedOrderResult> {
   const deliveryAddressText = info.order_type === 'delivery'
     ? `${info.address_street} #${info.address_number}, Col. ${info.address_neighborhood}${info.address_notes ? ` (Ref: ${info.address_notes})` : ''}`
@@ -209,13 +215,24 @@ export async function submitMobileOrder(
   const useIntent = typeof publicKey === 'string' && publicKey.length > 0;
   if (useIntent && !publicKey) throw new Error('public_order_unavailable');
 
+  if (authenticated && !publicKey) throw new Error('mobile_branch_required');
   const storageKey = publicKey ? `kiwi_public_order_key:${publicKey}` : '';
   const idempotencyKey = useIntent ? (localStorage.getItem(storageKey) || crypto.randomUUID()) : undefined;
   if (useIntent && idempotencyKey) localStorage.setItem(storageKey, idempotencyKey);
-  const response = await fetch(useIntent ? `${API_BASE_URL}/public/branches/${publicKey}/order-intents` : `${API_BASE_URL}/public/orders`, {
+  const response = await fetch(authenticated ? `${API_BASE_URL}/mobile/branches/${encodeURIComponent(publicKey!)}/order-intents` : useIntent ? `${API_BASE_URL}/public/branches/${publicKey}/order-intents` : `${API_BASE_URL}/public/orders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
-    body: JSON.stringify(useIntent ? {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...(authenticated ? { 'X-Mobile-Request': '1' } : {}), ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
+    body: JSON.stringify(authenticated ? {
+      order_type: apiOrderType,
+      address_id: info.order_type === 'delivery' ? info.address_id : undefined,
+      order_notes: info.order_notes?.trim() || undefined,
+      lines: items.map(item => ({
+        product_id: item.product.id || item.product.sku, quantity: item.quantity,
+        notes: item.notes || undefined,
+        modifiers: (item.modifiers ?? []).map(({ option_id, text }) => ({ option_id, ...(text?.trim() ? { text: text.trim() } : {}) })),
+      })),
+    } : useIntent ? {
       customer_name: info.name.trim(),
       customer_phone: cleanPhone,
       order_type: apiOrderType,
