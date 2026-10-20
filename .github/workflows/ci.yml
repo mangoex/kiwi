@@ -106,6 +106,19 @@ jobs:
         env:
           MOBORD001_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/mobord001_ci
         run: RESTAURANTOS_DATABASE_URL="$MOBORD001_TEST_POSTGRES_URL" python -m alembic -c alembic.ini upgrade 0050_promote_recipes_to_global_scope
+      - name: Strict backend typecheck
+        run: python -m mypy apps/api/restaurant_os
+      - name: Strict offline gateway boundary typecheck
+        run: >-
+          python -m mypy
+          apps/edge-gateway/edge_gateway/grants.py
+          apps/edge-gateway/edge_gateway/local_api.py
+          apps/edge-gateway/edge_gateway/runtime.py
+          apps/edge-gateway/edge_gateway/order_service.py
+      - name: Ruff
+        run: python -m ruff check apps/api tests
+      - name: Offline gateway lint
+        run: python -m ruff check apps/edge-gateway/edge_gateway
       - name: Run tests
         env:
           PCO003_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco003_ci
@@ -139,6 +152,7 @@ jobs:
           INV_VIEW_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/inv_view_ci
           DELIVERY_ASSIGNMENT_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/delivery_assignment_ci
         run: |
+          python -m pytest apps/api/tests/test_delivery_driver_assignment_postgres.py -q
           python -m pytest --collect-only -q > python-collection.txt
           python -m pytest --junitxml=python-tests.xml
       - name: Require executed PostgreSQL evidence for financial suites
@@ -152,19 +166,6 @@ jobs:
           path: |
             python-collection.txt
             python-tests.xml
-      - name: Strict backend typecheck
-        run: python -m mypy apps/api/restaurant_os
-      - name: Strict offline gateway boundary typecheck
-        run: >-
-          python -m mypy
-          apps/edge-gateway/edge_gateway/grants.py
-          apps/edge-gateway/edge_gateway/local_api.py
-          apps/edge-gateway/edge_gateway/runtime.py
-          apps/edge-gateway/edge_gateway/order_service.py
-      - name: Ruff
-        run: python -m ruff check apps/api tests
-      - name: Offline gateway lint
-        run: python -m ruff check apps/edge-gateway/edge_gateway
   docker:
     runs-on: ubuntu-latest
     steps:
@@ -215,6 +216,7 @@ jobs:
       - name: Verify Admin retro in browser
         env:
           ADMINRETRO_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
+          SUPPLIER_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
           ADMINRETRO_BASE_URL: http://127.0.0.1:3002/admin
         run: |
           pnpm --filter @restaurantos/admin-web exec vite preview --host 127.0.0.1 --port 3002 > "$RUNNER_TEMP/adminretro-preview.log" 2>&1 &
@@ -231,6 +233,7 @@ jobs:
           node tests/browser/test_shared_modifier_workspace.mjs
           node tests/browser/test_admin_session_recovery.mjs
           node tests/browser/test_corporate_purchase_remediation.mjs
+          node tests/browser/test_supplier_workspace.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

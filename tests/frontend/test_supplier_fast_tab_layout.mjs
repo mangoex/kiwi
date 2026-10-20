@@ -16,4 +16,8 @@ const readOnlySectionsStart = suppliers.indexOf('FastTab 2: Cartera de Facturas'
 const editableFieldsetEnd = suppliers.indexOf('</fieldset>');
 assert.ok(editableFieldsetEnd > -1 && editableFieldsetEnd < readOnlySectionsStart, 'Sólo el formulario editable debe quedar dentro del fieldset deshabilitable');
 
+assert.doesNotMatch(suppliers, /F-9081|F-9204|A-9842|Flujo Semanal Compensado|Simulated enrichment/, 'La ficha no debe presentar deuda o trazabilidad de demostración');
+assert.doesNotMatch(suppliers, /s\.credit_days\s*\|\|\s*15/, 'Abrir la ficha no debe sustituir un crédito cero');
+assert.doesNotMatch(suppliers, /\.catch\(\(\) => \[\]/, 'Un error de consulta no debe convertirse en un catálogo vacío');
+
 console.log('Supplier FastTab remains complete, scrollable, and interactive in read-only mode');

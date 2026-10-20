@@ -20,7 +20,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlalchemy as sa
-from sqlalchemy.engine import CursorResult
+from sqlalchemy.engine import CursorResult, RowMapping
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -27459,7 +27459,7 @@ def _public_accept_command_snapshot(result: dict[str, Any]) -> dict[str, Any]:
 
 def _public_accept_replay_response(
     session: Session,
-    command: Mapping[str, Any],
+    command: Mapping[str, Any] | RowMapping,
 ) -> dict[str, Any]:
     """Rehydrate assignment snapshots from their immutable authoritative row."""
     sanitized = _sanitize_for_json(command["result"])
