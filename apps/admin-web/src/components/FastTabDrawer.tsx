@@ -95,9 +95,9 @@ export const FastTabDrawer: React.FC<FastTabDrawerProps> = ({
       aria-label="Panel lateral de detalles FastTab"
     >
       {/* Header */}
-      <div className="px-5 py-4 border-b border-gray-200 bg-white flex items-center justify-between gap-3 shrink-0">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+      <div className="fast-tab-drawer__header px-5 py-4 border-b border-gray-200 bg-white flex items-center justify-between gap-3 shrink-0">
+        <div className="fast-tab-drawer__heading flex-1 min-w-0">
+          <div className="fast-tab-drawer__title flex items-center gap-2">
             <h2 className="text-base font-bold text-gray-900 truncate tracking-tight">{title}</h2>
             {badge}
           </div>
@@ -108,7 +108,7 @@ export const FastTabDrawer: React.FC<FastTabDrawerProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          className="fast-tab-drawer__close p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           title="Cerrar panel (Esc)"
           aria-label="Cerrar panel"
         >
@@ -123,7 +123,7 @@ export const FastTabDrawer: React.FC<FastTabDrawerProps> = ({
 
       {/* Optional Sticky Footer */}
       {footerActions && (
-        <div className="p-4 border-t border-gray-200 bg-white shrink-0 flex items-center justify-end gap-2 shadow-xs">
+        <div className="fast-tab-drawer__footer p-4 border-t border-gray-200 bg-white shrink-0 flex items-center justify-end gap-2 shadow-xs">
           {footerActions}
         </div>
       )}

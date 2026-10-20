@@ -31,11 +31,24 @@ And B conserva su historial propio o el baseline corporativo.
 
 ## TDD-TC-406 Panel lateral completo de proveedor
 
-Given el detalle de proveedor contiene datos fiscales, cartera, trazabilidad y resumen financiero
+Given el detalle de proveedor contiene datos del catálogo y un aviso de información financiera no disponible
 When la suma de las secciones supera la altura disponible
 Then el cuerpo del FastTab se encoge dentro del viewport y ofrece desplazamiento vertical propio
 And el FastTab de CXP usa el ancho amplio en escritorio y ancho completo en móvil
 And sólo el formulario editable queda deshabilitado en consulta
-And los acordeones y nodos de trazabilidad conservan sus controles interactivos.
+And las secciones conservan sus controles interactivos
+And el crédito cero no se reemplaza por quince al consultar ni al guardar otro campo
+And guardar un contacto conserva el límite de crédito interno sin redondearlo
+And no se asignan ciudades, facturas, saldos, semáforos, DPO o proyecciones de ejemplo
+And un fallo de API se distingue de una colección vacía y permite reintentar
+And los permisos de consulta no habilitan alta ni edición.
 
-Evidencia automatizada dirigida: `tests/frontend/test_supplier_fast_tab_layout.mjs`.
+Evidencia automatizada dirigida: `tests/frontend/test_supplier_fast_tab_layout.mjs` y
+`tests/browser/test_supplier_workspace.mjs` (fixtures sintéticos aislados, 390/1440 px,
+consulta/edición, guardado sin cambiar crédito cero, precios con dos decimales, errores y recuperación).
+
+Alcance R2: presentación y fidelidad del catálogo; no modifica el cálculo ni la persistencia
+de cuentas por pagar. Preguntas operativas: ¿falló la consulta o el catálogo está vacío?
+La señal es el aviso de error con reintento, distinto del estado vacío. ¿El proveedor tiene saldo
+cero o falta información financiera? La señal es el aviso explícito de información no disponible;
+no se muestran importes, semáforos ni proyecciones sin fuente.

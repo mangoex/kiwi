@@ -22,11 +22,16 @@ Feature: Administrar proveedores y contactos operativos
 
   @BDD-SC-704
   Scenario: Consultar el expediente completo de un proveedor en el panel lateral
-    Given el administrador abrió el detalle de un proveedor con cartera y trazabilidad
+    Given el administrador abrió el detalle de un proveedor del catálogo
     When el contenido supera la altura disponible de la pantalla
     Then puede recorrer verticalmente todo el expediente dentro del panel
     And conserva visibles el encabezado y las acciones de cierre o guardado
-    And puede expandir o contraer la cartera y la trazabilidad aun en modo de consulta
+    And puede expandir o contraer las secciones aun en modo de consulta
+    And los campos tienen etiquetas separadas y se adaptan a una columna en móvil
+    And conserva los días de crédito registrados aunque su valor sea cero
+    And no muestra facturas, saldos, vencimientos ni proyecciones de demostración
+    And distingue información financiera no disponible de una deuda igual a cero
+    And un error de consulta ofrece reintento sin presentarse como un catálogo vacío
 ```
 
 ## BDD-FEAT-037 Presentaciones y precio informativo
