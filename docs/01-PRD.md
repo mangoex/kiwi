@@ -732,9 +732,12 @@ funcional separada.
   teléfono ni domicilio dentro del evento.
 - `PRD-FR-211`: El modal de cobro debe respetar el tipo de pedido seleccionado previamente y no
   volver a solicitarlo. Sólo para pedidos a domicilio puede asignarse un repartidor activo de la
-  misma sucursal. Al crear el pedido, la asignación conserva un registro inmutable con repartidor,
-  pedido, cliente, domicilio de entrega, total, número de líneas, cantidad de productos, moneda,
-  actor y fecha; Administración permite consultar este historial por repartidor.
+  misma sucursal. Al crear el pedido desde POS o al aceptar una intención del menú digital, la
+  asignación conserva un registro inmutable con repartidor, pedido, cliente, domicilio de entrega,
+  total, número de líneas, cantidad de productos, moneda, actor y fecha. Un pedido a domicilio ya
+  aceptado y todavía no despachado puede recibir su primera asignación desde el detalle de Pedidos;
+  repetir la misma selección no duplica historia y una selección distinta no sobrescribe la
+  asignación existente. Administración permite consultar este historial por repartidor.
 - `PRD-FR-212`: El POS debe ofrecer **Checador** entre **Pedidos** y **Administración**. Al abrirlo
   muestra la hora actual y solicita únicamente la clave del empleado. La clave se valida contra un
   identificador laboral de exactamente seis caracteres alfanuméricos, normalizado a mayúsculas y

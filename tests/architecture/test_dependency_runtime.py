@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
         "driver_cash_settlement",
         "public_tracking_index",
         "inventory_overview",
+        "delivery_driver_assignment",
     ],
 )
 @pytest.mark.parametrize("fault", ["not_collected", "skipped"])
@@ -53,6 +54,7 @@ def test_branch_authority_locks_require_executed_postgres_evidence(
         "driver_cash_settlement",
         "public_tracking_index",
         "inventory_overview",
+        "delivery_driver_assignment",
     ]
     collected = [name for name in modules if name != module or fault != "not_collected"]
     collection = tmp_path / "branch-collection.txt"
@@ -130,6 +132,7 @@ def test_required_postgres_evidence_rejects_omitted_or_unexecuted_case(tmp_path,
         "driver_cash_settlement",
         "public_tracking_index",
         "inventory_overview",
+        "delivery_driver_assignment",
     ]
     collection.write_text(
         "\n".join(f"apps/api/tests/test_{module}_postgres.py::test_case" for module in modules)

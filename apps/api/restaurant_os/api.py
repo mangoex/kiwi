@@ -137,6 +137,7 @@ from restaurant_os.operations import (
     archive_ingredient_variation_assignment,
     archive_modifier_group,
     archive_modifier_option,
+    assign_delivery_driver,
     assign_product_category_option,
     assign_user_role,
     authenticate_user,
@@ -3289,6 +3290,17 @@ class PublicOrderIntentPayload(BaseModel):
 class PublicOrderIntentAcceptance(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1)
+    driver_id: str | None = Field(default=None, min_length=1, max_length=36)
+
+
+class PosOrderAcceptance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    driver_id: str | None = Field(default=None, min_length=1, max_length=36)
+
+
+class DeliveryAssignmentPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    driver_id: str = Field(min_length=1, max_length=36)
 
 
 class PublicOrderIntentRejection(BaseModel):
@@ -3571,7 +3583,12 @@ def accept_public_order_intent_endpoint(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     result, created = _business_response(
         lambda: accept_public_order_intent(
-            session, intent_id, payload.expected_version, idempotency_key or "", actor_id
+            session,
+            intent_id,
+            payload.expected_version,
+            idempotency_key or "",
+            actor_id,
+            payload.driver_id,
         )
     )
     response.status_code = 201 if created else 200
@@ -3623,6 +3640,7 @@ def get_order_detail_endpoint(
 def accept_order_endpoint(
     order_id: str,
     session: SessionDep,
+    payload: PosOrderAcceptance | None = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
@@ -3639,17 +3657,45 @@ def accept_order_endpoint(
             .first()
         )
         if intent:
+            expected_version = int(intent["version"])
+            if intent["status"] == "ACCEPTED" and intent.get("accepted_order_id"):
+                expected_version -= 1
             result, _ = accept_public_order_intent(
                 session,
                 intent_id=order_id,
-                expected_version=int(intent["version"]),
-                idempotency_key=f"pos-accept-{order_id}-{intent['version']}",
+                expected_version=expected_version,
+                idempotency_key=f"pos-accept-{order_id}-{expected_version}",
                 actor_user_id=actor_id,
+                driver_id=payload.driver_id if payload else None,
             )
             return result
+        if payload and payload.driver_id:
+            raise BusinessError(
+                "driver_assignment_acceptance_source_invalid",
+                "Driver selection during acceptance is only available for public order intents",
+            )
         return accept_pending_order(session, order_id, actor_id)
 
     return _business_response(operation)
+
+
+@router.put("/orders/{order_id}/delivery-assignment")
+def put_order_delivery_assignment(
+    order_id: str,
+    payload: DeliveryAssignmentPayload,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: assign_delivery_driver(
+            session,
+            order_id,
+            payload.driver_id,
+            actor_id,
+        )
+    )
 
 
 @router.post("/orders/{order_id}/amendments")

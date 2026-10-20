@@ -95,6 +95,7 @@ jobs:
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE driver_cash_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE tracking_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE inv_view_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE delivery_assignment_ci"
       - name: Preprovision mandatory PCO-003 PostgreSQL schema
         working-directory: apps/api
         env:
@@ -136,6 +137,7 @@ jobs:
           DRIVER_CASH_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/driver_cash_ci
           TRACKING_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/tracking_ci
           INV_VIEW_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/inv_view_ci
+          DELIVERY_ASSIGNMENT_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/delivery_assignment_ci
         run: |
           python -m pytest --collect-only -q > python-collection.txt
           python -m pytest --junitxml=python-tests.xml
