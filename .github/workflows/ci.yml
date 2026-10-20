@@ -338,6 +338,22 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:8149/health/live > /dev/null
           node tests/browser/test_public_order_tracking.mjs
+      - name: Verify mobile customer access and CRM profile
+        env:
+          MOBILE_PROFILE_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
+          MOBILE_PROFILE_MANIFEST: ${{ runner.temp }}/mobile-customer-profile/manifest.json
+          MOBILE_PROFILE_BASE_URL: http://127.0.0.1:8158
+          MOBILE_PROFILE_OUTPUT: ${{ runner.temp }}/mobile-customer-profile/screenshots
+        run: |
+          python tests/e2e/mobile_customer_fixture.py --directory "$RUNNER_TEMP/mobile-customer-profile" --port 8158 > "$RUNNER_TEMP/mobile-customer-profile.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8158/health/live > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8158/health/live > /dev/null
+          node tests/browser/test_mobile_customer_profile.mjs
       - name: Build Public Landing
         run: pnpm --filter @restaurantos/landing-web build
 

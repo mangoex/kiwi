@@ -6,7 +6,9 @@ import { randomInt } from 'node:crypto';
 const base = process.env.MOBILE_PROFILE_BASE_URL || 'http://127.0.0.1:8158';
 assert.equal(new URL(base).hostname, '127.0.0.1', 'Synthetic test must stay on loopback');
 const { chromium } = await import(process.env.MOBILE_PROFILE_PLAYWRIGHT_IMPORT || 'playwright');
-const browser = await chromium.launch({ headless: true, channel: 'chrome' });
+const browser = await chromium.launch({ headless: true,
+  ...(process.env.MOBILE_PROFILE_CHROME_PATH ? { executablePath: process.env.MOBILE_PROFILE_CHROME_PATH } : {}),
+});
 const output = process.env.MOBILE_PROFILE_OUTPUT || 'output/playwright/crm-mobile-journey';
 mkdirSync(output, { recursive: true });
 try {

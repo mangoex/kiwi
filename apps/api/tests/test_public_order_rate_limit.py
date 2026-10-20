@@ -143,12 +143,18 @@ def test_production_enabled_public_orders_require_dedicated_hmac_secret() -> Non
     )
 
 
+@pytest.mark.parametrize("mobile_enabled", [False, True])
 def test_app_only_installs_limiter_with_redis_and_hmac_secret(
     monkeypatch: pytest.MonkeyPatch,
+    mobile_enabled: bool,
 ) -> None:
     settings = Settings(
         _env_file=None,
         public_order_intents_enabled=True,
+        mobile_customer_access_enabled=mobile_enabled,
+        twilio_account_sid="AC" + "1" * 32,
+        twilio_auth_token="synthetic-test-token",
+        twilio_verify_service_sid="VA" + "2" * 32,
         redis_url="redis://example",
         public_order_rate_limit_hmac_secret="hmac-secret-which-is-long-enough-for-tests",
     )
@@ -163,7 +169,7 @@ def test_app_only_installs_limiter_with_redis_and_hmac_secret(
 
     app = create_app()
 
-    assert calls == [
+    expected = [
         (
             "redis://example",
             settings.public_tracking_global_rate_limit_per_minute,
@@ -177,5 +183,11 @@ def test_app_only_installs_limiter_with_redis_and_hmac_secret(
             settings.public_order_rate_limit_hmac_secret,
         )
     ]
+    if mobile_enabled:
+        expected.insert(0, (
+            "redis://example", 300, 15, settings.public_order_rate_limit_hmac_secret,
+        ))
+    assert calls == expected
+    assert (app.state.mobile_customer_rate_limiter is not None) is mobile_enabled
     assert app.state.public_order_intents_enabled is True
     assert app.state.public_order_tracking_rate_limiter is not app.state.public_order_rate_limiter

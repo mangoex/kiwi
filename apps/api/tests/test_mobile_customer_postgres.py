@@ -12,12 +12,31 @@ import sqlalchemy as sa
 from restaurant_os import mobile_customers as service
 from restaurant_os import models
 from restaurant_os.operations import ORGANIZATION_ID
+from sqlalchemy.dialects import sqlite
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 from test_mobile_customer_profile import PROFILE, Verifier
 from test_platform_api import BRANCH_ID, _seed
 
 KEY = {"organization_id": ORGANIZATION_ID, "branch_id": BRANCH_ID}
+
+
+def _create_fixture_tables(engine: Any) -> None:
+    # Cyclic PostgreSQL FK DDL mutates its MetaData. Keep the canonical model
+    # intact for SQLite fixtures executed later in the same pytest process.
+    fixture_metadata = sa.MetaData()
+    for table in models.metadata.tables.values():
+        table.to_metadata(fixture_metadata)
+    fixture_metadata.create_all(engine)
+
+
+def test_fixture_ddl_preserves_shared_sqlite_constraints() -> None:
+    before = str(sa.schema.CreateTable(models.orders).compile(dialect=sqlite.dialect()))
+    postgres = sa.create_mock_engine("postgresql://", lambda *_args, **_kwargs: None)
+    _create_fixture_tables(postgres)
+    after = str(sa.schema.CreateTable(models.orders).compile(dialect=sqlite.dialect()))
+    assert "fk_orders_public_order_intent_accepted" in before
+    assert after == before, "PostgreSQL fixture DDL must preserve shared SQLite constraints"
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +56,7 @@ def pg_engine() -> Any:
     with engine.begin() as connection:
         connection.execute(sa.text("DROP SCHEMA public CASCADE"))
         connection.execute(sa.text("CREATE SCHEMA public"))
-    models.metadata.create_all(engine)
+    _create_fixture_tables(engine)
     with Session(engine) as session:
         _seed(session)
     yield engine

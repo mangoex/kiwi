@@ -98,7 +98,7 @@ def create_app() -> FastAPI:
             settings.redis_url, 300, 15,
             settings.public_order_rate_limit_hmac_secret or settings.secret_key,
         ) if settings.redis_url else InMemoryPublicOrderRateLimiter(300, 15, settings.secret_key)
-    )
+    ) if settings.mobile_customer_access_enabled else None
     if settings.mobile_customer_access_enabled:
         app.state.mobile_phone_verifier = TwilioPhoneVerifier(
             settings.twilio_account_sid or "", settings.twilio_auth_token or "",

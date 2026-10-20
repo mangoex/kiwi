@@ -92,3 +92,14 @@ Se corrige creando explícitamente su raíz antes de mkdtemp, sin excluir ni omi
 El recorrido de seguimiento existente se adapta para autenticar al cliente por el puerto falso
 antes de abrir el menú y comprobar el contacto verificado de checkout (campos de sólo lectura).
 La verificación local de los cinco casos semánticos vuelve a pasar; el PR #84 reejecuta CI.
+
+
+CI completo detectó cuatro incompatibilidades con gates existentes: una fixture PostgreSQL
+mutaba los metadatos canónicos de SQLAlchemy y omitía una FK SQLite posterior; el limitador móvil
+se inicializaba con la función desactivada; el recorrido de navegador nuevo no estaba conectado
+al workflow; y la evidencia sintética del verificador PostgreSQL no incluía las suites nuevas.
+Se aísla el DDL en una copia de MetaData con regresión mock determinista, se prueba la inicialización
+con flag activo/inactivo y se conectan las verificaciones sin omitir ni silenciar casos.
+La secuencia PostgreSQL real → SQLite original pasa, al igual que el recorrido móvil en
+320/390/1280px y el editor administrativo en 1366px. El nuevo CI del PR conserva la autoridad
+sobre la suite completa; su resultado definitivo se informa en el cierre de publicación.
