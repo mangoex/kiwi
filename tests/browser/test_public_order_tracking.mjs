@@ -13,6 +13,19 @@ const browser = await chromium.launch({ headless: true,
 });
 const output = process.env.TRACKING_SCREENSHOT_DIR || 'output/playwright/public-tracking';
 mkdirSync(output, { recursive: true });
+async function authenticateCustomer(context) {
+  const mobile = `/api/v1/mobile/branches/${manifest.public_key}`;
+  const customerRequest = async (path, data, method = 'post') => {
+    const response = await context.request[method](base + mobile + path, {
+      headers: { 'X-Mobile-Request': '1' }, data,
+    });
+    assert.ok(response.ok(), await response.text()); return response.json();
+  };
+  const challenge = await customerRequest('/access/start', { phone: '6141234567' });
+  await customerRequest('/access/verify', { challenge: challenge.challenge, code: '123456' });
+  await customerRequest('/profile', { name: 'Seguimiento QA', birthday_day: 1, birthday_month: 1 }, 'put');
+}
+
 try {
   for (const [width, service] of [[390, 'takeout'], [1280, 'takeout'], [390, 'delivery']]) {
     const suffix = service === 'delivery' ? `delivery-${width}` : width;
@@ -25,6 +38,7 @@ try {
       });
       assert.ok(response.ok(), await response.text()); return response.json();
     };
+    await authenticateCustomer(context);
     const intent = await post(`/public/branches/${manifest.public_key}/order-intents`, {
       customer_name: 'Seguimiento QA', customer_phone: '+526141234567', order_type: service,
       ...(service === 'delivery' ? { delivery_address: { address_text: 'Calle de prueba 123' } } : {}),
@@ -96,13 +110,14 @@ try {
   }, { branch: manifest.branch_id, blocked: blockTrackingStorage });
   const memoryPage = await memoryContext.newPage();
   const memoryErrors = []; memoryPage.on('pageerror', error => memoryErrors.push(error.message));
+  await authenticateCustomer(memoryContext);
   await memoryPage.goto(base + '/menu/');
   const catalogue = await (await memoryContext.request.get(base + `/api/v1/public/branches/${manifest.public_key}/catalog`)).json();
   const product = catalogue.items.find(item => item.id === manifest.product_id);
   await memoryPage.getByRole('button', { name: `Agregar ${product.name} al pedido`, exact: true }).click();
   await memoryPage.getByRole('button', { name: 'Abrir carrito de compras' }).click();
-  await memoryPage.getByPlaceholder('Tu nombre completo *').fill('Cliente seguimiento');
-  await memoryPage.getByPlaceholder('Teléfono Celular *').fill('6141234567');
+  assert.equal(await memoryPage.getByPlaceholder('Tu nombre completo *').inputValue(), 'Seguimiento QA');
+  assert.equal(await memoryPage.getByPlaceholder('Teléfono Celular *').inputValue(), '+526141234567');
   const sent = memoryPage.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/order-intents'));
   await memoryPage.getByRole('button', { name: /Enviar Pedido/ }).click();
   const memoryIntent = await (await sent).json();

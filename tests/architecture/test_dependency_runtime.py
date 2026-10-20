@@ -133,20 +133,25 @@ def test_required_postgres_evidence_rejects_omitted_or_unexecuted_case(tmp_path,
         "public_tracking_index",
         "inventory_overview",
         "delivery_driver_assignment",
+        "mobile_customer",
+    ]
+    paths = [f"apps/api/tests/test_{module}_postgres.py" for module in modules] + [
+        "apps/api/tests/test_mobile_customer_migration.py",
     ]
     collection.write_text(
-        "\n".join(f"apps/api/tests/test_{module}_postgres.py::test_case" for module in modules)
+        "\n".join(f"{path}::test_case" for path in paths)
         if fault != "empty_collection"
         else "",
         encoding="utf-8",
     )
     cases = []
-    for index, module in enumerate(modules):
+    for index, path in enumerate(paths):
         if fault == "absent" and index == 0:
             continue
         marker = "<skipped/>" if fault == "skip" else "<failure/>" if fault == "failed" else ""
+        classname = path[:-3].replace("/", ".")
         cases.append(
-            f'<testcase classname="apps.api.tests.test_{module}_postgres" '
+            f'<testcase classname="{classname}" '
             f'name="test_case">{marker if index == 0 else ""}</testcase>'
         )
     report.write_text(

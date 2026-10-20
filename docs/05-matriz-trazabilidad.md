@@ -269,6 +269,9 @@ había navegador conectado. Los conteos exactos y residuales están en
 de release. [Evidencia y límites](implementation-plans/POS-CAJERO-001.md): CI se verifica por SHA,
 cancelación nueva retirada; recorrido KDS enmendado corregido y probado en SQLite/PostgreSQL.
 
+| PRD-FR-281 | CRM-MOBILE-001 SDD §69; ADR-046; acceso móvil por OTP y perfil propio; evidencia local API, SQLite/PG, QA y auditoría en plan CRM-MOBILE-001; CI y producción pendientes | BDD-SC-740, BDD-SC-741, BDD-SC-744 | TDD-TS-153, TDD-TC-435, TDD-TC-436, TDD-TC-437 | Probado |
+| PRD-FR-282 | CRM-MOBILE-001 SDD §69; cumpleaños parcial, domicilios y consumo por ID; migración con historial, reintentos y QA local; CI y producción pendientes | BDD-SC-742, BDD-SC-743 | TDD-TS-153, TDD-TC-435, TDD-TC-436, TDD-TC-437 | Probado |
+
 ## Requisitos no funcionales
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |

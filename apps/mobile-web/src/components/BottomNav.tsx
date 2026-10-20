@@ -1,7 +1,7 @@
 import React from 'react';
-import { Compass, Heart, ShoppingBag } from 'lucide-react';
+import { Compass, Heart, ShoppingBag, UserRound } from 'lucide-react';
 
-export type NavTab = 'explore' | 'favorites' | 'cart';
+export type NavTab = 'explore' | 'favorites' | 'cart' | 'profile';
 
 interface BottomNavProps {
   currentTab: NavTab;
@@ -58,6 +58,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             )}
           </div>
           <span>Carrito</span>
+        </button>
+        <button type="button" className={`mobile-nav-btn ${currentTab === 'profile' ? 'active' : ''}`} onClick={() => onSelectTab('profile')}>
+          <UserRound size={22} /><span>Mi perfil</span>
         </button>
       </div>
     </nav>

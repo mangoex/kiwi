@@ -80,6 +80,8 @@ export type OrderType = 'takeaway' | 'delivery' | 'dine-in';
 export type PaymentMethod = 'cash' | 'card' | 'transfer';
 
 export interface CustomerOrderInfo {
+  address_id?: string;
+  email?: string;
   name: string;
   phone: string;
   order_type: OrderType;

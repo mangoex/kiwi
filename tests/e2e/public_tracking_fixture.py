@@ -40,7 +40,9 @@ def main() -> None:
     from restaurant_os.auth import create_session_token
     from restaurant_os.config import get_settings
     from restaurant_os.main import create_app
+    from restaurant_os.public_order_rate_limit import InMemoryPublicOrderRateLimiter
     from sqlalchemy.orm import Session
+    from test_mobile_customer_profile import Verifier
     from test_platform_api import ADMIN_USER_ID, BRANCH_ID, ORGANIZATION_ID, _seed
 
     static = directory / "static"
@@ -71,7 +73,13 @@ def main() -> None:
         "public_key": public_key, "product_id": "018f6f73-2d0a-74f0-8f1c-000000000111",
         "token": create_session_token({"sub": ADMIN_USER_ID}, get_settings().secret_key),
     }), encoding="utf-8")
-    uvicorn.run(create_app(), host="127.0.0.1", port=args.port, access_log=False)
+    app = create_app()
+    app.state.mobile_customer_access_enabled = True
+    app.state.mobile_phone_verifier = Verifier()
+    app.state.mobile_customer_rate_limiter = InMemoryPublicOrderRateLimiter(
+        300, 15, get_settings().secret_key
+    )
+    uvicorn.run(app, host="127.0.0.1", port=args.port, access_log=False)
 
 
 if __name__ == "__main__":

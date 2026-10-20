@@ -24,6 +24,10 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("RESTAURANTOS_REDIS_URL", "REDIS_URL"),
     )
     public_order_intents_enabled: bool = Field(default=False)
+    mobile_customer_access_enabled: bool = Field(default=False)
+    twilio_account_sid: str | None = Field(default=None, repr=False)
+    twilio_auth_token: str | None = Field(default=None, repr=False)
+    twilio_verify_service_sid: str | None = Field(default=None, repr=False)
     branch_scope_v2_enabled: bool = Field(default=False)
     supplier_xml_imports_enabled: bool = Field(default=False)
     fiscal_encryption_keys: dict[str, str] = Field(default_factory=dict, repr=False)
@@ -79,6 +83,13 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def production_settings_are_safe(self) -> Settings:
         """Production must never silently fall back to development credentials."""
+        if self.mobile_customer_access_enabled:
+            if not self.public_order_intents_enabled or not all((
+                self.twilio_account_sid, self.twilio_auth_token, self.twilio_verify_service_sid,
+            )):
+                raise ValueError("Mobile access requires public intents and a phone verifier")
+            if self.environment == "production" and not self.redis_url:
+                raise ValueError("Mobile access requires Redis in production")
         if self.environment == "production" and (
             self.secret_key == "dev-secret-change-me" or len(self.secret_key.strip()) < 32
         ):

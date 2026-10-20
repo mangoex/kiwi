@@ -4259,12 +4259,9 @@ def get_order_detail(
         cust = intent.get("customer_snapshot") or {}
         addr = intent.get("delivery_address_snapshot") or {}
         phone = cust.get("phone") or addr.get("phone")
-        full_address = (
-            addr.get("street") or addr.get("address_line1") or addr.get("formatted_address")
-        )
-        if full_address and addr.get("neighborhood"):
-            full_address = f"{full_address}, {addr['neighborhood']}"
-        delivery_notes = addr.get("notes") or intent.get("order_notes")
+        contact = project_cashier_contact(cust, addr)
+        full_address = contact["delivery_address"] or None
+        delivery_notes = contact["delivery_notes"] or intent.get("order_notes")
         return {
             "id": intent["id"],
             "organization_id": intent["organization_id"],
@@ -19845,14 +19842,25 @@ def create_customer(
     phones: list[dict[str, Any]],
     branch_id: str | None,
     actor_user_id: str | None = None,
+    birthday: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "orders.create", branch_id)
+    session.execute(sa.select(models.organizations.c.id).where(
+        models.organizations.c.id == ORGANIZATION_ID,
+    ).with_for_update()).scalar_one()
     normalized_name = name.strip()
     if not normalized_name:
         raise BusinessError("invalid_customer_name", "Customer name is required")
+    from restaurant_os.customer_profile import birthday_values
+
+    try:
+        birthday_fields = birthday_values(birthday or {})
+    except ValueError as exc:
+        raise BusinessError("invalid_birthday", str(exc)) from exc
     now = _now()
     customer: dict[str, Any] = {
+        **birthday_fields,
         "id": _id(),
         "organization_id": ORGANIZATION_ID,
         "name": normalized_name,
@@ -19910,6 +19918,10 @@ def add_customer_address(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "orders.create", branch_id)
+    session.execute(sa.select(models.customers.c.id).where(
+        models.customers.c.id == customer_id,
+        models.customers.c.organization_id == ORGANIZATION_ID,
+    ).with_for_update()).scalar_one_or_none()
     customer = session.execute(
         sa.select(models.customers.c.id).where(
             models.customers.c.id == customer_id,
@@ -20023,6 +20035,13 @@ def update_customer(
     for field in ("customer_segment", "notes", "status"):
         if field in payload:
             updates[field] = payload[field]
+    if any(field in payload for field in ("birthday_day", "birthday_month", "birthday_year")):
+        from restaurant_os.customer_profile import birthday_values
+
+        try:
+            updates.update(birthday_values({**dict(current), **payload}))
+        except ValueError as exc:
+            raise BusinessError("invalid_birthday", str(exc)) from exc
     session.execute(
         sa.update(models.customers).where(models.customers.c.id == customer_id).values(**updates)
     )
@@ -20049,6 +20068,10 @@ def update_customer_address(
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "orders.create", branch_id)
+    session.execute(sa.select(models.customers.c.id).where(
+        models.customers.c.id == customer_id,
+        models.customers.c.organization_id == ORGANIZATION_ID,
+    ).with_for_update()).scalar_one_or_none()
     current = (
         session.execute(
             sa.select(models.customer_addresses).where(
@@ -27575,11 +27598,22 @@ def _recover_public_order_command(
     return dict(prior["result"]), False
 
 
+def mobile_order_request_hash(
+    branch_id: str, customer_id: str, payload: dict[str, Any],
+) -> str:
+    return hashlib.sha256(json.dumps({
+        "contract": "mobile-v1", "branch_id": branch_id,
+        "customer_id": customer_id, "payload": payload,
+    }, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+
+
 def create_public_order_intent(
     session: Session,
     public_key: str,
     payload: dict[str, Any],
     idempotency_key: str,
+    *, customer_id: str | None = None,
+    mobile_request: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """Persist a public request only; it must never create cash or production state."""
     key = str(idempotency_key or "").strip()
@@ -27614,6 +27648,17 @@ def create_public_order_intent(
         "order_notes": str(payload.get("order_notes") or "").strip() or None,
         "delivery_address": payload.get("delivery_address"),
     }
+    customer_email: str | None = None
+    if customer_id is not None:
+        customer = session.execute(sa.select(models.customers).where(
+            models.customers.c.id == customer_id,
+            models.customers.c.organization_id == organization_id,
+            models.customers.c.status == "active",
+        )).mappings().first()
+        if not customer:
+            raise BusinessError("customer_not_found", "Active mobile customer was not found")
+        customer_email = customer["email"]
+        normalized["mobile_customer_id"] = customer_id
     digest = hashlib.sha256(
         json.dumps(
             {"contract": 1, "branch": branch_id, "payload": normalized},
@@ -27622,6 +27667,10 @@ def create_public_order_intent(
             ensure_ascii=False,
         ).encode()
     ).hexdigest()
+    if mobile_request is not None:
+        if customer_id is None:
+            raise BusinessError("mobile_session_required", "Mobile customer is required")
+        digest = mobile_order_request_hash(branch_id, customer_id, mobile_request)
     prior = (
         session.execute(
             sa.select(models.public_order_intent_commands).where(
@@ -27728,9 +27777,11 @@ def create_public_order_intent(
             public_reference=result["public_reference"],
             correlation_id=_id(),
             status="PENDING_REVIEW",
+            customer_id=customer_id,
             customer_snapshot={
                 "name": normalized["customer_name"],
                 "phone": normalized["customer_phone"],
+                **({"email": customer_email} if customer_id is not None else {}),
             },
             delivery_address_snapshot=normalized["delivery_address"],
             order_type=normalized["order_type"],
@@ -28073,7 +28124,7 @@ def accept_public_order_intent(
         "cash_shift_id": None,
         "public_order_intent_id": intent_id,
         "public_order_intent_status": "ACCEPTED",
-        "customer_id": None,
+        "customer_id": intent["customer_id"],
         "customer_snapshot": intent["customer_snapshot"],
         "delivery_address_snapshot": intent["delivery_address_snapshot"],
         "folio": folio,

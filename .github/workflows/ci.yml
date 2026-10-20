@@ -66,6 +66,8 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE crm_mobile_migration_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE crm_mobile_runtime_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'pco005b_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco005b_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'pco006_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco006_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'pco007_ci'" | grep -qx 1 || psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE pco007_ci"
@@ -148,6 +150,8 @@ jobs:
           CORP_PUR_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/corp_pur_ci
           SUPPLIER_XML_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/supplier_xml_test_ci
           DRIVER_CASH_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/driver_cash_ci
+          MOBILE_CUSTOMER_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/crm_mobile_migration_ci
+          MOBILE_CUSTOMER_RUNTIME_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/crm_mobile_runtime_ci
           TRACKING_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/tracking_ci
           INV_VIEW_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/inv_view_ci
           DELIVERY_ASSIGNMENT_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/delivery_assignment_ci
@@ -334,6 +338,22 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:8149/health/live > /dev/null
           node tests/browser/test_public_order_tracking.mjs
+      - name: Verify mobile customer access and CRM profile
+        env:
+          MOBILE_PROFILE_PLAYWRIGHT_IMPORT: file://${{ runner.temp }}/adminretro-browser/node_modules/playwright/index.mjs
+          MOBILE_PROFILE_MANIFEST: ${{ runner.temp }}/mobile-customer-profile/manifest.json
+          MOBILE_PROFILE_BASE_URL: http://127.0.0.1:8158
+          MOBILE_PROFILE_OUTPUT: ${{ runner.temp }}/mobile-customer-profile/screenshots
+        run: |
+          python tests/e2e/mobile_customer_fixture.py --directory "$RUNNER_TEMP/mobile-customer-profile" --port 8158 > "$RUNNER_TEMP/mobile-customer-profile.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8158/health/live > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8158/health/live > /dev/null
+          node tests/browser/test_mobile_customer_profile.mjs
       - name: Build Public Landing
         run: pnpm --filter @restaurantos/landing-web build
 

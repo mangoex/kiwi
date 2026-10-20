@@ -1,0 +1,22 @@
+.customer-access { min-height: 100dvh; background: #f4f7f1; display: grid; place-items: center; padding: 24px 16px; }
+.customer-access-card, .customer-profile-page { width: 100%; max-width: 520px; margin: auto; background: #fff; border-radius: 24px; padding: 28px 22px; box-shadow: 0 12px 40px #16382a0d; }
+.customer-profile-page { margin-top: 24px; margin-bottom: 110px; }
+.customer-brand { display: block; font-size: 24px; font-weight: 750; color: #245a36; margin-bottom: 28px; }
+.customer-profile-form { display: grid; gap: 18px; color: #21382c; }
+.customer-profile-form h1, .customer-profile-form h2, .customer-profile-form h3, .customer-profile-form p { margin: 0; }
+.customer-profile-form p { line-height: 1.5; color: #526259; }
+.customer-profile-form label { display: grid; gap: 8px; font-size: 14px; font-weight: 600; }
+.customer-profile-form input, .customer-profile-form select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 46px; border: 1px solid #ced9cd; border-radius: 10px; padding: 10px; font: inherit; font-size: 16px; background: #fff; color: #21382c; }
+.customer-profile-form input[readonly] { background: #f4f7f1; }
+.customer-profile-form fieldset { min-width: 0; display: grid; gap: 14px; border: 1px solid #dce4d9; border-radius: 12px; padding: 14px; }
+.customer-profile-form legend { padding: 0 6px; font-weight: 650; }
+.customer-birthday-fields { display: grid; grid-template-columns: 64px minmax(90px, 1fr) 100px; gap: 8px; }
+.customer-profile-form button, .customer-profile-page > button { min-height: 46px; border: 1px solid #ced9cd; border-radius: 12px; padding: 12px; cursor: pointer; font: inherit; background: #f4f7f1; color: #245a36; }
+.customer-profile-form .customer-primary { background: #245a36; color: #fff; border-color: #245a36; font-weight: 650; }
+.customer-profile-form .customer-check { display: flex; align-items: center; line-height: 1.4; }
+.customer-check input { width: 20px; min-height: 20px; }
+.customer-profile-form .customer-error { color: #a62e26; background: #fff2ef; border-radius: 8px; padding: 12px; }
+.customer-profile-form button:disabled { opacity: .6; cursor: wait; }
+.customer-profile-form :focus-visible { outline: 3px solid #8dbb66; outline-offset: 2px; }
+.customer-profile-page .customer-profile-form + .customer-profile-form { border-top: 1px solid #dce4d9; padding-top: 24px; margin-top: 24px; }
+@media (max-width: 360px) { .customer-access-card { padding: 22px 14px; } .customer-birthday-fields { grid-template-columns: 56px minmax(76px, 1fr) 82px; } }

@@ -23,6 +23,8 @@ from restaurant_os.auth import verify_session_token
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.health import readiness_payload
+from restaurant_os.mobile_customer_api import router as mobile_customer_router
+from restaurant_os.phone_verification import TwilioPhoneVerifier
 from restaurant_os.public_order_rate_limit import (
     InMemoryPublicOrderRateLimiter,
     RedisPublicOrderRateLimiter,
@@ -90,6 +92,18 @@ def create_app() -> FastAPI:
     app = FastAPI(title="RestaurantOS API", version=settings.app_version)
     app.add_middleware(WorkspaceBodyLimitMiddleware)
     app.state.public_order_intents_enabled = settings.public_order_intents_enabled
+    app.state.mobile_customer_access_enabled = settings.mobile_customer_access_enabled
+    app.state.mobile_customer_rate_limiter = (
+        RedisPublicOrderRateLimiter(
+            settings.redis_url, 300, 15,
+            settings.public_order_rate_limit_hmac_secret or settings.secret_key,
+        ) if settings.redis_url else InMemoryPublicOrderRateLimiter(300, 15, settings.secret_key)
+    ) if settings.mobile_customer_access_enabled else None
+    if settings.mobile_customer_access_enabled:
+        app.state.mobile_phone_verifier = TwilioPhoneVerifier(
+            settings.twilio_account_sid or "", settings.twilio_auth_token or "",
+            settings.twilio_verify_service_sid or "",
+        )
     tracking_limiter = (
         RedisPublicOrderRateLimiter(
             settings.redis_url, settings.public_tracking_global_rate_limit_per_minute,
@@ -110,7 +124,7 @@ def create_app() -> FastAPI:
         request: Request, call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         response = await call_next(request)
-        if request.url.path.startswith("/api/v1/public/order-intents/"):
+        if request.url.path.startswith(("/api/v1/public/order-intents/", "/api/v1/mobile/")):
             response.headers["Cache-Control"] = "no-store"
             response.headers["Referrer-Policy"] = "no-referrer"
             response.headers["X-Content-Type-Options"] = "nosniff"
@@ -131,6 +145,7 @@ def create_app() -> FastAPI:
                 settings.public_order_rate_limit_hmac_secret or settings.secret_key,
             )
     app.include_router(platform_router)
+    app.include_router(mobile_customer_router)
     app.include_router(reconciliation_v2_router)
 
     # WhatsApp compatibility alias for webhooks routed to /v1 without /api prefix

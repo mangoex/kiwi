@@ -361,7 +361,7 @@ def test_0090_downgrade_preserves_pending_and_terminal_history(context_engine, t
     with Session(engine) as session:
         assert (
             session.scalar(sa.text("SELECT version_num FROM alembic_version"))
-            == "0097_public_tracking_event_index"
+            == "0098_mobile_customer_profile"
         )
         after = {
             table.name: [
@@ -570,7 +570,7 @@ def test_0091_cash_history_blocks_postgres_downgrade(context_engine, terminal):
         )
         assert (
             session.scalar(sa.text("SELECT version_num FROM alembic_version"))
-            == "0097_public_tracking_event_index"
+            == "0098_mobile_customer_profile"
         )
 
 
@@ -618,7 +618,7 @@ def test_0091_postgres_backfill_preserves_populated_legacy_history(context_engin
         )
         assert (
             session.scalar(sa.text("SELECT version_num FROM alembic_version"))
-            == "0097_public_tracking_event_index"
+            == "0098_mobile_customer_profile"
         )
 
 

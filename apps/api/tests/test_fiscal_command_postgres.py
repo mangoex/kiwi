@@ -195,7 +195,7 @@ def test_prepare_serializes_on_observed_pg_lock_and_preserves_one_intention(
         }
         assert before[models.offline_authorization_rollouts.name]
         head_before = connection.scalar(sa.text("SELECT version_num FROM alembic_version"))
-        assert head_before == "0097_public_tracking_event_index"
+        assert head_before == "0098_mobile_customer_profile"
     # All sessions are closed before Alembic needs a DDL lock.
     url = pg_engine.url.render_as_string(hide_password=False)
     pg_engine.dispose()
