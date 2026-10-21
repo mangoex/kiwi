@@ -110,7 +110,7 @@ const AdminLayout = () => {
     '/purchase-presentations',
   ].some((prefix) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`));
   const globalOnlyRoute = [
-    '/catalog', '/products', '/recipes', '/categories', '/variations', '/modifiers',
+    '/catalog', '/products', '/availability', '/recipes', '/categories', '/variations', '/modifiers',
     '/ingredient-extras', '/category-priorities', '/recipes/bulk', '/suppliers', '/inventory/items',
     '/purchase-presentations', '/purchases',
   ].some((prefix) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`));
@@ -246,6 +246,7 @@ const AdminLayout = () => {
       matchingPrefixes: [
         '/catalog',
         '/products',
+        '/availability',
         '/recipes',
         '/categories',
         '/variations',

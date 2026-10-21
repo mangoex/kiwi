@@ -174,27 +174,49 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     let isMounted = true;
-    setLoading(true);
-    if (!profile?.complete || profileBranchKey !== selectedBranch?.public_key) {
-      setProducts([]); setCategories([]); setLoading(false); return;
-    }
-    fetchMobileMenu(selectedBranch?.public_key, true).then(({ products: prods, categories: cats }) => {
-      if (isMounted) {
+    let requestVersion = 0;
+    const loadCatalog = async (showLoading: boolean) => {
+      const version = ++requestVersion;
+      if (showLoading) setLoading(true);
+      if (!profile?.complete || profileBranchKey !== selectedBranch?.public_key) {
+        if (!isMounted || version !== requestVersion) return;
+        setProducts([]);
+        setCategories([]);
+        setLoading(false);
+        return;
+      }
+      try {
+        const { products: prods, categories: cats } = await fetchMobileMenu(selectedBranch?.public_key, true);
+        if (!isMounted || version !== requestVersion) return;
         setProducts(prods);
         setCategories(cats);
         setLoading(false);
+      } catch (error: unknown) {
+        if (!isMounted || version !== requestVersion) return;
+        setLoading(false);
+        const status = (error as { status?: number }).status;
+        if (status === 401) {
+          setProfile(null);
+          setIsCartOpen(false);
+        }
+        setProducts([]);
+        setCategories([]);
+        if (status !== 401) setAccessUnavailable(true);
+        setAccessError(status === 401
+          ? 'Tu sesión venció. Inicia sesión para continuar.'
+          : 'No pudimos cargar el menú. Reintenta en un momento.');
       }
-    }).catch((error: unknown) => {
-      if (!isMounted) return;
-      setLoading(false);
-      const status = (error as { status?: number }).status;
-      if (status === 401) { setProfile(null); setIsCartOpen(false); }
-      setProducts([]); setCategories([]);
-      if (status !== 401) setAccessUnavailable(true);
-      setAccessError(status === 401 ? 'Tu sesión venció. Inicia sesión para continuar.' : 'No pudimos cargar el menú. Reintenta en un momento.');
-    });
+    };
+    const refreshVisibleCatalog = () => {
+      if (document.visibilityState === 'visible') void loadCatalog(false);
+    };
+    void loadCatalog(true);
+    document.addEventListener('visibilitychange', refreshVisibleCatalog);
+    window.addEventListener('focus', refreshVisibleCatalog);
     return () => {
       isMounted = false;
+      document.removeEventListener('visibilitychange', refreshVisibleCatalog);
+      window.removeEventListener('focus', refreshVisibleCatalog);
     };
   }, [selectedBranch?.public_key, profile?.complete, profileBranchKey]);
 

@@ -260,12 +260,15 @@ test('Product modal uses only catalog modifier groups and enforces their boundar
 test('Mobile catalog uses the selected public key rather than the legacy branch catalog', async () => {
   const originalFetch = global.fetch;
   let requestedUrl = '';
-  global.fetch = async (url) => {
+  let requestedOptions;
+  global.fetch = async (url, options) => {
     requestedUrl = url;
+    requestedOptions = options;
     return { ok: true, json: async () => ({ branch_id: 'branch-b', categories: [], items: [{ id: 'b-only', name: 'B', sku: 'B', price_cents: 1234 }] }) };
   };
   const catalog = await fetchMobileMenu('public-key-b');
   assert.match(requestedUrl, /\/public\/branches\/public-key-b\/catalog$/);
+  assert.equal(requestedOptions.cache, 'no-store');
   assert.deepEqual(catalog.products.map((product) => product.id), ['b-only']);
   global.fetch = originalFetch;
 });

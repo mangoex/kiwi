@@ -86,8 +86,10 @@ Feature: Un Supervisor de sucursal administra su sucursal sin ser administrador 
     Given un producto activo, con precio vigente y disponible en la sucursal autorizada
     And Mostrar en menú digital está marcado por defecto
     When el Supervisor desmarca Mostrar en menú digital
-    Then el producto continúa vendible y visible en el POS de esa sucursal
+    Then el control refleja inmediatamente el estado solicitado y revierte si el comando falla
+    And el producto continúa vendible y visible en el POS de esa sucursal
     But no aparece en el catálogo público ni puede capturarse desde un cliente público obsoleto
+    And una web móvil ya abierta vuelve a consultar el catálogo al recuperar foco o visibilidad
     And el producto conserva identidad, precio, receta, inventario e historia
     When el Supervisor vuelve a marcar Mostrar en menú digital
     Then se elimina la excepción y el producto reaparece en el catálogo público si continúa disponible
@@ -96,8 +98,11 @@ Feature: Un Supervisor de sucursal administra su sucursal sin ser administrador 
   @BDD-SC-707
   Scenario: Dueño configura un producto en una sucursal o en todas las sucursales actuales
     Given un Dueño con alcance organizacional y varias sucursales activas autorizadas
-    When abre la disponibilidad de productos
-    Then puede seleccionar una sucursal específica o Todas las sucursales actuales
+    When abre Catálogo y Menú
+    Then encuentra Disponibilidad como una opción independiente de Productos
+    When abre Disponibilidad
+    Then Todas las sucursales aparece seleccionada por defecto
+    And puede seleccionar una sucursal específica o Todas las sucursales actuales
     And la vista total distingue si disponibilidad y visibilidad están en todas, ninguna o una mezcla
     When confirma ocultar el producto del menú digital para todas las sucursales actuales
     Then el backend prevalida alcance y producto antes de escribir

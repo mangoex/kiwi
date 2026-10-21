@@ -12,6 +12,7 @@ export const hasAdminCapability = (session: AdministrativeSession | null, code: 
 const routeRules: Record<string, string[][]> = {
   '/': [['dashboard.read']],
   '/products': [['catalog.manage'], ['recipes.manage'], ['branch.admin.access']],
+  '/availability': [['branch.admin.access']],
   '/variations': [['catalog.manage'], ['branch.admin.access', 'catalog.branch.manage']],
   '/modifiers': [['catalog.manage']],
   '/ingredient-extras': [['catalog.manage'], ['branch.admin.access', 'catalog.branch.manage']],
@@ -33,7 +34,7 @@ const routeRules: Record<string, string[][]> = {
   '/customers': [['orders.read']], '/imports': [['admin.manage']],
 };
 const hubRoutes: Record<string, string[]> = {
-  '/catalog': ['/products','/recipes','/categories','/variations','/modifiers','/ingredient-extras','/category-priorities','/delivery-services'],
+  '/catalog': ['/products','/availability','/recipes','/categories','/variations','/modifiers','/ingredient-extras','/category-priorities','/delivery-services'],
   '/inventory': ['/inventory/stock','/inventory/items','/production','/inventory/waste','/inventory/transfers','/inventory/counts','/inventory/units','/warehouses','/inventory/thresholds'],
   '/purchasing': ['/purchases','/suppliers','/purchase-presentations','/expenses','/expense-concepts'],
   '/branches-hub': ['/branches','/drivers','/integrations','/cash-concepts'],
@@ -47,7 +48,7 @@ export function canAccessAdminRoute(session: AdministrativeSession | null, path:
   return (routeRules[path] || []).some(codes => codes.every(code => hasAdminCapability(session, code)));
 }
 export const adminModules: Record<string, string> = {
-  products:'/products', variations:'/variations', modifiers:'/modifiers', 'ingredient-extras':'/ingredient-extras',
+  products:'/availability', variations:'/variations', modifiers:'/modifiers', 'ingredient-extras':'/ingredient-extras',
   inventory:'/inventory', suppliers:'/suppliers', purchases:'/purchases', production:'/production',
   expenses:'/expenses', 'expense-concepts':'/expense-concepts',
   waste:'/inventory/waste', transfers:'/inventory/transfers', counts:'/inventory/counts',

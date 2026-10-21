@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { fetchApi } from '@restaurantos/api-client';
 import { RecipeManager, RecipeWorkspaceItem } from '../catalog/RecipeManager';
-import { resolveBranchId } from '../../lib/branchContext';
 import { ChefHat, Search, SlidersHorizontal, BookOpen } from 'lucide-react';
 import '../../premium-catalogs.css';
 
@@ -18,7 +17,7 @@ type Workspace = {
 };
 
 export default function RecipesWorkspace() {
-  const [scope, setScope] = useState<string | null>(() => resolveBranchId() || null);
+  const [scope, setScope] = useState<string | null>(null);
   const [selected, setSelected] = useState<Product | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchParams] = useSearchParams();

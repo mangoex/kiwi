@@ -43,6 +43,7 @@ export async function fetchMobileMenu(publicKey?: string | null, authenticated =
       : `${API_BASE_URL}/public/catalog`;
     const res = await fetch(catalogUrl, {
       headers: { 'Cache-Control': 'no-cache' },
+      cache: 'no-store',
     });
 
     if (!res.ok) {

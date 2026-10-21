@@ -169,6 +169,14 @@ la captura pública vuelve a validarlos para impedir pedidos desde cachés obsol
 usando la proyección vendible canónica. Si el catálogo público no puede cargarse, el cliente móvil no
 inventa un catálogo de respaldo que pudiera reexponer productos ocultos.
 
+La administración presenta estas funciones en la entrada independiente **Disponibilidad** del hub
+Catálogo y Menú, no al final del editor corporativo de Productos. Una cuenta organizacional inicia
+en **Todas las sucursales** y sólo cambia a una sucursal mediante el selector explícito; una cuenta
+restringida conserva su única sucursal autorizada. El control de visibilidad actualiza su estado
+visual de forma optimista y lo revierte si el comando falla. La web móvil solicita el catálogo sin
+caché y lo vuelve a consultar al recuperar foco o visibilidad, de modo que una pestaña abierta deje
+de presentar un producto ocultado sin confundir esa preferencia con la disponibilidad del POS.
+
 Una cuenta con alcance organizacional puede consultar un resumen de los productos en todas las
 sucursales activas autorizadas. El resumen informa estados `all`, `none` o `mixed` y cantidades
 aplicables, disponibles y visibles; los productos de alcance local sólo consideran su sucursal de

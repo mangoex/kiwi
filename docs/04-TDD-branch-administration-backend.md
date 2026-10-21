@@ -51,6 +51,12 @@ Casos:
   público de esa sucursal y rechaza una captura pública que reutilice un ID obsoleto;
 - volver a mostrar elimina la excepción y no modifica precio, receta, inventario ni historia;
 - un error al cargar el catálogo público no activa productos estáticos que el backend no autorizó.
+- Catálogo y Menú expone Disponibilidad como ruta independiente, Productos deja de incrustar la
+  relación masiva y una cuenta organizacional inicia en Todas las sucursales;
+- el cambio de visibilidad se refleja de forma optimista, revierte ante error y la web móvil solicita
+  sin caché otra proyección al recuperar foco o visibilidad;
+- Recetas, Recetas en lote y Composición de combo tampoco convierten `active_branch` en su valor
+  inicial cuando admiten alcance corporativo;
 - el resumen corporativo agrega únicamente sucursales activas autorizadas y distingue `all`, `none`
   y `mixed`, respetando productos con alcance local;
 - los comandos `all-active` requieren alcance organizacional, bloquean sucursales en orden estable,

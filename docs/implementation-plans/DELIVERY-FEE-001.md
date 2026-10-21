@@ -243,3 +243,14 @@ se ejecutó en SQLite, no se presenta como carrera PostgreSQL específica de esa
 Auditoría independiente final de la misma corrección:3pruebas aprobadas; refutación de replay
 de la primera compensación después de bloquear la segunda conserva exactamente su respuesta y
 una sola corrección efectiva. Sin hallazgos pendientes; no certifica carrera PostgreSQL del guard.
+
+
+## Publicación Git autorizada (2026-10-21)
+
+Miguel autorizó commit, merge y push. Commit funcional `c3ba59a` en
+`codex/delivery-fee-online`; se integra `origin/main=427f54c` conservando Disponibilidad y
+Servicios de domicilio en rutas/hub/permisos. Conflictos sólo en CategorySubNav y adminAccess,
+resueltos conservando ambas entradas. Hash del fixture CI actualizado al workflow combinado.
+Runbook local ajeno, su hash pendiente y tmp quedan excluidos; cambios preservados.
+Verificación integrada y CI mediante PR antes del merge a main. La autorización Git no aplica
+migraciones, configuración, cobros ni despliegue productivos.
