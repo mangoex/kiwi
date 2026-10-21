@@ -20,6 +20,9 @@ Recuperación sin sesión: no se publica un reset inseguro basado sólo en telé
 
 Evidencia local:
 - Backend: 33 casos de password, perfil y límites públicos; PostgreSQL/migración: 11 casos sin skips.
+  Regresión adicional: OTP productivo sin Redis falla cerrado sin afectar contraseña; RED confirmó
+  llamada indebida al proveedor antes del ajuste focal en main. GREEN: 19 casos de contraseñas/límites,
+  Ruff y mypy main; Sol confirmó cierre del hallazgo en el mismo ciclo de revisión.
 - Arquitectura (trazabilidad, gates CI y capacidad Alembic): 34 casos; semántica frontend: 6 casos.
 - Ruff y mypy focal; typecheck del monorepo; builds mobile/admin. Admin conserva aviso de chunk grande.
 - Browser real contra API sintética sin SMS: registro/perfil/pedido/reingreso en 320/390/1280 px,
@@ -34,6 +37,7 @@ Evidencia local:
 | Conocer un teléfono no expone CRM previo | Registro con teléfono histórico y lectura/edición del perfil | Cliente nuevo separado, datos anteriores intactos; duplicidad deliberada hasta vinculación asistida |
 | Rotar credenciales invalida sesiones previas | Dos rotaciones PG simultáneas, cookie vieja y contraseña anterior | Una gana, otra rechazada; cookie anterior inválida |
 | OTP no evita la contraseña | Retos de acceso/cambio iniciados antes de establecer contraseña | Rechazo tras guardia bajo bloqueo; compatibilidad OTP sólo para identidades sin contraseña |
+| OTP productivo conserva límites compartidos | Twilio configurado sin Redis y proveedor que falla si se invoca | Rutas OTP devuelven 503 antes del proveedor; contraseñas mantienen disponibilidad SQL |
 | Límites persisten entre procesos | Nuevo cliente HTTP y 16 conexiones PG simultáneas | Diez aceptadas/seis limitadas; claves HMAC sin PII; no acredita carga productiva |
 | Migración preserva historia | Upgrade/downgrade SQLite y PG con identidad/sesión antiguas | Datos intactos y downgrade bloqueado con credenciales |
 | Una falla no permite avanzar al menú | GET profile 503 en navegador, reintento y login inválido/válido | Formulario bloqueado hasta recuperar disponibilidad; ninguna configuración productiva inspeccionada |

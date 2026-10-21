@@ -97,7 +97,10 @@ def create_app() -> FastAPI:
         RedisPublicOrderRateLimiter(
             settings.redis_url, 300, 15,
             settings.public_order_rate_limit_hmac_secret or settings.secret_key,
-        ) if settings.redis_url else InMemoryPublicOrderRateLimiter(300, 15, settings.secret_key)
+        ) if settings.redis_url else (
+            InMemoryPublicOrderRateLimiter(300, 15, settings.secret_key)
+            if settings.environment != "production" else None
+        )
     ) if settings.mobile_customer_access_enabled else None
     if settings.mobile_customer_access_enabled and all((
         settings.twilio_account_sid, settings.twilio_auth_token, settings.twilio_verify_service_sid,

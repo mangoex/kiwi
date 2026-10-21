@@ -6993,7 +6993,9 @@ La cuenta nueva no reutiliza datos CRM por coincidencia telefónica: crea su pro
 completar perfil y marca el teléfono como no verificado. No modifica perfiles ni historial ajenos.
 Las identidades OTP existentes no admiten una contraseña nueva sin su sesión autenticada.
 La compatibilidad OTP continúa sólo si un operador configura su adaptador; no es necesaria para
-registrarse o entrar con contraseña. OTP no permite acceder ni cambiar el teléfono de cuentas con
+el acceso por contraseña. OTP productivo conserva el requisito Redis: sin él, falla cerrado antes
+de llamar al proveedor, sin bloquear las rutas de contraseña y su throttle SQL. No se usa un límite
+en memoria por proceso para autorizar envíos productivos. OTP no permite acceder ni cambiar el teléfono de cuentas con
 contraseña, incluso si el reto se inició antes de establecerla. La recuperación sin sesión no se basa en conocer teléfono,
 cumpleaños ni correo no verificado; requiere un proceso asistido externo a este paquete.
 

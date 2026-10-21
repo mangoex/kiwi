@@ -217,7 +217,7 @@
     },
     {
       "path": "apps/api/tests/test_mobile_customer_password.py",
-      "sha256": "9444c17773834adf69efab1c2c6294eaa25711ddc2d59bd20a5a3a876972135c",
+      "sha256": "c5e6a39e2e482225e2cedac86a65f001479e95d6fcea1e86e5a7817e2eb24c61",
       "provenance": "restaurantos-mobile-password-tests-v1"
     },
     {

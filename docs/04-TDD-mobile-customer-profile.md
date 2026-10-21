@@ -35,6 +35,8 @@ La ejecución productiva y CI se reportan aparte; ningún skip acredita PostgreS
 CRM-MOBILE-002 amplía esta misma suite/casos: test_mobile_customer_password.py cubre registro,
 login, hashes, errores privados, colisiones CRM/identidad, throttle persistente, CSRF, cierre,
 contraseña/teléfono y revocación. La compatibilidad OTP conserva sus regresiones existentes.
+Producción sin Redis con Twilio configurado: OTP falla antes de llamar al proveedor y las rutas
+de registro/login por contraseña siguen disponibles mediante su throttle SQL.
 La suite PG prueba altas y rotaciones concurrentes, rechazo de la contraseña anterior y throttle
 atómico entre conexiones; migración 0099
 SQLite/PG conserva identidades/sesiones y bloquea downgrade con credenciales.

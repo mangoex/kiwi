@@ -18,6 +18,35 @@ def register(client: Any, phone: str = "6691234567") -> Any:
                        json={"phone": phone, "password": PASSWORD})
 
 
+def test_production_otp_without_redis_fails_closed_but_password_access_works(
+    monkeypatch: Any,
+) -> None:
+    from restaurant_os.main import create_app
+
+    settings = Settings(
+        _env_file=None, environment="production", secret_key="x" * 32,
+        redis_url=None, twilio_account_sid="AC" + "1" * 32,
+        twilio_auth_token="synthetic-fixture", twilio_verify_service_sid="VA" + "2" * 32,
+    )
+    monkeypatch.setattr("restaurant_os.main.get_settings", lambda: settings)
+    configured = create_app()
+    client = client_with_mobile()
+    client.app.state.mobile_customer_rate_limiter = configured.state.mobile_customer_rate_limiter
+
+    class UncalledVerifier:
+        def start(self, phone: str) -> str:
+            raise AssertionError("OTP must not reach the provider without a shared limiter")
+
+    client.app.state.mobile_phone_verifier = UncalledVerifier()
+    response = client.post(BASE + "/access/start", headers=HEADERS, json={"phone": "6691234567"})
+    assert response.status_code == 503, response.text
+    assert configured.state.mobile_customer_rate_limiter is None
+    assert register(client).status_code == 200
+    assert client.post(BASE + "/logout", headers=HEADERS).status_code == 200
+    assert client.post(BASE + "/access/login", headers=HEADERS,
+                       json={"phone": "6691234567", "password": PASSWORD}).status_code == 200
+
+
 def test_password_access_works_without_sms_and_defaults_enabled() -> None:
     settings = Settings(_env_file=None, environment="production", secret_key="x" * 32)
     assert settings.mobile_customer_access_enabled
