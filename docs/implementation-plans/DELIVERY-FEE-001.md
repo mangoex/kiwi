@@ -280,3 +280,11 @@ corporativo null que la UI; antes enviaba la sucursal con expected_version1 de o
 RED CI404; GREEN local con API SQLite aislada: Admin modern API-to-UI E2E passed, manteniendo
 conflicto de versión, borrador exacto, revisión y comando v3. Default corporativo se afirma ahora
 explícitamente. Admin retro390/768/1440 y Disponibilidaddesktop/móvil también pasaron localmente.
+
+
+La búsqueda completa identificó siete expectativas de head0099 en cuatro suites PostgreSQL
+(fiscal, autorización offline, intenciones y XML proveedor). Se actualizan a0100 sin cambiar
+los destinos históricos deliberados de migración ni las comparaciones de filas/invariantes.
+El probe local específico no produjo evidencia concluyente y se detuvo; no se cuenta como verde.
+La ejecución completa de esas suites permanece obligatoria en CI. La migración0100 ya tiene
+cuatro pruebas PostgreSQL verdes y la cadena arquitectónica completa12passed localmente.
