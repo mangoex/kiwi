@@ -6972,9 +6972,9 @@ de umbrales ya confirmados. La reversión de movilidad POS sigue su drenado/reco
 apagar el flag con operaciones pendientes suponiendo que eso revierte datos.
 
 
-## 69. CRM-MOBILE-001 — identidad verificada y enriquecimiento progresivo
+## 69. CRM-MOBILE-001/002 — cuenta móvil y enriquecimiento progresivo
 
-### SDD-ADR-046 Acceso móvil separado y proveedor de verificación
+### SDD-ADR-046 Acceso móvil separado con teléfono y contraseña
 
 Riesgo R3: datos personales, autenticación, persistencia y frontera externa. Se agregan
 birthday_day/month/year nullable a customers y una identidad móvil única por organización/teléfono.
@@ -6985,33 +6985,47 @@ La vinculación, materialización móvil y alta CRM se serializan por organizaci
 La identidad se relee bajo bloqueo tras el I/O; cambios de teléfono obsoletos se rechazan.
 Los escritores de domicilios CRM y móvil comparten bloqueo de cliente para el predeterminado.
 
-El dominio usa un puerto PhoneVerifier, con adaptador Twilio Verify por HTTPS, host fijo,
-timeout, sin reintento ciego ni códigos/logs de PII. Referencias oficiales:
-https://www.twilio.com/docs/verify/api/verification y
-https://www.twilio.com/docs/verify/api/verification-check . No hay nueva dependencia crítica.
-RESTAURANTOS_MOBILE_CUSTOMER_ACCESS_ENABLED es false por defecto. Activar exige proveedor
-configurado; credenciales TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_VERIFY_SERVICE_SID
-bajo prefijo RESTAURANTOS_. Configuración/despliegue y envío productivo requieren autorización
-separada. No se habilita bypass local de OTP en runtime; pruebas inyectan un puerto falso.
+La revisión CRM-MOBILE-002 sustituye el acceso habitual OTP por teléfono/contraseña.
+Se reutilizan PBKDF2-SHA256 y sales aleatorias del módulo auth; nunca se almacena la contraseña.
+Registro: 15..128 caracteres, sin truncar ni recortar espacios; login acepta hasta 128 caracteres.
+Las credenciales viven en mobile_customer_credentials, separadas de usuarios empleados.
+La cuenta nueva no reutiliza datos CRM por coincidencia telefónica: crea su propio cliente al
+completar perfil y marca el teléfono como no verificado. No modifica perfiles ni historial ajenos.
+Las identidades OTP existentes no admiten una contraseña nueva sin su sesión autenticada.
+La compatibilidad OTP continúa sólo si un operador configura su adaptador; no es necesaria para
+el acceso por contraseña. OTP productivo conserva el requisito Redis: sin él, falla cerrado antes
+de llamar al proveedor, sin bloquear las rutas de contraseña y su throttle SQL. No se usa un límite
+en memoria por proceso para autorizar envíos productivos. OTP no permite acceder ni cambiar el teléfono de cuentas con
+contraseña, incluso si el reto se inició antes de establecerla. La recuperación sin sesión no se basa en conocer teléfono,
+cumpleaños ni correo no verificado; requiere un proceso asistido externo a este paquete.
 
-Rutas versionadas /api/v1/mobile/branches/{public_key}: access/start, access/verify,
-profile (GET/PUT), logout, catalog y order-intents. El public_key activo resuelve organización;
-ningún body acepta customer_id, organización, permisos ni precio. La cookie móvil opaca tiene
-hash persistido, expiración de 30 días, HttpOnly, SameSite=Strict, Secure en producción y revocación.
-Toda escritura exige X-Mobile-Request: 1. La sesión móvil no concede permisos de empleado.
-OTP vence en 10 minutos, admite 5 comprobaciones y se consume una vez; cada intento se reserva
-en BD antes de I/O. Los límites por peer y teléfono usan el limitador público compartido y fallan
-cerrados si no está disponible. El proveedor recibe el SID de verificación, no uno aportado por
-el navegador. Sin identidad válida y perfil mínimo completo no hay catálogo ni pedido móvil.
-Los endpoints públicos existentes conservan su contrato para otros consumidores.
+RESTAURANTOS_MOBILE_CUSTOMER_ACCESS_ENABLED pasa a true por defecto; false es apagado explícito.
+No exige Twilio, Redis ni activar pedidos para consultar/perfilarse. Pedidos conservan su propio gate.
+El throttle de credenciales usa incrementos atómicos PostgreSQL/SQLite en mobile_auth_attempts:
+300 solicitudes/organización/minuto, 60/peer/10 minutos y 10/teléfono/10 minutos; claves HMAC,
+ventanas fijas, caducidad y limpieza sin PII. Se confirma antes de comprobar la contraseña para
+que errores y reintentos no reviertan intentos. Error de almacenamiento falla cerrado.
+
+Rutas /api/v1/mobile/branches/{public_key}: access/register, access/login, profile/password,
+profile/phone, profile (GET/PUT), logout, catalog y order-intents. El public_key activo resuelve
+organización; ningún body acepta customer_id, organización, permisos ni precio.
+La cookie opaca conserva hash persistido, 30 días, HttpOnly, SameSite=Strict y Secure en producción.
+Cambiar contraseña o teléfono exige reautenticación, relee credenciales bajo bloqueo, revoca
+sesiones anteriores y entrega una nueva en la misma transacción. Una sesión OTP vigente puede
+establecer su primera contraseña. Registro y login se serializan con los cambios de credenciales.
+Toda escritura exige X-Mobile-Request: 1; validación y SQL nunca devuelven contraseñas ni payloads.
+Los errores de login son iguales para cuenta inexistente, contraseña incorrecta y cuenta inactiva.
+Sin sesión y perfil mínimo completo no hay catálogo ni pedido móvil. Fallos de disponibilidad se
+muestran antes del formulario; nunca se presentan como acceso exitoso. Los endpoints públicos
+existentes conservan su contrato para otros consumidores.
 
 El perfil devuelve sólo campos de autoservicio y domicilios activos propios, nunca notas CRM,
 datos fiscales, segmentación o perfiles ajenos. Email se valida sin asumir verificación de correo.
 Un domicilio completo usa el esquema mexicano existente; creation_key estable deriva un ID
 por cliente y permite reintentar sin duplicar, saved_address_id reconcilia el editor; las modificaciones se serializan con
 el cliente, conservan una única dirección predeterminada y no reescriben pedidos anteriores.
-Cambiar teléfono usa un desafío ligado a la identidad actual y exige verificar el nuevo teléfono;
-no permite apropiarse de otra identidad ni de un teléfono ligado a otro cliente.
+Cambiar teléfono requiere contraseña actual; una coincidencia con otra cuenta o cliente se rechaza.
+El número nuevo se guarda sin afirmar verificación y no reescribe snapshots de pedidos.
 
 La captura móvil pasa customer_id como argumento interno al servicio de intenciones. La huella
 idempotente incluye esa identidad; se persiste el vínculo antes de éxito y se propaga al pedido al
@@ -7022,7 +7036,11 @@ visitas ni se confunde intención pendiente con venta. El carrito se conserva an
 Migración 0098 aditiva; downgrade bloqueado si hay perfiles/identidades/intenciones vinculadas,
 para evitar pérdida de PII/historia. No se migra producción durante desarrollo.
 
-Operación: ¿se envían y verifican códigos?, ¿hay límites/fallo del proveedor?, ¿hay colisiones CRM?
+Migración 0099 aditiva: credenciales y contadores; downgrade bloqueado si hay credenciales.
+Las sesiones OTP y los clientes existentes se conservan sin generar contraseñas automáticas.
+
+Operación: ¿se completan registros/logins?, ¿hay límites o error de almacenamiento?, ¿se revocan
+sesiones al cambiar credenciales? Auditoría por acción/IDs sin contraseñas, teléfono ni tokens.
 Auditoría mobile.access_verified, mobile.profile_updated, mobile.phone_changed y mobile.logout
 sólo con IDs/campos modificados; errores SQL móviles devuelven 503 sin parámetros ni traceback;
 requests móviles se limitan a 64 KiB antes del parseo; logs de proveedor sólo resultado estable, sin teléfono/código/token.

@@ -179,6 +179,14 @@ def verify_access(
         .first()
     )
     matches = _matching_customers(session, str(key["organization_id"]), str(challenge["phone"]))
+    password_identity = current_identity if challenge["identity_id"] else existing
+    if password_identity and session.scalar(
+        sa.select(models.mobile_customer_credentials.c.identity_id).where(
+            models.mobile_customer_credentials.c.identity_id == password_identity["id"],
+        )
+    ):
+        session.commit()  # Legacy challenges cannot bypass the password authority.
+        raise MobileError("mobile_password_required")
     if challenge["identity_id"]:
         assert current_identity is not None
         fresh = (
@@ -272,7 +280,7 @@ def verify_access(
     return identity, session_token
 
 
-def _insert_phone(session: Session, customer_id: str, phone: str) -> None:
+def _insert_phone(session: Session, customer_id: str, phone: str, verified: bool = True) -> None:
     session.execute(
         models.customer_phones.update()
         .where(
@@ -289,7 +297,7 @@ def _insert_phone(session: Session, customer_id: str, phone: str) -> None:
             phone_type="mobile",
             is_primary=True,
             whatsapp_enabled=False,
-            is_verified=True,
+            is_verified=verified,
             status="active",
             created_at=now(),
             updated_at=now(),
@@ -322,6 +330,11 @@ def read_profile(session: Session, identity: dict[str, Any]) -> dict[str, Any]:
             "birthday_year",
         )
     }
+    result["has_password"] = bool(session.scalar(
+        sa.select(models.mobile_customer_credentials.c.identity_id).where(
+            models.mobile_customer_credentials.c.identity_id == identity["id"],
+        )
+    ))
     result["phone"] = identity["phone"]
     result["complete"] = bool(row and row["name"] and row["birthday_day"] and row["birthday_month"])
     address_fields = (
@@ -381,7 +394,12 @@ def save_profile(
         .one()
     )
     identity = dict(locked)
-    if not identity["customer_id"]:
+    password_account = bool(session.scalar(
+        sa.select(models.mobile_customer_credentials.c.identity_id).where(
+            models.mobile_customer_credentials.c.identity_id == identity["id"],
+        )
+    ))
+    if not identity["customer_id"] and not password_account:
         matches = _matching_customers(
             session, str(identity["organization_id"]), str(identity["phone"])
         )
@@ -431,7 +449,7 @@ def save_profile(
                 **values,
             )
         )
-        _insert_phone(session, customer_id, str(identity["phone"]))
+        _insert_phone(session, customer_id, str(identity["phone"]), verified=not password_account)
         session.execute(
             models.mobile_customer_identities.update()
             .where(

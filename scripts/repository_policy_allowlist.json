@@ -209,6 +209,31 @@
       "path": "apps/api/tests/test_whatsapp_integration.py",
       "sha256": "33582e79c7959a24b8f113e2aac3f35eca99688a5b633117b72e2750be568f1b",
       "provenance": "restaurantos-whatsapp-asistto-fixtures-v1"
+    },
+    {
+      "path": "apps/mobile-web/src/components/CustomerProfile.tsx",
+      "sha256": "3c248c2ee4fda8875f48fafad7d43294b491606682897139a20f587af657ddef",
+      "provenance": "restaurantos-mobile-password-autocomplete-v1"
+    },
+    {
+      "path": "apps/api/tests/test_mobile_customer_password.py",
+      "sha256": "c5e6a39e2e482225e2cedac86a65f001479e95d6fcea1e86e5a7817e2eb24c61",
+      "provenance": "restaurantos-mobile-password-tests-v1"
+    },
+    {
+      "path": "apps/api/tests/test_mobile_customer_postgres.py",
+      "sha256": "1971a3f33402d0a26051cc7021b68bfb3fe49eb21200b34427ddac89ebb007e1",
+      "provenance": "restaurantos-mobile-password-postgres-tests-v1"
+    },
+    {
+      "path": "tests/browser/test_mobile_customer_profile.mjs",
+      "sha256": "1604e5bcbfbabb7f87420d3129dd4724e6e0427877327174734d87dcb257caf7",
+      "provenance": "restaurantos-mobile-password-browser-v1"
+    },
+    {
+      "path": "tests/browser/test_public_order_tracking.mjs",
+      "sha256": "8358ba3b503206a6f64ad353485ef2fa7d2cb46c48c232141ad713b893a0db36",
+      "provenance": "restaurantos-tracking-password-browser-v1"
     }
   ]
 }

@@ -30,3 +30,15 @@ materialización de perfil/domicilio una sola vez y cambios de teléfono solapad
 del obsoleto. PostgreSQL17 local aislado, sin skips en los cinco casos de migración/concurrencia.
 Gates: Ruff, mypy focal, typecheck, build móvil, trazabilidad, QA móvil y auditoría R3 independiente.
 La ejecución productiva y CI se reportan aparte; ningún skip acredita PostgreSQL.
+
+
+CRM-MOBILE-002 amplía esta misma suite/casos: test_mobile_customer_password.py cubre registro,
+login, hashes, errores privados, colisiones CRM/identidad, throttle persistente, CSRF, cierre,
+contraseña/teléfono y revocación. La compatibilidad OTP conserva sus regresiones existentes.
+Producción sin Redis con Twilio configurado: OTP falla antes de llamar al proveedor y las rutas
+de registro/login por contraseña siguen disponibles mediante su throttle SQL.
+La suite PG prueba altas y rotaciones concurrentes, rechazo de la contraseña anterior y throttle
+atómico entre conexiones; migración 0099
+SQLite/PG conserva identidades/sesiones y bloquea downgrade con credenciales.
+El recorrido de navegador y semántica cambian al alta/login por contraseña sin proveedor;
+prueban formulario bloqueado en 503, reintento, error de contraseña y carrito conservado.
