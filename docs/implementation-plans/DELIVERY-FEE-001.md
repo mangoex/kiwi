@@ -261,3 +261,8 @@ exporta deliveryFee y los cargadores dataURL debían resolverlo. Se añade el m�
 existentes (sesión, workspace, fiscal e intenciones), sin retirar asserts ni silenciar errores.
 Pruebas dirigidas de esos cinco harness verdes. Se actualizan sólo sus hashes sintéticos existentes.
 La integración conserva typecheck/build,47pruebas focales y auditoría independiente sin bloqueantes.
+
+
+El gate arquitectónico de capacidad Alembic conservaba head0099; RED causal confirmó head0100.
+Se actualiza la revisión esperada a0100, manteniendo intactos los asserts de cadena lineal,
+upgrade real y protección de downgrade. No se modifica una migración para satisfacer un fixture.
