@@ -2,7 +2,6 @@ import React, { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { Plus, Trash2 } from 'lucide-react';
-import { resolveBranchId } from '../../lib/branchContext';
 import '../../premium-catalogs.css';
 
 type WorkspaceItem = { id: string; name: string; sku: string; unit_id: string; unit_code?: string };
@@ -30,7 +29,7 @@ const emptyComponent = (): Component => ({ item_id: '', unit_id: '', net_quantit
 const failure = (reason: unknown, fallback: string) => reason instanceof ApiError ? reason.message : fallback;
 
 export default function BulkRecipeWorkspace() {
-  const [scope, setScope] = useState<string | null>(() => resolveBranchId() || null);
+  const [scope, setScope] = useState<string | null>(null);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [yieldQuantity, setYieldQuantity] = useState('1');
   const [yieldUnitId, setYieldUnitId] = useState('');

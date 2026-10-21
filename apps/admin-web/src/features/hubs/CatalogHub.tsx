@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAdminPermission } from '../../lib/adminSession';
-import { Package, Utensils, Tags, MessageSquareText, Plus, ListOrdered, CopyPlus, Layers3 } from 'lucide-react';
+import { Package, Utensils, Tags, MessageSquareText, Plus, ListOrdered, CopyPlus, Layers3, Eye } from 'lucide-react';
 import { CategoryHubView, HubCardItem } from './CategoryHubView';
 
 export const CatalogHub: React.FC = () => {
@@ -15,6 +15,14 @@ export const CatalogHub: React.FC = () => {
       iconBg: '#eff6ff',
       iconColor: '#2563eb',
       path: '/products',
+    },
+    {
+      title: 'Disponibilidad',
+      description: 'Controla la venta en POS y la publicación del menú digital por sucursal.',
+      icon: <Eye size={26} />,
+      iconBg: '#edf7f0',
+      iconColor: '#2f7047',
+      path: '/availability',
     },
     ...(hasRecipesManage
       ? [

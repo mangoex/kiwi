@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { Button, Modal } from '@restaurantos/ui';
 import { Layers, Plus, Trash2 } from 'lucide-react';
-import { resolveBranchId } from '../../lib/branchContext';
 import '../../premium-catalogs.css';
 import './ComboCompositionModal.css';
 
@@ -38,7 +37,7 @@ const errorMessage = (reason: unknown) => {
 
 export function ComboCompositionModal({ product, onClose }: { product: Product; onClose: () => void }) {
   const client = useQueryClient();
-  const [branchId, setBranchId] = useState<string | null>(() => resolveBranchId() || null);
+  const [branchId, setBranchId] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftComponent[]>([blank()]);
   const [expectedVersion, setExpectedVersion] = useState(0);
   const [isDirty, setIsDirty] = useState(false);

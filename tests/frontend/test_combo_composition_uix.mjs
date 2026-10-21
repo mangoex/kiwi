@@ -16,6 +16,8 @@ assert.match(modal, /Si el cliente puede elegir/);
 assert.doesNotMatch(modal, /usa Producto compuesto/);
 assert.match(modal, /Modificadores en Catálogo y Menú/);
 assert.match(modal, /className="combo-composition-scope"/);
+assert.match(modal, /useState<string \| null>\(null\)/);
+assert.doesNotMatch(modal, /resolveBranchId/);
 assert.match(modal, /className="combo-component-row"/);
 assert.match(modal, /className="combo-composition-control"/);
 assert.match(modal, /className="combo-remove-button"/);

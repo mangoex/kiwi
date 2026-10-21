@@ -386,6 +386,7 @@ jobs:
             curl --fail --silent "$url" > /dev/null
           done
           node tests/browser/test_catalog_classification.mjs
+          node tests/browser/test_product_availability_workspace.mjs
           node tests/browser/test_branch_scope_headers.mjs
           node tests/browser/test_branch_workspace_recovery.mjs
           node tests/browser/test_pilot_pos_admin.mjs
