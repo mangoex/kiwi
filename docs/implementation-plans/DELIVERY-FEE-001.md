@@ -273,3 +273,10 @@ ComboCompositionModal ya inicia ámbito corporativo null (cambio remoto6bf06b1),
 esperaba la sucursal POS. Se alinea el mock GET al query real y PUT al ámbito del comando,
 manteniendo el assert exacto de payload e idempotencia y las comprobaciones de aislamiento por
 sucursal. No se modifica la regla corporativa de producción para hacer pasar la prueba.
+
+
+El E2E API-to-UI de Admin también necesitaba dirigir su escritor de conflicto al mismo ámbito
+corporativo null que la UI; antes enviaba la sucursal con expected_version1 de otra composición.
+RED CI404; GREEN local con API SQLite aislada: Admin modern API-to-UI E2E passed, manteniendo
+conflicto de versión, borrador exacto, revisión y comando v3. Default corporativo se afirma ahora
+explícitamente. Admin retro390/768/1440 y Disponibilidaddesktop/móvil también pasaron localmente.
