@@ -15,6 +15,7 @@ export interface CustomerAddress {
 }
 
 export interface CustomerProfile {
+  has_password?: boolean;
   saved_address_id?: string | null;
   id: string | null;
   name: string | null;
@@ -49,8 +50,11 @@ export async function customerRequest<T>(publicKey: string, route: string, body?
 
 export function accessErrorMessage(error: unknown): string {
   if (error instanceof CustomerAccessError) {
-    if (error.status === 401) return 'Tu sesión o código venció. Verifica tu teléfono de nuevo.';
-    if (error.status === 429) return 'Espera un momento antes de solicitar otro código.';
+    if (error.code === 'mobile_credentials_invalid') return 'El teléfono o la contraseña no son correctos.';
+    if (error.code === 'mobile_registration_unavailable') return 'No pudimos crear la cuenta con este teléfono. Si ya tienes cuenta, inicia sesión.';
+    if (error.code === 'mobile_password_policy') return 'Usa una contraseña de 15 a 128 caracteres.';
+    if (error.status === 401) return 'Tu sesión venció. Inicia sesión de nuevo.';
+    if (error.status === 429) return 'Se alcanzó el límite de intentos. Espera unos minutos antes de volver a intentar.';
     if (error.code === 'mobile_customer_ambiguous' || error.code === 'mobile_phone_in_use') {
       return 'Este teléfono necesita revisión. Comunícate con la sucursal para actualizar tu registro.';
     }

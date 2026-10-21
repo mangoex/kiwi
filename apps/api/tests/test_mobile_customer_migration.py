@@ -168,3 +168,70 @@ def test_mobile_customer_migration_postgres() -> None:
     ):
         raise RuntimeError("Use an isolated local crm_mobile_* PostgreSQL database")
     roundtrip(raw)
+
+
+def password_roundtrip(url: str) -> None:
+    from restaurant_os.auth import generate_password_salt, hash_password
+
+    _migrate(url, "upgrade", "0098_mobile_customer_profile")
+    engine = sa.create_engine(url)
+    with engine.begin() as connection:
+        organization = connection.scalar(sa.text("SELECT id FROM organizations LIMIT 1"))
+        connection.execute(sa.text(
+            "INSERT INTO mobile_customer_identities (id, organization_id, phone, created_at) "
+            "VALUES ('password-legacy-test', :org, '+526691239999', CURRENT_TIMESTAMP)"
+        ), {"org": organization})
+        connection.execute(sa.text(
+            "INSERT INTO mobile_customer_sessions (token_hash, identity_id, expires_at, revoked) "
+            "VALUES (:token, 'password-legacy-test', '2027-01-01', false)"
+        ), {"token": "a" * 64})
+    _migrate(url, "upgrade", "0099_mobile_password_access")
+    with engine.begin() as connection:
+        assert connection.scalar(sa.text(
+            "SELECT phone FROM mobile_customer_identities WHERE id='password-legacy-test'"
+        )) == "+526691239999"
+        assert connection.scalar(sa.text("SELECT COUNT(*) FROM mobile_customer_credentials")) == 0
+        assert connection.scalar(sa.text(
+            "SELECT COUNT(*) FROM mobile_customer_sessions WHERE identity_id='password-legacy-test'"
+        )) == 1
+    _migrate(url, "downgrade", "0098_mobile_customer_profile")
+    assert not sa.inspect(engine).has_table("mobile_customer_credentials")
+    _migrate(url, "upgrade", "0099_mobile_password_access")
+    salt = generate_password_salt()
+    with engine.begin() as connection:
+        connection.execute(sa.text(
+            "INSERT INTO mobile_customer_credentials "
+            "(identity_id, password_salt, password_hash, updated_at) "
+            "VALUES ('password-legacy-test', :salt, :hash, CURRENT_TIMESTAMP)"
+        ), {"salt": salt, "hash": hash_password("Synthetic migration password", salt)})
+    with pytest.raises(AssertionError, match="Mobile credentials exist"):
+        _migrate(url, "downgrade", "0098_mobile_customer_profile")
+    with engine.begin() as connection:
+        assert connection.scalar(sa.text("SELECT COUNT(*) FROM mobile_customer_credentials")) == 1
+        connection.execute(sa.text(
+            "DELETE FROM mobile_customer_credentials WHERE identity_id='password-legacy-test'"
+        ))
+    _migrate(url, "downgrade", "0098_mobile_customer_profile")
+    with engine.begin() as connection:
+        connection.execute(sa.text(
+            "DELETE FROM mobile_customer_sessions WHERE identity_id='password-legacy-test'"
+        ))
+        connection.execute(sa.text(
+            "DELETE FROM mobile_customer_identities WHERE id='password-legacy-test'"
+        ))
+    engine.dispose()
+
+
+def test_mobile_password_migration_sqlite(tmp_path: Path) -> None:
+    password_roundtrip(f"sqlite+pysqlite:///{tmp_path / 'mobile-password.sqlite'}")
+
+
+def test_mobile_password_migration_postgres() -> None:
+    raw = os.environ.get("MOBILE_CUSTOMER_TEST_POSTGRES_URL")
+    if not raw:
+        pytest.skip("MOBILE_CUSTOMER_TEST_POSTGRES_URL required for isolated PostgreSQL")
+    url = make_url(raw)
+    if (not url.drivername.startswith("postgresql") or url.host not in {"127.0.0.1", "localhost"}
+            or not (url.database or "").startswith("crm_mobile_") or url.query):
+        raise RuntimeError("Use an isolated local crm_mobile_* PostgreSQL database")
+    password_roundtrip(raw)

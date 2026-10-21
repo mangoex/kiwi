@@ -1,3 +1,5 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-mobile-password-postgres-tests-v1
+# Password literals are synthetic fixtures scoped to isolated crm_mobile_ test databases.
 """R3 controlled races on an explicitly isolated local PostgreSQL database."""
 
 from __future__ import annotations
@@ -177,3 +179,85 @@ def test_overlapping_phone_changes_reject_stale_identity(pg_engine: Any) -> None
         assert len(active) == 1
         assert active[0]["normalized_number"] == winner["phone"]
         assert active[0]["is_primary"]
+
+
+def test_concurrent_password_registration_has_one_owner(pg_engine: Any) -> None:
+    from restaurant_os import mobile_passwords
+
+    barrier = Barrier(2)
+
+    def register() -> str:
+        with Session(pg_engine) as session:
+            barrier.wait(timeout=8)
+            try:
+                mobile_passwords.register(session, KEY, "6691234591", "Mi desayuno favorito 2026!")
+                return "created"
+            except service.MobileError as exc:
+                return exc.code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: register(), range(2)))
+    assert sorted(results) == ["created", "mobile_registration_unavailable"]
+    with Session(pg_engine) as session:
+        assert session.scalar(sa.select(sa.func.count()).select_from(
+            models.mobile_customer_identities
+        ).where(models.mobile_customer_identities.c.phone == "+526691234591")) == 1
+
+
+def test_concurrent_password_rotations_revoke_the_losing_session(pg_engine: Any) -> None:
+    from restaurant_os import mobile_passwords
+
+    password = "Mi desayuno favorito 2026!"
+    with Session(pg_engine) as session:
+        _, token = mobile_passwords.register(session, KEY, "6691234592", password)
+    barrier = Barrier(2)
+
+    def rotate(suffix: str) -> tuple[str, str]:
+        with Session(pg_engine) as session:
+            barrier.wait(timeout=8)
+            try:
+                _, fresh = mobile_passwords.change_password(
+                    session, KEY, token, password, password + suffix,
+                )
+                return "changed", fresh
+            except service.MobileError as exc:
+                return exc.code, ""
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(rotate, (" primero", " segundo")))
+    assert sorted(result[0] for result in results) == ["changed", "mobile_session_required"]
+    with Session(pg_engine) as session:
+        with pytest.raises(service.MobileError, match="mobile_session_required"):
+            service.identity_for_session(session, token, ORGANIZATION_ID)
+        winner = next(result[1] for result in results if result[0] == "changed")
+        assert service.identity_for_session(session, winner, ORGANIZATION_ID)
+        with pytest.raises(service.MobileError, match="mobile_credentials_invalid"):
+            mobile_passwords.login(session, KEY, "6691234592", password)
+
+
+def test_password_throttle_counts_parallel_connections(pg_engine: Any, monkeypatch: Any) -> None:
+    from datetime import datetime, timezone
+
+    from restaurant_os import mobile_passwords
+
+    timestamp = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(service, "now", lambda: timestamp)
+    barrier = Barrier(16)
+
+    def attempt() -> bool:
+        with Session(pg_engine) as session:
+            barrier.wait(timeout=8)
+            try:
+                mobile_passwords.throttle(
+                    session, ORGANIZATION_ID, "synthetic-peer", "+526691234593", "test-key",
+                )
+                return True
+            except service.MobileError as exc:
+                assert exc.code == "mobile_rate_limited"
+                return False
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        results = list(pool.map(lambda _: attempt(), range(16)))
+    assert sum(results) == 10
+    with Session(pg_engine) as session:
+        assert set(session.scalars(sa.select(models.mobile_auth_attempts.c.attempts))) == {16}

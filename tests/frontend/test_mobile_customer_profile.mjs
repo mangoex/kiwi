@@ -35,12 +35,15 @@ const { renderToStaticMarkup } = require('react-dom/server');
 const profile = { id: 'customer-a', name: 'Ana', phone: '+526691234567', email: null,
   birthday_day: 29, birthday_month: 2, birthday_year: null, addresses: [], complete: true };
 
-test('Registration precedes menu and requires a telephone code without exposing CRM data', () => {
+test('Access requires a password and offers registration without exposing CRM data', () => {
   const html = renderToStaticMarkup(React.createElement(profileModule.CustomerAccess, {
     publicKey: 'key', profile: null, onSaved() {},
   }));
-  assert.match(html, /Recibir código/);
-  assert.match(html, /autoComplete="tel-national"/);
+  assert.match(html, /Entrar/);
+  assert.match(html, /Crear cuenta/);
+  assert.match(html, /type="password"/);
+  assert.doesNotMatch(html, /Recibir código|one-time-code/);
+  assert.match(html, /autoComplete="username"/);
   assert.doesNotMatch(html, /value="Ana"|customer-a["<>]/);
 });
 
@@ -52,7 +55,8 @@ test('Profile renders partial birthday, optional year, delivery email and addres
   assert.match(html, /value="29"/);
   assert.match(html, /obligatorio para delivery/);
   assert.match(html, /Completar domicilio de entrega/);
-  assert.match(html, /Teléfono verificado/);
+  assert.match(html, /Teléfono/);
+  assert.doesNotMatch(html, /Teléfono verificado/);
 });
 
 test('Mobile bottom navigation exposes profile', () => {
@@ -79,4 +83,11 @@ test('HTTP failures remain failures and explain identity collisions without expo
   await assert.rejects(client.customerRequest('key', 'access/verify', {}), error => {
     assert.match(client.accessErrorMessage(error), /revisión/); return error.status === 409;
   });
+});
+
+
+test('Credential errors distinguish invalid password, expired session and throttling', () => {
+  assert.match(client.accessErrorMessage(new client.CustomerAccessError(401, 'mobile_credentials_invalid')), /contraseña no son correctos/);
+  assert.match(client.accessErrorMessage(new client.CustomerAccessError(401, 'mobile_session_required')), /sesión venció/);
+  assert.match(client.accessErrorMessage(new client.CustomerAccessError(429, 'mobile_rate_limited')), /límite de intentos/);
 });

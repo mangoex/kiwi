@@ -1589,11 +1589,12 @@ La versión 1 podrá declararse operativa cuando una sucursal piloto pueda:
 
 - `PRD-FR-281`: Sólo la web app móvil del menú digital exige acceso antes de consultar
   el menú o pedir. El alta mínima solicita nombre, teléfono mexicano y cumpleaños (día y mes;
-  año opcional). La identidad se acredita por código al teléfono; capturarlo no da acceso al CRM.
+  año opcional) y contraseña. El acceso habitual usa teléfono y contraseña sin proveedor de SMS.
+  El teléfono capturado no acredita posesión ni permite reclamar datos de clientes existentes.
   El perfil permite completar y editar nombre, cumpleaños, correo y domicilios; cambiar teléfono
-  exige verificar el nuevo. No cambia el acceso de Admin, POS, KDS ni integraciones existentes.
+  exige la contraseña actual y no admite otro teléfono con cuenta. No cambia el acceso de Admin, POS, KDS ni integraciones existentes.
 - `PRD-FR-282`: El CRM conserva cumpleaños parcial sin inventar año y reutiliza domicilios
-  estructurados. Tras verificar teléfono se vincula una coincidencia activa única de la misma
-  organización; coincidencias múltiples se bloquean para resolución administrativa, sin fusionar.
+  estructurados. El registro por contraseña crea un perfil propio, sin vincular automáticamente
+  coincidencias telefónicas históricas. Las identidades verificadas existentes conservan su vínculo.
   Delivery móvil exige correo y domicilio propio completo. Los pedidos aceptados se vinculan al
   ID del cliente para consumo; los snapshots históricos no cambian al editar perfil.

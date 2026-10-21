@@ -15,7 +15,7 @@ import { BranchSelectorModal } from './components/BranchSelectorModal';
 import { detectProductSize } from './imageMap';
 import { usePublicOrderTracking } from './hooks/usePublicOrderTracking';
 import { ActiveOrderTracker } from './components/ActiveOrderTracker';
-import { CustomerAccess, ProfileEditor, PhoneChange } from './components/CustomerProfile';
+import { CustomerAccess, ProfileEditor, PhoneChange, PasswordChange } from './components/CustomerProfile';
 import { CustomerProfile, customerRequest, CustomerAccessError, accessErrorMessage } from './customerProfile';
 
 const EXCLUDED_CATEGORY_KEYWORDS = [
@@ -61,18 +61,19 @@ export const App: React.FC = () => {
   const [profileBranchKey, setProfileBranchKey] = useState<string | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [accessError, setAccessError] = useState('');
+  const [accessUnavailable, setAccessUnavailable] = useState(false);
   const [returnToCartAfterProfile, setReturnToCartAfterProfile] = useState(false);
   const [accessRevision, setAccessRevision] = useState(0);
   useEffect(() => {
     let active = true;
-    setProfile(null); setProfileBranchKey(null); setProfileLoading(true); setAccessError('');
+    setProfile(null); setProfileBranchKey(null); setProfileLoading(true); setAccessError(''); setAccessUnavailable(false);
     const key = selectedBranch?.public_key;
     if (!key) { setProfileLoading(false); return; }
     customerRequest<CustomerProfile>(key, 'profile', undefined, 'GET').then(value => {
       if (active) { setProfile(value); setProfileBranchKey(key); }
     }).catch(error => {
       if (active && !(error instanceof CustomerAccessError && error.status === 401)) {
-        setAccessError(accessErrorMessage(error));
+        setAccessError(accessErrorMessage(error)); setAccessUnavailable(true);
       }
     }).finally(() => { if (active) setProfileLoading(false); });
     return () => { active = false; };
@@ -188,7 +189,9 @@ export const App: React.FC = () => {
       setLoading(false);
       const status = (error as { status?: number }).status;
       if (status === 401) { setProfile(null); setIsCartOpen(false); }
-      setAccessError(status === 401 ? 'Tu sesión venció. Verifica tu teléfono para continuar.' : 'No pudimos cargar el menú. Reintenta en un momento.');
+      setProducts([]); setCategories([]);
+      if (status !== 401) setAccessUnavailable(true);
+      setAccessError(status === 401 ? 'Tu sesión venció. Inicia sesión para continuar.' : 'No pudimos cargar el menú. Reintenta en un momento.');
     });
     return () => {
       isMounted = false;
@@ -441,7 +444,7 @@ export const App: React.FC = () => {
   const currentCategory = visibleCategories.find((c) => c.id === activeCategoryId);
 
   const acceptProfile = (value: CustomerProfile) => {
-    setProfile(value); setProfileBranchKey(selectedBranch?.public_key || null); setAccessError('');
+    setProfile(value); setProfileBranchKey(selectedBranch?.public_key || null); setAccessError(''); setAccessUnavailable(false);
   };
   if (profileLoading || isLoadingLocation) {
     return <main className="customer-access"><p role="status">Preparando tu acceso a Kiwi…</p></main>;
@@ -450,6 +453,13 @@ export const App: React.FC = () => {
     return <main className="customer-access"><div className="customer-access-card"><h1>Kiwi</h1>
       <p role="alert">El acceso al menú no está disponible en esta sucursal por ahora.</p>
       <button onClick={() => detectLocationAndFetchBranches(false)}>Reintentar</button>
+    </div></main>;
+  }
+  if (accessUnavailable) {
+    return <main className="customer-access"><div className="customer-access-card customer-profile-form">
+      <span className="customer-brand">🥝 Kiwi</span><h1>No pudimos preparar tu acceso</h1>
+      <p role="alert">{accessError}</p>
+      <button className="customer-primary" onClick={() => setAccessRevision(value => value + 1)}>Reintentar acceso</button>
     </div></main>;
   }
   if (!profile?.complete || profileBranchKey !== selectedBranch.public_key) {
@@ -555,7 +565,8 @@ export const App: React.FC = () => {
             setReturnToCartAfterProfile(false); setCurrentTab('explore'); setIsCartOpen(true);
           }
         }} />
-        <PhoneChange publicKey={selectedBranch.public_key} onSaved={acceptProfile} onSessionExpired={() => setProfile(null)} />
+        <PasswordChange publicKey={selectedBranch.public_key} hasPassword={profile.has_password ?? false} onSaved={acceptProfile} onSessionExpired={() => setProfile(null)} />
+        {profile.has_password && <PhoneChange publicKey={selectedBranch.public_key} onSaved={acceptProfile} onSessionExpired={() => setProfile(null)} />}
         {accessError && <p role="alert">{accessError}</p>}
         <button type="button" onClick={async () => {
           try {

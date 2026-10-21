@@ -8,6 +8,7 @@ from restaurant_os.fiscal_command_schema import tables as fiscal_command_tables
 from restaurant_os.fiscal_emitter_schema import LEGAL_ENTITY_INDEX
 from restaurant_os.fiscal_emitter_schema import tables as fiscal_emitter_tables
 from restaurant_os.mobile_customer_schema import mobile_tables as _mobile_tables
+from restaurant_os.mobile_password_schema import password_tables as _mobile_password_tables
 from restaurant_os.offline_authorization_schema import USER_SCOPE_INDEX
 from restaurant_os.offline_authorization_schema import tables as offline_authorization_tables
 from restaurant_os.offline_cutover_schema import table as offline_cutover_table
@@ -4079,3 +4080,5 @@ operational_command_intents = operational_intent_table(metadata, cash_lifecycle=
 (mobile_customer_identities, mobile_access_challenges, mobile_customer_sessions) = (
     _mobile_tables(metadata)
 )
+
+mobile_customer_credentials, mobile_auth_attempts = _mobile_password_tables(metadata)

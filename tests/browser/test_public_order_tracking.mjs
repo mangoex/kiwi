@@ -1,3 +1,5 @@
+// SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-tracking-password-browser-v1
+// Password literals are synthetic fixtures; this test requires the loopback-only API.
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,8 +23,10 @@ async function authenticateCustomer(context) {
     });
     assert.ok(response.ok(), await response.text()); return response.json();
   };
-  const challenge = await customerRequest('/access/start', { phone: '6141234567' });
-  await customerRequest('/access/verify', { challenge: challenge.challenge, code: '123456' });
+  const credentials = { phone: '6141234567', password: 'Seguimiento de pedidos seguro 2026!' };
+  if (!authenticateCustomer.registered) {
+    await customerRequest('/access/register', credentials); authenticateCustomer.registered = true;
+  } else await customerRequest('/access/login', credentials);
   await customerRequest('/profile', { name: 'Seguimiento QA', birthday_day: 1, birthday_month: 1 }, 'put');
 }
 

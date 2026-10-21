@@ -1,3 +1,5 @@
+// SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-mobile-password-browser-v1
+// Password literals are synthetic fixtures; this test requires the loopback-only API.
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,15 +19,26 @@ try {
     const page = await context.newPage();
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     const requests = []; page.on('request', request => requests.push(request.url()));
+    await page.route('**/api/v1/mobile/branches/*/profile', async route => {
+      if (route.request().method() === 'GET') await route.fulfill({ status: 503, json: { detail: { code: 'mobile_access_unavailable' } } });
+      else await route.continue();
+    });
     await page.goto(base + '/menu/');
+    await page.getByRole('heading', { name: 'No pudimos preparar tu acceso' }).waitFor();
+    assert.equal(await page.getByLabel('Tu teléfono').count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Entrar', exact: true }).count(), 0);
+    await page.unroute('**/api/v1/mobile/branches/*/profile');
+    await page.getByRole('button', { name: 'Reintentar acceso' }).click();
     await page.getByRole('heading', { name: 'Bienvenido a Kiwi' }).waitFor();
+    await page.getByRole('button', { name: 'Crear cuenta', exact: true }).click();
     assert.ok(!requests.some(url => /\/public\/(catalog|branches\/[^/]+\/catalog)/.test(url)));
     await page.screenshot({ path: join(output, `access-${width}.png`) });
     const phone = '669' + String(randomInt(1000000, 9999999));
     await page.getByLabel('Tu teléfono').fill(phone);
-    await page.getByRole('button', { name: 'Recibir código' }).click();
-    await page.getByLabel('Código de verificación').fill('123456');
-    await page.getByRole('button', { name: 'Verificar y continuar' }).click();
+    const password = 'Mi desayuno favorito 2026!';
+    await page.getByLabel('Contraseña', { exact: true }).fill(password);
+    await page.getByLabel('Confirmar contraseña', { exact: true }).fill(password);
+    await page.getByRole('button', { name: 'Crear mi cuenta' }).click();
     await page.getByRole('heading', { name: 'Cuéntanos de ti' }).waitFor();
     await page.getByLabel('Nombre completo').fill(`Cliente QA ${width}`);
     await page.getByLabel('Día', { exact: true }).fill('29');
@@ -80,6 +93,20 @@ try {
     assert.equal(await page.getByRole('button', { name: /Enviar Pedido/ }).count(), 1);
     await page.getByRole('button', { name: /Enviar Pedido/ }).click();
     await page.getByRole('heading', { name: /Esperando confirmación|Solicitud recibida/ }).first().waitFor();
+    // A fresh browser session must authenticate by password, without any SMS fixture.
+    const returning = await browser.newContext({ viewport: { width, height: 900 } });
+    const login = await returning.newPage();
+    await login.goto(base + '/menu/');
+    await login.getByRole('heading', { name: 'Bienvenido a Kiwi' }).waitFor();
+    await login.getByLabel('Tu teléfono').fill(phone);
+    await login.getByLabel('Contraseña', { exact: true }).fill('Una contraseña incorrecta');
+    await login.getByRole('button', { name: 'Entrar', exact: true }).click();
+    await login.getByRole('alert').filter({ hasText: 'El teléfono o la contraseña no son correctos.' }).waitFor();
+    await login.getByLabel('Contraseña', { exact: true }).fill(password);
+    await login.getByRole('button', { name: 'Entrar', exact: true }).click();
+    await login.getByRole('button', { name: 'Mi perfil', exact: true }).click();
+    assert.equal(await login.getByLabel('Nombre completo').inputValue(), `Cliente QA editado ${width}`);
+    await returning.close();
     assert.deepEqual(errors, []);
     await context.close();
     console.log(`Mobile customer journey PASS ${width}px`);

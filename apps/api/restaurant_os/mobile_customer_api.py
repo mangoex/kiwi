@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from restaurant_os import mobile_customers as service
+from restaurant_os import mobile_passwords as passwords
 from restaurant_os.api import (
     PublicOrderIntentLine,
     _business_response,
@@ -45,6 +46,23 @@ class AccessStart(StrictPayload):
 class AccessVerify(StrictPayload):
     challenge: str = Field(min_length=40, max_length=64)
     code: str = Field(pattern=r"^[0-9]{4,10}$")
+
+
+class PasswordLogin(AccessStart):
+    password: str = Field(min_length=1, max_length=128, repr=False)
+
+
+class PasswordRegister(AccessStart):
+    password: str = Field(min_length=15, max_length=128, repr=False)
+
+
+class PasswordChange(StrictPayload):
+    current_password: str = Field(default="", max_length=128, repr=False)
+    new_password: str = Field(min_length=15, max_length=128, repr=False)
+
+
+class PasswordPhoneChange(AccessStart):
+    current_password: str = Field(min_length=1, max_length=128, repr=False)
 
 
 class Address(StrictPayload):
@@ -153,6 +171,85 @@ def _limit(request: Request, key: dict[str, Any], phone: str = "") -> None:
         raise service.MobileError("mobile_access_unavailable", 503) from None
     if not allowed:
         raise service.MobileError("mobile_rate_limited", 429)
+
+
+def _password_limit(request: Request, session: Session, key: dict[str, Any], phone: str) -> None:
+    passwords.throttle(
+        session, str(key["organization_id"]),
+        request.client.host if request.client else "unknown", phone, get_settings().secret_key,
+    )
+
+
+def _password_response(
+    session: Session, response: Response, result: tuple[dict[str, Any], str],
+) -> Any:
+    identity, token = result
+    response.set_cookie(
+        service.COOKIE, token, max_age=30 * 86400, httponly=True,
+        secure=get_settings().environment == "production", samesite="strict",
+        path="/api/v1/mobile",
+    )
+    return service.read_profile(session, identity)
+
+
+@router.post("/access/register")
+def register(
+    public_key: str, payload: PasswordRegister, request: Request,
+    response: Response, session: SessionDep,
+) -> Any:
+    def operation() -> Any:
+        key = _key(request, session, public_key)
+        phone = normalize_mexican_phone(payload.phone)
+        _password_limit(request, session, key, phone)
+        return _password_response(session, response,
+                                  passwords.register(session, key, phone, payload.password))
+    return _run(session, operation)
+
+
+@router.post("/access/login")
+def login(
+    public_key: str, payload: PasswordLogin, request: Request,
+    response: Response, session: SessionDep,
+) -> Any:
+    def operation() -> Any:
+        key = _key(request, session, public_key)
+        phone = normalize_mexican_phone(payload.phone)
+        _password_limit(request, session, key, phone)
+        return _password_response(session, response,
+                                  passwords.login(session, key, phone, payload.password))
+    return _run(session, operation)
+
+
+@router.put("/profile/password")
+def change_password(
+    public_key: str, payload: PasswordChange, request: Request,
+    response: Response, session: SessionDep,
+) -> Any:
+    def operation() -> Any:
+        key = _key(request, session, public_key)
+        identity = _identity(request, session, key)
+        _password_limit(request, session, key, str(identity["phone"]))
+        return _password_response(session, response, passwords.change_password(
+            session, key, request.cookies.get(service.COOKIE, ""),
+            payload.current_password, payload.new_password,
+        ))
+    return _run(session, operation)
+
+
+@router.put("/profile/phone")
+def change_phone(
+    public_key: str, payload: PasswordPhoneChange, request: Request,
+    response: Response, session: SessionDep,
+) -> Any:
+    def operation() -> Any:
+        key = _key(request, session, public_key)
+        identity = _identity(request, session, key)
+        _password_limit(request, session, key, str(identity["phone"]))
+        return _password_response(session, response, passwords.change_phone(
+            session, key, request.cookies.get(service.COOKIE, ""),
+            payload.current_password, payload.phone,
+        ))
+    return _run(session, operation)
 
 
 @router.post("/access/start")

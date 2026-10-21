@@ -9,21 +9,22 @@ Feature: Consultar y pedir con identidad propia
   @BDD-SC-740
   Scenario: Alta mínima con cumpleaños parcial
     Given un visitante sin sesión móvil
-    When verifica su teléfono y registra nombre y cumpleaños sin año
+    When crea su cuenta con teléfono y contraseña y registra nombre y cumpleaños sin año
     Then puede consultar el menú y el CRM conserva día y mes sin inventar año
 
   @BDD-SC-741
   Scenario: Acceso y aislamiento
-    Given un código incorrecto, vencido, agotado o ya consumido
+    Given una contraseña incorrecta, una sesión vencida o un límite agotado
     When intenta acceder o editar un perfil ajeno
     Then no obtiene sesión ni datos personales
     And una sesión móvil no autoriza endpoints de empleados
 
   @BDD-SC-742
-  Scenario: Reutilizar CRM sin fusionar
-    Given un teléfono verificado con coincidencias en la organización
-    When hay una única coincidencia activa se vincula al mismo cliente
-    Then si hay varias se exige resolución administrativa sin exponer candidatos
+  Scenario: No reclamar CRM por teléfono capturado
+    Given un teléfono con coincidencias históricas en la organización
+    When se registra una nueva cuenta con contraseña
+    Then obtiene un perfil propio vacío sin revelar ni modificar las coincidencias
+    And si ya hay una cuenta móvil el registro no reemplaza sus credenciales
 
   @BDD-SC-743
   Scenario: Delivery y consumo histórico
@@ -38,5 +39,7 @@ Feature: Consultar y pedir con identidad propia
     Given un cliente con sesión
     When edita cumpleaños, correo y domicilio propios
     Then el CRM recibe los cambios válidos
-    And cambiar teléfono requiere un código válido al nuevo teléfono sin tomar otra identidad
+    And cambiar teléfono o contraseña requiere la contraseña actual sin tomar otra identidad
+    And revoca las sesiones anteriores y conserva el historial
+    And un servicio indisponible impide mostrar el formulario como si estuviera operativo
 ```

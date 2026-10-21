@@ -34,6 +34,7 @@ def main() -> None:
     from test_platform_api import ADMIN_USER_ID
 
     client = client_with_mobile()
+    client.app.state.mobile_phone_verifier = None
     (directory / "manifest.json").write_text(
         json.dumps(
             {
