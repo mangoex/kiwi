@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchApi, type DeliveryCharge, type DeliveryOptions, type DeliverySelection } from '@restaurantos/api-client';
 import { Button } from '@restaurantos/ui';
+import { Bike, ChevronDown } from 'lucide-react';
 import { formatMxnCents } from './cartMoney';
 
 export function DeliveryFeeControl({ branchId, selection, charge, onChange }: {
@@ -25,25 +26,37 @@ export function DeliveryFeeControl({ branchId, selection, charge, onChange }: {
   if (charge && !tariffs.some((tariff) => tariff.id === charge.tariff.id)) tariffs.unshift(charge.tariff);
   const removed = selection.mode === 'REMOVED';
   const waived = charge?.state === 'WAIVED_THRESHOLD';
-  return <fieldset className="delivery-fee-control" style={{ margin: '12px 0', padding: 12, border: '1px solid #d1d5db', borderRadius: 8 }}>
-    <legend>Servicio de domicilio</legend>
+  return <fieldset className="delivery-fee-control">
+    <legend className="pos-sr-only">Servicio de domicilio</legend>
+    <details>
+      <summary aria-label="Opciones de envío">
+        <Bike size={19} aria-hidden="true" />
+        <span className="delivery-fee-caption"><strong>Envío</strong><small>{charge?.state === 'REMOVED'
+          ? 'Retirado manualmente' : waived ? 'Por monto mínimo' : charge?.tariff.name || 'Calculando…'}</small></span>
+        <strong>{charge?.state === 'REMOVED' ? 'Sin cargo' : waived ? 'Gratis' : charge ? formatMxnCents(charge.charged_cents) : '—'}</strong>
+        <ChevronDown size={16} className="delivery-fee-chevron" aria-hidden="true" />
+      </summary>
+      <div className="delivery-fee-options">
+        <strong>Opciones de envío</strong>
+        <label htmlFor="delivery-tariff">Tarifa de envío</label>
+        <select id="delivery-tariff" disabled={removed || !options}
+          value={selection.mode === 'SELECTED' ? selection.tariff_id : 'AUTO'}
+          onChange={(event) => onChange(event.target.value === 'AUTO' ? { mode: 'AUTO' }
+            : { mode: 'SELECTED', tariff_id: event.target.value })}>
+          <option value="AUTO">Predeterminada{charge ? ` · ${charge.tariff.name}` : ''}</option>
+          {tariffs.map((tariff) => <option key={tariff.id} value={tariff.id}>
+            {tariff.name}{!waived && ` · ${formatMxnCents(tariff.amount_cents)}`}
+          </option>)}
+        </select>
+        <p role="status">{charge?.state === 'REMOVED' ? 'Envío retirado manualmente'
+          : waived ? 'Envío gratis por monto mínimo'
+          : charge ? `${formatMxnCents(charge.charged_cents)} · IVA 16% incluido` : 'Calculando envío…'}</p>
+        {charge && !waived && <p>Base del envío: {formatMxnCents(charge.net_cents)} · IVA: {formatMxnCents(charge.tax_cents)}</p>}
+        <Button variant="secondary" onClick={() => onChange({ mode: removed ? 'AUTO' : 'REMOVED' })}>
+          {removed ? 'Restaurar envío' : 'Quitar envío'}
+        </Button>
+      </div>
+    </details>
     {error && <p role="alert">{error}</p>}
-    <label htmlFor="delivery-tariff">Tarifa de envío</label>
-    <select id="delivery-tariff" disabled={removed || !options} style={{ width: '100%', padding: 8 }}
-      value={selection.mode === 'SELECTED' ? selection.tariff_id : 'AUTO'}
-      onChange={(event) => onChange(event.target.value === 'AUTO' ? { mode: 'AUTO' }
-        : { mode: 'SELECTED', tariff_id: event.target.value })}>
-      <option value="AUTO">Predeterminada{charge ? ` · ${charge.tariff.name}` : ''}</option>
-      {tariffs.map((tariff) => <option key={tariff.id} value={tariff.id}>
-        {tariff.name}{!waived && ` · ${formatMxnCents(tariff.amount_cents)}`}
-      </option>)}
-    </select>
-    <p role="status">{charge?.state === 'REMOVED' ? 'Envío retirado manualmente'
-      : waived ? 'Envío gratis por monto mínimo'
-      : charge ? `${formatMxnCents(charge.charged_cents)} · IVA 16% incluido` : 'Calculando envío…'}</p>
-    {charge && !waived && <p>Base del envío: {formatMxnCents(charge.net_cents)} · IVA: {formatMxnCents(charge.tax_cents)}</p>}
-    <Button variant="secondary" onClick={() => onChange({ mode: removed ? 'AUTO' : 'REMOVED' })}>
-      {removed ? 'Restaurar envío' : 'Quitar envío'}
-    </Button>
   </fieldset>;
 }

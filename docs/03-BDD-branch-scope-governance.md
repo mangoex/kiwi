@@ -15,6 +15,8 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
     And si el módulo sólo admite configuración corporativa no muestra selector ni etiqueta de sucursal
     But si admite excepciones locales el selector muestra Todas las sucursales
     And active_branch, la primera sucursal y localStorage no sustituyen ese alcance
+    And en los demás módulos corporativos el encabezado identifica Administración corporativa
+    And no ofrece un selector global de configuración en módulos que resuelven su alcance dentro de la pantalla
 
   @PRD-FR-266
   @BDD-SC-631

@@ -19,6 +19,10 @@ cambios no crea una revisión artificial. Defaults/umbral y captura son atómico
 umbral desactivado NULL frente a 50000 habilitado, cero/negativo no equivalen a desactivado.
 Archivar no borra historia ni reprecifica pedidos. Fixture explícito de dos sucursales y otra org.
 
+UI R1: catálogo legible, alta/edición en diálogo con nombre y foco por teclado; cancelar conserva
+el catálogo. `tests/browser/test_delivery_fee.mjs` crea y revisa una tarifa con API real, verifica
+la captura exacta y confirma apertura/cierre del diálogo en móvil y escritorio.
+
 ### TDD-TC-439 Autoridad, destino y publicación concurrente
 
 BDD-SC-747/751/766; `catalog.manage` corporativo, opciones locales scoped, rechazo de manipulación
@@ -26,6 +30,17 @@ de org/branch/tariff y de rol sin capacidad. Sin cambios de workspace, caja ni c
 override de §58, default único dentro de lista activa; intento de inactivar default sin reemplazo.
 PostgreSQL con dos conexiones/barrera real: dos publicaciones con misma versión, sólo un ganador;
 rollback sin escritura parcial y errores seguros. No sustituir esa carrera con SQLite o mocks.
+
+La misma prueba browser distingue configuración general de sucursal, previsualiza el borrador,
+guarda un mínimo, recarga, desactiva la gratuidad y confirma persistencia. Conserva versión,
+alcance y herencia y comprueba ausencia de desbordamiento a 390/1024/1440 px.
+La confirmación de guardado desaparece al modificar el borrador; recargar recupera lo guardado.
+El encabezado del catálogo muestra Administración corporativa, independiente de la sucursal
+elegida en el formulario; los selectores del panel y de configuración compatibles se conservan.
+
+Preguntas operativas de la UI: ¿se confirmó el guardado? Respuesta real y confirmación junto al
+formulario; error mantiene el editor abierto. ¿a qué alcance corresponde? Selector y fuente de
+configuración visibles, `scope_key`/versión conservados en el comando y verificados al recargar.
 
 ## TDD-TS-155 Cotización, selección y comando monetario
 
@@ -42,6 +57,10 @@ AUTO, SELECTED y REMOVED sobreviven recotización, restauración de borrador y c
 recoger cobra cero y regresar a delivery conserva preferencia. Restaurar y nuevo pedido funcionan
 de forma distinta: nuevo usa AUTO/config actual. Retiro registra actor/motivo sin elevar permiso.
 Verificar estado UI y respuesta real del servicio, no sólo presencia de strings en el componente.
+Regresión R1 de presentación: envío cerrado por defecto, apertura por teclado sin recotizar,
+selector y retiro accesibles al abrir. Con tres líneas sintéticas y cotización lista, a 1366x768 y 1440x900,
+la lista conserva al menos 240 px de alto, desplazamiento propio y confirmación visible;
+al desplegar el envío, sus opciones desplazan sólo su área acotada. Revisar también 390 px.
 
 ### TDD-TC-441 Enmienda y fronteras de autorización
 

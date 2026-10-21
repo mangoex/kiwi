@@ -142,6 +142,9 @@ try {
         'Products must not present the preview branch as its configuration scope',
       );
       await admin.screenshot({ path: `${output}/admin-default-off-${label}.png`, fullPage: true });
+      await admin.goto(`${adminUrl}/delivery-services`, { waitUntil: 'domcontentloaded' });
+      await admin.locator('.admin-topbar').getByText('Administración corporativa', { exact: true }).waitFor();
+      assert.equal(await admin.getByLabel('Alcance de configuración', { exact: true }).count(), 0);
       await admin.close();
 
       const pos = await browser.newPage({ viewport });

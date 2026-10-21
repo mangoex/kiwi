@@ -349,6 +349,15 @@
   font-weight: 700;
 }
 
+.admin-corporate-context {
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: #f4f5f6;
+  color: var(--admin-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .admin-configuration-scope-static {
   min-width: 150px;
   padding: 10px 12px;

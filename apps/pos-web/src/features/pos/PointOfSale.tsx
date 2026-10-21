@@ -1847,8 +1847,8 @@ const PointOfSale = () => {
           <div className="pos-sale-cart-heading">
             <div><span>Cuenta actual</span><strong>Detalle del pedido</strong></div>
             <div className="pos-sale-cart-actions">
-              <button type="button" onClick={() => setPaymentOpen(true)}><Users size={17} /><span>{selectedCustomer?.name || 'Cliente'}</span></button>
-              <button type="button" onClick={() => void openIngredientExtras()} disabled={cart.length === 0 || extrasLoading}><Plus size={17} /><span>Adicionales</span></button>
+              <button type="button" title={selectedCustomer?.name || 'Seleccionar cliente'} onClick={() => setPaymentOpen(true)}><Users size={17} /><span>{selectedCustomer?.name || 'Cliente'}</span></button>
+              <button type="button" aria-label="Adicionales" title="Agregar adicionales" onClick={() => void openIngredientExtras()} disabled={cart.length === 0 || extrasLoading}><Plus size={17} /></button>
             </div>
           </div>
 
@@ -1857,14 +1857,22 @@ const PointOfSale = () => {
               <button key={type.value} type="button" disabled={Boolean(editingOrder)} aria-pressed={type.value === 'takeout' ? orderType !== 'delivery' : orderType === 'delivery'} className={(type.value === 'takeout' ? orderType !== 'delivery' : orderType === 'delivery') ? 'active' : ''} onClick={() => setOrderType(type.value)}>{type.label}</button>
             ))}
           </div>
-          {!editOrderId && <div className="pos-cashier-hold-actions">
-            <button type="button" disabled={!drafts.ready || !cart.length || checkoutState === 'submitting'}
-              onClick={() => { try { drafts.hold(); setDraftActionError(''); } catch (reason) {
-                setDraftActionError(reason instanceof Error ? reason.message : 'No se pudo dejar en espera.');
-              } }}>Dejar en espera</button>
-            <button type="button" disabled={!drafts.ready || !drafts.held.length || checkoutState === 'submitting'}
-              onClick={() => setHeldOpen(true)}>En espera ({drafts.held.length})</button>
-          </div>}
+          <div className="pos-sale-order-tools">
+            {!editOrderId && <div className="pos-cashier-hold-actions">
+              <button type="button" disabled={!drafts.ready || !cart.length || checkoutState === 'submitting'}
+                onClick={() => { try { drafts.hold(); setDraftActionError(''); } catch (reason) {
+                  setDraftActionError(reason instanceof Error ? reason.message : 'No se pudo dejar en espera.');
+                } }}>Dejar en espera</button>
+              <button type="button" disabled={!drafts.ready || !drafts.held.length || checkoutState === 'submitting'}
+                onClick={() => setHeldOpen(true)}>En espera ({drafts.held.length})</button>
+            </div>}
+            <button type="button" className="pos-sale-discount"
+              disabled={Boolean(editingOrder) || cart.length === 0 || quoteState !== 'ready'}
+              aria-label={effectiveCourtesyCents > 0 ? 'Modificar Cortesía / Ajuste' : 'Aplicar Cortesía / Descuento'}
+              onClick={() => setIsCourtesyModalOpen(true)}>
+              {effectiveCourtesyCents > 0 ? 'Descuento ✓' : 'Descuento'}
+            </button>
+          </div>
           {orderType !== 'delivery' && <div className="pos-cashier-collection-mode" aria-label="Cuándo se cobra">
             <button type="button" disabled={Boolean(editingOrder)} aria-pressed={orderType === 'takeout'} onClick={() => setOrderType('takeout')}>Cobrar al entregar</button>
             <button type="button" disabled={Boolean(editingOrder) || !hasPermission('payments.confirm')} aria-pressed={orderType === 'dine-in'} onClick={() => setOrderType('dine-in')}>Cobrar ahora</button>
@@ -1913,11 +1921,13 @@ const PointOfSale = () => {
               cart.map((item, index) => (
                 <div key={item.lineId} className="pos-sale-cart-item">
                   <div className="pos-sale-cart-copy">
-                    <strong>{item.name}</strong>
+                    <div className="pos-sale-cart-product-heading">
+                      <strong>{item.name}</strong>
+                      <strong className="pos-sale-cart-line-amount">{orderQuote?.lines[index] ? formatMxnCents(orderQuote.lines[index].line_total_cents) : '—'}</strong>
+                    </div>
                     <span>Precio base {formatMxnCents(item.price_cents)}</span>
                     {item.commentPresets.map((comment) => <small key={comment.id}>Comentario: {comment.text}</small>)}
                     {item.notes && <small className="pos-cashier-line-note">Nota: {item.notes}</small>}
-                    <button className="pos-cashier-note-control" type="button" onClick={() => setLineEditor({ lineId: item.lineId, quantity: String(item.quantity), notes: item.notes })} aria-label={`Nota de ${item.name}`}>{item.notes ? 'Editar nota' : '+ Nota'}</button>
                     {item.modifiers.map((modifier) => (
                       <small key={modifier.option_id}>
                         + {modifier.text || modifier.option_name} · {modifier.price_delta_cents > 0
@@ -1931,35 +1941,29 @@ const PointOfSale = () => {
                         <button type="button" aria-label={`Quitar ${extra.name}`} onClick={() => removeIngredientExtra(item.lineId, extra.extra_id)}><X size={12} /></button>
                       </small>
                     ))}
-                    <div className="pos-sale-cart-line-footer">
-                      <div className="pos-sale-cart-line-total">
-                        <span>Importe</span>
-                        <strong>{orderQuote?.lines[index] ? formatMxnCents(orderQuote.lines[index].line_total_cents) : '—'}</strong>
-                      </div>
-                      <button type="button" className="pos-sale-cart-remove" onClick={() => removeCartLine(item.lineId)} aria-label={`Eliminar ${item.name} del pedido`}><Trash2 size={16} /><span>Eliminar</span></button>
-                    </div>
                   </div>
-                  <div className="pos-sale-cart-controls">
-                    <div>
-                      <button type="button" onClick={() => updateQuantity(item.lineId, 1)} aria-label={`Sumar ${item.name}`}><Plus size={18} /></button>
-                      <button type="button" className="pos-cashier-quantity" aria-label={`Cantidad de ${item.name}: ${item.quantity}`} onClick={() => setLineEditor({ lineId: item.lineId, quantity: String(item.quantity), notes: item.notes })}>{item.quantity}</button>
-                      <button type="button" onClick={() => updateQuantity(item.lineId, -1)} aria-label={`Restar ${item.name}`}><Minus size={18} /></button>
+                  <div className="pos-sale-cart-line-footer">
+                    <div className="pos-sale-cart-controls">
+                      <div>
+                        <button type="button" onClick={() => updateQuantity(item.lineId, -1)} aria-label={`Restar ${item.name}`}><Minus size={18} /></button>
+                        <button type="button" className="pos-cashier-quantity" aria-label={`Cantidad de ${item.name}: ${item.quantity}`} onClick={() => setLineEditor({ lineId: item.lineId, quantity: String(item.quantity), notes: item.notes })}>{item.quantity}</button>
+                        <button type="button" onClick={() => updateQuantity(item.lineId, 1)} aria-label={`Sumar ${item.name}`}><Plus size={18} /></button>
+                      </div>
                     </div>
+                    <button className="pos-cashier-note-control" type="button" onClick={() => setLineEditor({ lineId: item.lineId, quantity: String(item.quantity), notes: item.notes })} aria-label={`Nota de ${item.name}`}>{item.notes ? 'Editar nota' : '+ Nota'}</button>
+                    <button type="button" className="pos-sale-cart-remove" title="Eliminar producto" onClick={() => removeCartLine(item.lineId)} aria-label={`Eliminar ${item.name} del pedido`}><Trash2 size={16} /></button>
                   </div>
                 </div>
               ))
             )}
           </div>
 
-          <div className="pos-sale-summary">
+          <div className="pos-sale-checkout">
             {orderType === 'delivery' && branchId && <DeliveryFeeControl branchId={branchId}
               selection={deliverySelection} charge={orderQuote?.delivery_charge || null}
               onChange={(selection) => { setOrderQuote(null); setQuoteState('loading'); setDeliverySelection(selection); }} />}
+          <div className="pos-sale-summary">
             <div><span>Subtotal de productos</span><span>{orderQuote ? formatMxnCents(subtotalCents) : '—'}</span></div>
-            {orderQuote?.delivery_charge && <div>
-              <span>{orderQuote.delivery_charge.state === 'WAIVED_THRESHOLD' ? 'Envío' : 'Envío (IVA incluido)'}</span>
-              <span>{orderQuote.delivery_charge.state === 'WAIVED_THRESHOLD' ? 'Gratis' : formatMxnCents(orderQuote.delivery_charge.charged_cents)}</span>
-            </div>}
             {effectiveCourtesyCents > 0 && (
               <div style={{ color: '#059669', fontWeight: 600 }}>
                 <span>Cortesía / Descuento ({courtesyReason})</span>
@@ -1970,18 +1974,6 @@ const PointOfSale = () => {
             <div className="total"><strong>Total</strong><strong>{orderQuote ? formatMxnCents(totalCents) : '—'}</strong></div>
             {quoteState === 'loading' && <div><span>Calculando total en servidor…</span></div>}
             {quoteState === 'error' && <div role="alert"><span>{quoteError}</span></div>}
-          </div>
-
-          <div style={{ padding: '0 16px 8px' }}>
-            <Button
-              variant="secondary"
-              size="sm"
-              style={{ width: '100%', fontSize: '0.82rem', padding: '8px' }}
-              disabled={Boolean(editingOrder) || cart.length === 0 || quoteState !== 'ready'}
-              onClick={() => setIsCourtesyModalOpen(true)}
-            >
-              {effectiveCourtesyCents > 0 ? '✓ Modificar Cortesía / Ajuste' : '🏷️ Aplicar Cortesía / Descuento'}
-            </Button>
           </div>
 
           <button
@@ -1999,6 +1991,7 @@ const PointOfSale = () => {
                 : `Confirmar pedido ${cart.length > 0 && orderQuote ? formatMxnCents(totalCents) : ''}`}
           </button>
           {!editingOrder && <p className="pos-cashier-next-action">{orderType === 'dine-in' ? 'Cobro inmediato. La confirmación crea el pedido y sus tareas de cocina.' : 'Pasa a cocina y queda pendiente de pago.'}</p>}
+          </div>
         </aside>
       </div>
       <Modal isOpen={Boolean(confirmation)} onClose={() => setConfirmation(null)} title="Pedido confirmado">
