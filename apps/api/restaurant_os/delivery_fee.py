@@ -8,6 +8,7 @@ import hmac
 import json
 import time
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, localcontext
 from typing import Any
@@ -50,7 +51,7 @@ def fee_table_available(session: Session, required: str) -> bool:
     if not any(inspector.has_table(name) for name in names) and inspector.has_table(
         "alembic_version"
     ):
-        revisions = (
+        revisions: Sequence[str] = (
             session.execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
         )
         if len(revisions) == 1 and revisions[0] in _LEGACY_READ_REVISIONS:
