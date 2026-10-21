@@ -78,11 +78,28 @@ try {
   await service.getByText('$28.00 · IVA 16% incluido', { exact: true }).waitFor();
   for (let count = 0; count < 5; count++) await page.getByRole('button', { name: 'Sumar Hamburguesa Kiwi', exact: true }).click();
   await service.getByText(/Envío gratis por monto/).waitFor();
+  assert.equal(await service.getByRole('status').textContent(), 'Envío gratis por monto mínimo');
+  assert.equal(await service.getByText(/Base del envío:/).count(), 0);
+  await page.locator('.pos-sale-summary').getByText('Gratis', { exact: true }).waitFor();
+  assert.equal(await service.locator(`option[value="${other.id}"]`).textContent(), 'Zona amplia');
+  await page.getByLabel('Tarifa de envío').selectOption(other.id);
+  await service.getByText('Envío gratis por monto mínimo', { exact: true }).waitFor();
+  assert.equal(await service.locator('option:checked').textContent(), 'Zona amplia');
   for (const width of [390, 1024, 1440]) {
     await page.setViewportSize({ width, height: 960 });
     await service.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(output, `order-${width}.png`), fullPage: true });
   }
+  for (let count = 0; count < 5; count++) await page.getByRole('button', { name: 'Restar Hamburguesa Kiwi', exact: true }).click();
+  await service.getByText('$42.00 · IVA 16% incluido', { exact: true }).waitFor();
+  await service.getByText('Base del envío: $36.21 · IVA: $5.79', { exact: true }).waitFor();
+  await page.locator('.pos-sale-summary').getByText('$42.00', { exact: true }).waitFor();
+  assert.equal(await service.locator('option:checked').textContent(), 'Zona amplia · $42.00');
+  await page.getByLabel('Tarifa de envío').selectOption('AUTO');
+  await service.getByText('$28.00 · IVA 16% incluido', { exact: true }).waitFor();
+  await service.getByText('Base del envío: $24.14 · IVA: $3.86', { exact: true }).waitFor();
+  await page.locator('.pos-sale-summary').getByText('$28.00', { exact: true }).waitFor();
+  assert.equal(await page.locator('.pos-sale-summary').getByText('Gratis', { exact: true }).count(), 0);
   const payload = { branch_id: branch, order_type: 'delivery', delivery_selection: { mode: 'AUTO' },
     lines: [{ product_id: '018f6f73-2d0a-74f0-8f1c-000000000111', quantity: 1 }] };
   assert.equal((await api('/orders/quote', payload)).total_cents, 12300);

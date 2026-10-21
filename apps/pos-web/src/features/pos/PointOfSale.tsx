@@ -1956,7 +1956,10 @@ const PointOfSale = () => {
               selection={deliverySelection} charge={orderQuote?.delivery_charge || null}
               onChange={(selection) => { setOrderQuote(null); setQuoteState('loading'); setDeliverySelection(selection); }} />}
             <div><span>Subtotal de productos</span><span>{orderQuote ? formatMxnCents(subtotalCents) : '—'}</span></div>
-            {orderQuote?.delivery_charge && <div><span>Envío (IVA incluido)</span><span>{formatMxnCents(orderQuote.delivery_charge.charged_cents)}</span></div>}
+            {orderQuote?.delivery_charge && <div>
+              <span>{orderQuote.delivery_charge.state === 'WAIVED_THRESHOLD' ? 'Envío' : 'Envío (IVA incluido)'}</span>
+              <span>{orderQuote.delivery_charge.state === 'WAIVED_THRESHOLD' ? 'Gratis' : formatMxnCents(orderQuote.delivery_charge.charged_cents)}</span>
+            </div>}
             {effectiveCourtesyCents > 0 && (
               <div style={{ color: '#059669', fontWeight: 600 }}>
                 <span>Cortesía / Descuento ({courtesyReason})</span>
