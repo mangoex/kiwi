@@ -68,12 +68,12 @@ async function mockApi(page, state) {
       if (route.request().method() === 'PUT') {
         if (state.comboConflictMode) { state.comboConflictRequest = route.request().postDataJSON(); return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: { code: 'combo_composition_version_conflict', message: 'Combo composition changed' } }) }); }
         state.comboSave = { body: route.request().postDataJSON(), idempotencyKey: route.request().headers()['idempotency-key'] };
-        state.comboComposition = { id: 'combo-qa', combo_product_id: products[0].id, branch_id: branchId, version: 1, price_cents: 1000, currency: 'MXN', components: [{ product_id: products[1].id, quantity: '2.000000', name: products[1].name, sku: products[1].sku }] };
+        state.comboComposition = { id: 'combo-qa', combo_product_id: products[0].id, branch_id: state.comboSave.body.branch_id, version: 1, price_cents: 1000, currency: 'MXN', components: [{ product_id: products[1].id, quantity: '2.000000', name: products[1].name, sku: products[1].sku }] };
         state.comboRefreshError = true;
         return route.fulfill({ json: state.comboComposition });
       }
       if (state.comboRefreshError || state.comboReviewError) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: { code: 'synthetic_composition_refresh_failure', message: 'Lectura diferida no disponible' } }) });
-      return route.fulfill({ json: { product: { id: products[0].id, name: products[0].name, sku: products[0].sku, catalog_scope: 'organization', is_combo: Boolean(state.comboComposition) }, branch_id: branchId, expected_version: state.comboComposition?.version || 0, current_composition: state.comboComposition || null, effective_composition: state.comboComposition || null } });
+      return route.fulfill({ json: { product: { id: products[0].id, name: products[0].name, sku: products[0].sku, catalog_scope: 'organization', is_combo: Boolean(state.comboComposition) }, branch_id: url.searchParams.get('branch_id'), expected_version: state.comboComposition?.version || 0, current_composition: state.comboComposition || null, effective_composition: state.comboComposition || null } });
     }
     if (path === '/admin-catalog/category-priorities') {
       if (route.request().method() === 'PUT') state.prioritySave = route.request().postDataJSON();
@@ -333,7 +333,7 @@ async function verifyViewport(browser, viewport) {
     assert.equal(await componentSelect.locator('option[value="local-norte"]').count(), 0);
     assert.equal(await componentSelect.locator(`option[value="${products[1].id}"]`).count(), 1);
     checkpoint('Composition saved');
-    assert.deepEqual(state.comboSave.body, { branch_id: branchId, expected_version: 0, components: [{ product_id: products[1].id, quantity: '2' }] });
+    assert.deepEqual(state.comboSave.body, { branch_id: null, expected_version: 0, components: [{ product_id: products[1].id, quantity: '2' }] });
     assert.ok(state.comboSave.idempotencyKey);
   }
   assert.deepEqual(errors, []);

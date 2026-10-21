@@ -266,3 +266,10 @@ La integración conserva typecheck/build,47pruebas focales y auditoría independ
 El gate arquitectónico de capacidad Alembic conservaba head0099; RED causal confirmó head0100.
 Se actualiza la revisión esperada a0100, manteniendo intactos los asserts de cadena lineal,
 upgrade real y protección de downgrade. No se modifica una migración para satisfacer un fixture.
+
+
+CI403 superó semánticas y detectó un fixture browser del main integrado desactualizado:
+ComboCompositionModal ya inicia ámbito corporativo null (cambio remoto6bf06b1), pero Admin retro
+esperaba la sucursal POS. Se alinea el mock GET al query real y PUT al ámbito del comando,
+manteniendo el assert exacto de payload e idempotencia y las comprobaciones de aislamiento por
+sucursal. No se modifica la regla corporativa de producción para hacer pasar la prueba.
