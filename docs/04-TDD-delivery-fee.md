@@ -64,7 +64,9 @@ no altera política de pedido confirmado ni repricing de historia pagada.
 Regresión visual R1 en `tests/browser/test_delivery_fee.mjs`: al cruzar el mínimo, el estado
 visible dice "Envío gratis por monto mínimo", el resumen dice "Gratis" y se oculta el desglose
 de base/IVA del cargo exento. Al bajar del mínimo reaparecen el importe y su desglose;
-el selector conserva la tarifa identificada. Comprobar 390/1024/1440 px con API aislada.
+el selector conserva la tarifa identificada sin precio de lista mientras está exenta, también
+al elegir una alternativa. Al bajar del mínimo cobra la alternativa elegida y vuelve a mostrar
+su precio. Comprobar 390/1024/1440 px con API aislada.
 
 ### TDD-TC-443 Aritmética y ausencia de efectos productivos
 
