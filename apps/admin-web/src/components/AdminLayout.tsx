@@ -453,7 +453,7 @@ const AdminLayout = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             {!hideRedundantTopbarScope && <div className="admin-configuration-scope-control">
               <Store size={17} />
-              {allowDashboardScopeSelection || (!isDashboard && allowConfigurationScopeSelection) ? (
+              {allowDashboardScopeSelection || (!isDashboard && configurationRoute && allowConfigurationScopeSelection) ? (
                 <select
                   aria-label={isDashboard ? 'Sucursal del panel' : 'Alcance de configuración'}
                   value={topbarScopeValue}
@@ -467,6 +467,8 @@ const AdminLayout = () => {
                   <option value="">Todas las sucursales</option>
                   {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
                 </select>
+              ) : session.scope.level === 'organization' ? (
+                <span className="admin-corporate-context" title="El alcance de cada operación se indica dentro de su módulo">Administración corporativa</span>
               ) : <span className="admin-active-branch-label">{session.active_branch.name}</span>}
             </div>}
             <button style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><Bell size={18} /></button>

@@ -20,6 +20,10 @@ Feature: Tarifas de envío versionadas y un único cargo por pedido
     When crea una tarifa y publica una política para una sucursal autorizada
     Then guarda identidad y versión de precio sin producto, receta ni estación
     And el POS, turno y borrador del administrador conservan su contexto
+    And distingue el catálogo de tarifas de las reglas generales o propias de una sucursal
+    And agrega o edita una tarifa en un diálogo accesible que puede cancelar sin guardar
+    And ve una vista previa de la regla antes de guardar y confirmación junto al formulario
+    And el encabezado corporativo no presenta la sucursal activa de caja como alcance de configuración
 
   @BDD-SC-746
   Scenario: Publicar un nuevo precio conserva el pedido anterior
@@ -42,6 +46,9 @@ Feature: Tarifas de envío versionadas y un único cargo por pedido
     When el cajero elige A domicilio y después selecciona Zona amplia
     Then inicialmente ve Estándar de 28.00 y finalmente sólo Zona amplia de 42.00
     And el total no incluye ambas tarifas ni cantidades del servicio
+    And la lista de productos tiene desplazamiento propio y el envío ocupa una fila desplegable
+    And puede consultar tarifa, IVA y retiro al desplegarla sin cambiar la selección por abrir o cerrar
+    And mantiene visibles el total y la acción de confirmar en escritorio de 1366 por 768
 
   @BDD-SC-749
   Scenario: Quitar desde comanda conserva la decisión explícita

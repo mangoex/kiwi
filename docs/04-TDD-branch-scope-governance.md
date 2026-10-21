@@ -23,6 +23,9 @@ Pruebas puras y API verifican la unión `organization|branch`: Admin inicia en o
 global-only no muestran selector ni etiqueta redundante y las rutas con excepción muestran el alcance; payload
 ausente, branch en organización, branch faltante, sucursal ajena o módulo sin excepción fallan sin
 escritura; nunca existe fallback a `active_branch` o primera sucursal.
+UI: `test_branch_scope_headers.mjs` conserva selectores del panel y rutas compatibles, y el
+browser de delivery comprueba el encabezado corporativo al abrir y al elegir una sucursal
+en el formulario. El identificador operativo de caja no cambia al editar ese formulario.
 
 ## TDD-TC-349 Confirmación y señal visual de alcance
 
