@@ -254,3 +254,10 @@ resueltos conservando ambas entradas. Hash del fixture CI actualizado al workflo
 Runbook local ajeno, su hash pendiente y tmp quedan excluidos; cambios preservados.
 Verificación integrada y CI mediante PR antes del merge a main. La autorización Git no aplica
 migraciones, configuración, cobros ni despliegue productivos.
+
+
+CI401 detectó ERR_UNSUPPORTED_RESOLVE_REQUEST en el harness de sesión: el barrel público ahora
+exporta deliveryFee y los cargadores dataURL debían resolverlo. Se añade el módulo a cinco harness
+existentes (sesión, workspace, fiscal e intenciones), sin retirar asserts ni silenciar errores.
+Pruebas dirigidas de esos cinco harness verdes. Se actualizan sólo sus hashes sintéticos existentes.
+La integración conserva typecheck/build,47pruebas focales y auditoría independiente sin bloqueantes.

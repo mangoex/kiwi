@@ -132,7 +132,7 @@
     },
     {
       "path": "tests/frontend/test_admin_session_recovery.mjs",
-      "sha256": "4d6fabfd0252f7fdc5836a1d8be1a41b3ec1665f70d155a0ffc058d3601cc41d",
+      "sha256": "11415653806583a02e2fd44f5de44d181bc3be169004a951b008c252c368a5c5",
       "provenance": "restaurantos-admin-session-runtime-v1"
     },
     {
