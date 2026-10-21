@@ -36,9 +36,9 @@ export function DeliveryFeeControl({ branchId, selection, charge, onChange }: {
       {tariffs.map((tariff) => <option key={tariff.id} value={tariff.id}>{tariff.name} · {formatMxnCents(tariff.amount_cents)}</option>)}
     </select>
     <p role="status">{charge?.state === 'REMOVED' ? 'Envío retirado manualmente'
-      : charge?.state === 'WAIVED_THRESHOLD' ? `Envío gratis por monto · tarifa ${formatMxnCents(charge.list_cents)}`
+      : charge?.state === 'WAIVED_THRESHOLD' ? 'Envío gratis por monto mínimo'
       : charge ? `${formatMxnCents(charge.charged_cents)} · IVA 16% incluido` : 'Calculando envío…'}</p>
-    {charge && <p>Base del envío: {formatMxnCents(charge.net_cents)} · IVA: {formatMxnCents(charge.tax_cents)}</p>}
+    {charge && charge.state !== 'WAIVED_THRESHOLD' && <p>Base del envío: {formatMxnCents(charge.net_cents)} · IVA: {formatMxnCents(charge.tax_cents)}</p>}
     <Button variant="secondary" onClick={() => onChange({ mode: removed ? 'AUTO' : 'REMOVED' })}>
       {removed ? 'Restaurar envío' : 'Quitar envío'}
     </Button>

@@ -73,6 +73,8 @@ Feature: Tarifas de envío versionadas y un único cargo por pedido
     When el subtotal de productos tras descuentos es <subtotal>
     Then el envío cobrado es <envio> y su estado es <estado>
     And la tarifa Estándar continúa identificada
+    And cuando es gratis la comanda muestra "Envío gratis por monto mínimo" y el resumen "Gratis"
+    And no presenta el precio de lista ni el desglose de base e IVA como importes del envío exento
 
     Examples:
       | subtotal | envio | estado           |
