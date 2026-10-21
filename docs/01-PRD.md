@@ -1598,3 +1598,54 @@ La versión 1 podrá declararse operativa cuando una sucursal piloto pueda:
   coincidencias telefónicas históricas. Las identidades verificadas existentes conservan su vínculo.
   Delivery móvil exige correo y domicilio propio completo. Los pedidos aceptados se vinculan al
   ID del cliente para consumo; los snapshots históricos no cambian al editar perfil.
+
+## DELIVERY-FEE-001 — catálogo de tarifas de entrega a domicilio
+
+Alcance solicitado y precisado por Miguel el 2026-10-21. Implementación R3 del núcleo POS online verificada localmente; CI y release pendientes;
+no habilita cobros, migraciones ni configuración productiva. Una tarifa es un servicio monetario
+del pedido, separado del catálogo de alimentos y de la remuneración del repartidor.
+
+- `PRD-FR-283`: Administración corporativa debe mantener un catálogo de tarifas de domicilio con
+  identidad, nombre, estado y versiones de precio/vigencia. Reutiliza `catalog.manage`, el alcance
+  organizacional y la configuración por destino de PRD-FR-266: no cambia el workspace POS ni
+  concede autoridad por nombre de rol. Cada política efectiva de sucursal habilitada define las
+  tarifas elegibles, una única predeterminada y un umbral opcional de envío gratis. Precio inicial
+  propuesto: $28.00 MXN con IVA 16% incluido; umbral inicialmente desactivado. Publicar una revisión
+  no modifica pedidos previos. El catálogo admite posteriormente más tarifas para distancias/zonas;
+  este paquete permite elegirlas manualmente, sin calcular kilómetros ni contratar geocodificación.
+- `PRD-FR-284`: Una comanda a domicilio debe sugerir la tarifa predeterminada y permitir elegir
+  exactamente una de las tarifas disponibles o quitar el envío. No acumula varias tarifas ni
+  cantidades del mismo servicio. En borrador aplica la autoridad `orders.create`; en un pedido
+  persistido, `orders.amend` y las condiciones de edición vigentes. Quitar no exige un permiso
+  administrativo adicional: registra actor, motivo operativo y valores anteriores/nuevos. La
+  selección o retiro explícitos se conservan al recotizar, recuperar el borrador o reconectar;
+  restaurar la sugerencia es una acción explícita. Otros tipos de servicio no cobran envío.
+  Ninguna edición ordinaria reescribe un pedido pagado ni amplía estados editables; producción
+  iniciada conserva la reapertura autorizada de PRD-FR-217, incluso para cambios sólo del envío.
+- `PRD-FR-285`: Cuando se configure un umbral de envío gratis, se compara de forma inclusiva con
+  el subtotal de productos después de descuentos/cortesías válidos, con sus precios al público e
+  incluyendo modificadores cobrables; se excluyen envío y propinas. Un subtotal igual o mayor
+  exenta íntegramente la tarifa seleccionada; uno menor vuelve a cobrarla en un borrador o pedido
+  impago editable, salvo retiro manual persistente. Se conserva la tarifa elegida y se muestra
+  “Envío gratis por monto”, distinto de “Envío retirado”. Sin umbral no hay exención automática.
+- `PRD-FR-286`: El servidor debe determinar selección efectiva, precio, base, IVA incluido y total
+  mediante un mismo contrato de cotización/creación/enmienda. Cada revisión de pedido congela
+  tarifa, precio, política, base elegible, exención/retiro y tratamiento fiscal. Dinero exacto y
+  visualización de dos decimales conforme a NFR-012; $28.00 se presenta como base $24.14 e IVA $3.86,
+  sin sumar nuevamente el impuesto ni usar importes mostrados para recalcular. Cambios del catálogo
+  no reprecian historia; reintentos y concurrencia no duplican cargos. El cargo no exige receta,
+  estación, reserva, consumo ni tarea productiva.
+- `PRD-FR-287`: Ticket y detalle de entrega deben identificar el servicio, tarifa e importe o la
+  causa de gratuidad; cocina no lo presenta como alimento. Reportes separan ingresos por envío,
+  base, IVA, exenciones, retiros y compensaciones sin aumentar unidades/ranking/food cost de
+  alimentos ni duplicar ventas. Cobro al cliente, recaudación de efectivo del repartidor y costo o
+  remuneración del reparto son dimensiones diferentes. El concepto fiscal separado y sus importes
+  proceden del snapshot y de claves SAT aprobadas por emisor, mediante PRD-FR-276; no se inventan
+  claves, impuestos de alimentos desconocidos ni evidencia de emisión. OPEN-006/007 permanecen.
+- `PRD-FR-288`: POS, canales propios e integraciones deben identificar quién presta/cobra el envío
+  y preservar su procedencia. No se suman $28 locales a un cargo externo sin una regla explícita
+  compatible con la modalidad de entrega. El gateway conserva selección/retiro, versiones y precio
+  confirmado sin repricing al sincronizar. Una versión o política incompatible falla de forma
+  explícita antes del cobro; no se transforma en envío gratis. La activación de cada canal y offline
+  requiere pruebas reales de su contrato y autorización productiva separada. La habilitación POS
+  no autoriza activar conjuntamente canales externos u offline.

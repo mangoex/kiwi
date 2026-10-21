@@ -3005,6 +3005,9 @@ def quote_order(
             branch_id,
             actor_id,
             str(payload.get("adjustment_authorization_id") or "").strip() or None,
+            order_type=str(payload.get("order_type", "dine-in")),
+            delivery_selection=payload.get("delivery_selection"),
+            order_id=payload.get("order_id"),
             **({"received_cash": payload["received_cash"]} if "received_cash" in payload else {}),
         )
 
@@ -3165,6 +3168,8 @@ def create_order(
                 adjustment_authorization_id,
                 idempotency_key,
                 commit=not settings.branch_scope_v2_enabled,
+                delivery_selection=payload.get("delivery_selection"),
+                delivery_quote_reference=payload.get("delivery_quote_reference"),
             )
 
         if settings.branch_scope_v2_enabled:
@@ -3721,6 +3726,8 @@ def amend_order_endpoint(
             int(payload.get("expected_version", 0)),
             idempotency_key or "",
             actor_id,
+            delivery_selection=payload.get("delivery_selection"),
+            delivery_quote_reference=payload.get("delivery_quote_reference"),
         )
     )
 
@@ -4449,6 +4456,11 @@ def _business_response(operation: Callable[[], ResponseT]) -> ResponseT:
     except BusinessError as exc:
         status_code = {
             "category_version_conflict": 409,
+            "delivery_selection_invalid": 422,
+            "delivery_quote_stale": 409,
+            "delivery_policy_version_conflict": 409,
+            "delivery_default_invalid": 409,
+            "delivery_contract_upgrade_required": 409,
             "idempotency_key_conflict": 409,
             "public_order_unavailable": 503,
             "public_order_rate_limited": 429,

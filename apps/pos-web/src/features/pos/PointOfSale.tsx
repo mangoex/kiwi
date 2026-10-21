@@ -10,10 +10,14 @@ import {
   getOperationalOrderCommandStatus,
   type OfflineOrderStatus,
   type CashierDraftScope,
+  type DeliveryCharge,
+  type DeliverySelection,
+  deliverySelectionFromDraft,
 } from '@restaurantos/api-client';
 import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, Bike, Mic, Send, Sparkles, LayoutGrid, Star } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { formatMxnCents } from './cartMoney';
+import { DeliveryFeeControl } from './DeliveryFeeControl';
 import {
   resolveEditableLineProduct,
   type EditableCatalogProduct,
@@ -104,7 +108,9 @@ interface CartItem extends Product {
 }
 
 interface OrderQuote {
-  schema_version: 'order-quote.v1';
+  schema_version: 'order-quote.v1' | 'order-quote.v2';
+  delivery_charge?: DeliveryCharge | null;
+  delivery_quote_reference?: string | null;
   branch_id: string;
   currency: 'MXN';
   lines: Array<{
@@ -153,6 +159,7 @@ interface EditableOrderLine extends EditableLineSnapshot {
   line_notes?: string | null;
 }
 interface EditableOrder {
+  delivery_charge?: DeliveryCharge | null;
   id: string;
   folio: string;
   version: number;
@@ -360,7 +367,10 @@ const PointOfSale = () => {
   const [receivedCash, setReceivedCash] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderQuote, setOrderQuote] = useState<OrderQuote | null>(null);
+  const [deliverySelection, setDeliverySelection] = useState<DeliverySelection>({ mode: 'AUTO' });
+  const [editingOrder, setEditingOrder] = useState<EditableOrder | null>(null);
   const [quoteState, setQuoteState] = useState<QuoteState>('idle');
+  const [deliveryQuoteRefresh, setDeliveryQuoteRefresh] = useState(0);
   const [checkoutState, setCheckoutState] = useState<CheckoutState>('idle');
   const [quoteError, setQuoteError] = useState('');
   const [modifierProduct, setModifierProduct] = useState<Product | null>(null);
@@ -529,8 +539,11 @@ const PointOfSale = () => {
           signal: controller.signal,
           body: JSON.stringify({
             branch_id: branchId,
-            lines: buildOrderLines(cart),
+            lines: editingOrder ? buildOrderLines(cart).map((line) => ({ ...line, source_line_id: line.source_line_id ?? null })) : buildOrderLines(cart),
             adjustment_authorization_id: adjustmentAuthorizationId || undefined,
+            order_type: orderType,
+            delivery_selection: orderType === 'delivery' ? deliverySelection : undefined,
+            order_id: editingOrder?.id,
           }),
         });
         if (controller.signal.aborted) return;
@@ -553,7 +566,13 @@ const PointOfSale = () => {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [adjustmentAuthorizationId, branchId, cart, session?.user.id, operationalConfig?.gatewayUrl, operationalConfig?.deviceId]);
+  }, [adjustmentAuthorizationId, branchId, cart, orderType, deliverySelection, deliveryQuoteRefresh, editingOrder?.id, session?.user.id, operationalConfig?.gatewayUrl, operationalConfig?.deviceId]);
+
+  useEffect(() => {
+    if (!orderQuote?.delivery_quote_reference || checkoutState === 'submitting') return;
+    const refresh = window.setTimeout(() => setDeliveryQuoteRefresh((value) => value + 1), 90_000);
+    return () => window.clearTimeout(refresh);
+  }, [orderQuote?.delivery_quote_reference, checkoutState]);
 
   const [categories, setCategories] = useState<PosCategory[]>([{ id: '', name: 'Todas', display_order: -1, selection_group: null }]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -561,7 +580,6 @@ const PointOfSale = () => {
   const [catalogError, setCatalogError] = useState('');
   const [catalogRetryNonce, setCatalogRetryNonce] = useState(0);
   const lastCatalogBranch = useRef('');
-  const [editingOrder, setEditingOrder] = useState<EditableOrder | null>(null);
   const [editLoadError, setEditLoadError] = useState('');
   const registerIdForDraft = (localStorage.getItem('pos_register_id') || '').trim();
   const draftScope: CashierDraftScope | null = session?.user.id && branchId && registerIdForDraft && !operationalConfigError
@@ -579,12 +597,14 @@ const PointOfSale = () => {
   const drafts = useCashierDrafts<CartItem>(draftScope, !editOrderId && sessionState.status === 'ok',
     { cart, ownerName, orderType: orderType as 'dine-in' | 'takeout' | 'delivery', paymentMethod,
       customerId: selectedCustomer?.id || '', addressId: selectedAddressId, driverId: selectedDriverId, customer: draftCustomer,
+      deliverySelection,
       requiresAdjustmentReview: Boolean(adjustmentAuthorizationId) },
     (draft) => {
       clearCustomer(); setAvailableDrivers([]); setModifierProduct(null); setExtraModalOpen(false); setLineEditor(null);
       setCart(draft?.cart || []); setOwnerName(draft?.ownerName || ''); setOrderType(draft?.orderType || 'takeout');
       setPaymentMethod(draft?.paymentMethod || null); setReceivedCash(''); setSelectedCustomer(draft?.customer || null);
       setSelectedAddressId(draft?.addressId || ''); setSelectedDriverId(draft?.driverId || '');
+      setDeliverySelection(deliverySelectionFromDraft(draft?.deliverySelection));
       setCustomerPhone(draft?.customer?.phones?.[0]?.captured_number || '');
       setAdjustmentAuthorizationId(null); setCourtesyReason(''); setPaymentOpen(false);
       setDraftRestorationNotice(draft?.requiresAdjustmentReview ? 'La captura tenía un ajuste de precio. Revisa el total y solicita nuevamente su autorización antes de confirmar.' : '');
@@ -807,6 +827,7 @@ const PointOfSale = () => {
           };
         });
         setEditingOrder(order);
+        setDeliverySelection(deliverySelectionFromDraft(order.delivery_charge?.selection));
         setCart(restored);
         setOwnerName(order.owner_name || '');
         setOrderType(order.order_type);
@@ -1402,6 +1423,8 @@ const PointOfSale = () => {
       payment_method_intent: orderType === 'dine-in' ? undefined : paymentMethod,
       driver_id: orderType === 'delivery' && selectedDriverId ? selectedDriverId : undefined,
       order_type: orderType,
+      delivery_selection: orderType === 'delivery' ? deliverySelection : undefined,
+      delivery_quote_reference: orderQuote?.delivery_quote_reference || undefined,
       branch_id: branchId || undefined,
       register_id: registerId,
       adjustment_authorization_id: adjustmentAuthorizationId || undefined,
@@ -1443,6 +1466,8 @@ const PointOfSale = () => {
           method: 'POST',
           headers: { 'Idempotency-Key': crypto.randomUUID() },
           body: JSON.stringify({ expected_version: editingOrder.version,
+            delivery_selection: payload.delivery_selection,
+            delivery_quote_reference: payload.delivery_quote_reference,
             lines: payload.lines.map((line) => ({ ...line, source_line_id: line.source_line_id ?? null })) }),
         });
         recordOfflineOrderStatus(amendment);
@@ -1467,6 +1492,7 @@ const PointOfSale = () => {
         checkoutIntentRef.current = null;
         setConfirmation({ id: orderData.id, folio: orderData.folio, paid: false });
         setCart([]); setOrderType('takeout');
+        setDeliverySelection({ mode: 'AUTO' });
         setAdjustmentAuthorizationId(null);
         setCourtesyReason('');
         setPaymentOpen(false);
@@ -1526,6 +1552,7 @@ const PointOfSale = () => {
         checkoutIntentRef.current = null;
       }
       setCheckoutState('error');
+      if (err instanceof ApiError && err.code === 'delivery_quote_stale') setDeliveryQuoteRefresh((value) => value + 1);
       if (err instanceof ApiError) {
         alert(orderErrorMessage(err.code, err.message));
       } else {
@@ -1925,7 +1952,11 @@ const PointOfSale = () => {
           </div>
 
           <div className="pos-sale-summary">
-            <div><span>Subtotal</span><span>{orderQuote ? formatMxnCents(subtotalCents) : '—'}</span></div>
+            {orderType === 'delivery' && branchId && <DeliveryFeeControl branchId={branchId}
+              selection={deliverySelection} charge={orderQuote?.delivery_charge || null}
+              onChange={(selection) => { setOrderQuote(null); setQuoteState('loading'); setDeliverySelection(selection); }} />}
+            <div><span>Subtotal de productos</span><span>{orderQuote ? formatMxnCents(subtotalCents) : '—'}</span></div>
+            {orderQuote?.delivery_charge && <div><span>Envío (IVA incluido)</span><span>{formatMxnCents(orderQuote.delivery_charge.charged_cents)}</span></div>}
             {effectiveCourtesyCents > 0 && (
               <div style={{ color: '#059669', fontWeight: 600 }}>
                 <span>Cortesía / Descuento ({courtesyReason})</span>

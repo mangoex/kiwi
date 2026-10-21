@@ -18,6 +18,7 @@ const routeRules: Record<string, string[][]> = {
   '/recipes': [['recipes.manage']], '/recipes/bulk': [['recipes.manage']],
   '/categories': [['catalog.manage']], '/category-options': [['catalog.manage']],
   '/category-priorities': [['catalog.manage']], '/warehouses': [['catalog.manage']],
+  '/delivery-services': [['catalog.manage']],
   '/inventory/items': [['inventory.read']], '/inventory/units': [['inventory.read']],
   '/inventory/stock': [['inventory.read']],
   '/inventory/thresholds': [['catalog.manage']], '/production': [['production.manage']],
@@ -32,7 +33,7 @@ const routeRules: Record<string, string[][]> = {
   '/customers': [['orders.read']], '/imports': [['admin.manage']],
 };
 const hubRoutes: Record<string, string[]> = {
-  '/catalog': ['/products','/recipes','/categories','/variations','/modifiers','/ingredient-extras','/category-priorities'],
+  '/catalog': ['/products','/recipes','/categories','/variations','/modifiers','/ingredient-extras','/category-priorities','/delivery-services'],
   '/inventory': ['/inventory/stock','/inventory/items','/production','/inventory/waste','/inventory/transfers','/inventory/counts','/inventory/units','/warehouses','/inventory/thresholds'],
   '/purchasing': ['/purchases','/suppliers','/purchase-presentations','/expenses','/expense-concepts'],
   '/branches-hub': ['/branches','/drivers','/integrations','/cash-concepts'],

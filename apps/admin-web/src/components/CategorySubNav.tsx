@@ -24,6 +24,7 @@ const CATEGORY_CONFIGS: CategoryNavConfig[] = [
     categoryTitle: 'Catálogo y Menú',
     items: [
       { path: '/products', label: 'Productos' },
+      { path: '/delivery-services', label: 'Servicios de domicilio' },
       {
         path: '/recipes',
         label: 'Recetas',

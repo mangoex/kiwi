@@ -22,6 +22,7 @@ export interface DraftLine {
 }
 
 export interface CashierDraft<T extends DraftLine = DraftLine> {
+  deliverySelection?: { mode: 'AUTO' | 'REMOVED' | 'SELECTED'; tariff_id?: string };
   id: string;
   paymentKey: string;
   createdAt: string;
@@ -85,6 +86,9 @@ function validDraft(value: unknown): value is CashierDraft {
     && ['dine-in', 'takeout', 'delivery'].includes(String(value.orderType))
     && (value.paymentMethod === null || ['cash', 'debit_card', 'credit_card', 'transfer'].includes(String(value.paymentMethod)))
     && string(value.customerId, 200) && string(value.addressId, 200) && string(value.driverId, 200)
+    && (value.deliverySelection === undefined || (object(value.deliverySelection)
+      && ['AUTO', 'REMOVED', 'SELECTED'].includes(String(value.deliverySelection.mode))
+      && (value.deliverySelection.mode !== 'SELECTED' || string(value.deliverySelection.tariff_id, 36))))
     && (value.requiresAdjustmentReview === undefined || typeof value.requiresAdjustmentReview === 'boolean')
     && (value.customer === undefined || value.customer === null || validCustomer(value.customer, value.customerId));
 }
