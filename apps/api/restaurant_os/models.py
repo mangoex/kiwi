@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 
+from restaurant_os.delivery_fee_schema import tables as delivery_fee_tables
 from restaurant_os.expense_schema_v1 import tables as expense_tables
 from restaurant_os.fiscal_command_schema import ORDER_SCOPE_INDEX
 from restaurant_os.fiscal_command_schema import tables as fiscal_command_tables
@@ -17,6 +18,9 @@ from restaurant_os.operational_intent_schema import table as operational_intent_
 from restaurant_os.supplier_xml_schema import tables as supplier_xml_tables
 
 metadata = sa.MetaData()
+
+(delivery_tariffs, delivery_tariff_versions, delivery_policies, delivery_charge_revisions,
+ delivery_sale_snapshots, delivery_catalog_commands) = delivery_fee_tables(metadata)
 expense_concepts, expense_documents, expense_commands = expense_tables(metadata)
 (
     supplier_document_imports,

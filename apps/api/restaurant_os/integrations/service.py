@@ -467,6 +467,9 @@ class ChannelIntegrationService:
         payment_intent = (
             "whatsapp_cod" if provider == "WHATSAPP" else f"marketplace_{provider.lower()}"
         )
+        from restaurant_os.delivery_fee import require_compatible_channel
+
+        require_compatible_channel(session, target_branch_id, "delivery", provider)
         delivery_address_str = ""
         if isinstance(normalized.raw_payload, dict):
             delivery_address_str = str(normalized.raw_payload.get("delivery_address") or "")

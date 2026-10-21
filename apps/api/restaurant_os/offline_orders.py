@@ -335,8 +335,12 @@ def acquire_gateway_lease(
     now: datetime,
 ) -> dict[str, Any]:
     """Acquire or renew the sole explicit gateway lease for one branch."""
+    from restaurant_os.delivery_fee import lock_catalog, require_compatible_channel
+
     issued_at = _utc(now)
     lock_gateway_branch(session, organization_id=organization_id, branch_id=branch_id)
+    lock_catalog(session)
+    require_compatible_channel(session, branch_id, "delivery", "OFFLINE")
     normalized_key = (
         _public_key(public_key)
         .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)

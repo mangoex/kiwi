@@ -140,6 +140,7 @@ try {
   assert.ok(comboProduct, 'fixture combo product must be present in the administrative catalog');
   await page.goto(`${baseUrl}/products`, { waitUntil: 'domcontentloaded' });
   await openFixedCombo(page, comboProduct.name);
+  assert.equal(await page.getByRole('dialog').getByLabel('Aplicar composición en').inputValue(), '', 'The corporate composition scope must be explicit');
   await page.getByLabel('Producto componente 1').selectOption(componentProductId);
   await page.getByLabel('Cantidad del componente 1').fill('1');
   await page.getByRole('button', { name: 'Guardar combo fijo' }).click();
@@ -154,9 +155,9 @@ try {
   await page.getByLabel('Cantidad del componente 1').fill('2');
   const comboConflictWriter = await page.request.put(`${apiBaseUrl}/products/${comboProductId}/composition`, {
     headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json', 'Idempotency-Key': 'adminretro-e2e-combo-conflict-writer' },
-    data: { branch_id: manifest.branch_id, expected_version: 1, components: [{ product_id: componentProductId, quantity: '1' }] },
+    data: { branch_id: null, expected_version: 1, components: [{ product_id: componentProductId, quantity: '1' }] },
   });
-  assert.equal(comboConflictWriter.ok(), true);
+  assert.equal(comboConflictWriter.ok(), true, await comboConflictWriter.text());
   await page.getByRole('button', { name: 'Guardar combo fijo' }).click();
   const conflictMessage = page.getByText('La composición cambió en otra sesión. Tu borrador se conserva; recarga antes de volver a guardar.');
   await conflictMessage.waitFor();

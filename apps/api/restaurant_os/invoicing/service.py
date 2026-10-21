@@ -190,6 +190,9 @@ class InvoicingService:
         }
         sat_payment_form = payment_form_map.get(pm, "01")
 
+        from restaurant_os.delivery_fee_fiscal import reject_aggregate_receipt
+
+        reject_aggregate_receipt(session, [order_id])
         # Total in currency units
         total_amount = float(payment.total_cents) / 100.0
 
@@ -300,6 +303,9 @@ class InvoicingService:
         client = self.get_client(session, org_id, config)
 
         total_cents = sum(payment.total_cents for payment in payments)
+        from restaurant_os.delivery_fee_fiscal import reject_aggregate_receipt
+
+        reject_aggregate_receipt(session, order_ids)
         total_amount = float(total_cents) / 100.0
 
         rfc_receptor = receptor.get("rfc", "XAXX010101000").upper().strip()

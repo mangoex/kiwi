@@ -240,3 +240,4 @@ export async function downloadFiscalInvoice(invoiceId: string, format: 'pdf' | '
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 }
+export * from './deliveryFee';

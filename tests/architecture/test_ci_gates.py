@@ -394,3 +394,18 @@ def test_all_frontend_and_browser_regressions_are_wired() -> None:
     for path in (ROOT / "tests/browser").glob("*.mjs"):
         assert path.relative_to(ROOT).as_posix() in _ci_content(), path.name
     assert "run: python -m mypy apps/api/restaurant_os" in _job_section(_ci_content(), "python")
+
+
+def test_delivery_fee_postgres_is_mandatory_and_browser_uses_real_api() -> None:
+    content = _job_section(_ci_content(), "python")
+    assert 'CREATE DATABASE delivery_fee_ci' in content
+    assert re.search(
+        r'^ +DELIVERY_FEE_TEST_POSTGRES_URL: postgresql\+psycopg://.*?/delivery_fee_ci$',
+        content, re.M,
+    )
+    evidence = (ROOT / 'scripts/verify_postgres_evidence.py').read_text(encoding='utf-8')
+    assert '"delivery_fee"' in evidence
+    test = (ROOT / 'apps/api/tests/test_delivery_fee_postgres.py').read_text(encoding='utf-8')
+    assert 'DELIVERY_FEE_TEST_POSTGRES_URL is required' in test
+    assert 'pytest.skip' not in test
+    assert 'node tests/browser/test_delivery_fee.mjs' in _job_section(_ci_content(), 'frontend')

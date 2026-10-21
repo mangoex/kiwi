@@ -21,6 +21,7 @@ import TransferList from './features/inventory/TransferList';
 import PhysicalCountList from './features/inventory/PhysicalCountList';
 import LegacyImportReview from './features/imports/LegacyImportReview';
 import DriversList from './features/delivery/DriversList';
+import DeliveryServices from './features/delivery/DeliveryServices';
 import CashConceptsManager from './features/cash/CashConceptsManager';
 import RecipesWorkspace from './features/recipes/RecipesWorkspace';
 import CorporateReconciliationDashboard from './features/reports/CorporateReconciliationDashboard';
@@ -103,6 +104,7 @@ export const App = () => {
           {/* Subroutes: Sucursales y Canales */}
           <Route path="branches" element={<BranchesList />} />
           <Route path="drivers" element={<DriversList />} />
+          <Route path="delivery-services" element={<DeliveryServices />} />
           <Route path="integrations" element={<IntegrationsHub />} />
           <Route path="cash-concepts" element={<CashConceptsManager />} />
 

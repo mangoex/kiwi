@@ -3403,6 +3403,8 @@ def create_local_order(
     idempotency_key: str | None = None,
     *,
     commit: bool = True,
+    delivery_selection: Any = None,
+    delivery_quote_reference: Any = None,
 ) -> dict[str, Any]:
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
@@ -3434,6 +3436,8 @@ def create_local_order(
                     "driver_id": str(driver_id or "").strip() or None,
                     "adjustment_authorization_id": adjustment_authorization_id,
                     "lines": lines,
+                    "delivery_selection": delivery_selection,
+                    "delivery_quote_reference": delivery_quote_reference,
                 }
             ),
             sort_keys=True,
@@ -3590,6 +3594,16 @@ def create_local_order(
             )
         total_cents -= adjustment_cents
 
+    from restaurant_os import delivery_fee
+
+    delivery_fee.lock_catalog(session)
+    charge = delivery_fee.resolve_charge(
+        session, actual_branch_id, order_type, delivery_selection, total_cents)
+    if charge is not None:
+        total_cents += int(charge["charged_cents"])
+        delivery_fee.verify_quote(delivery_quote_reference, actor_id, actual_branch_id,
+                                  order_type, lines, adjustment_authorization_id, charge, total_cents)
+
     order = {
         "id": order_id,
         "organization_id": ORGANIZATION_ID,
@@ -3612,6 +3626,7 @@ def create_local_order(
     }
 
     session.execute(models.orders.insert().values(**order))
+    delivery_fee.capture_charge(session, order, actor_id, charge)
     if adjustment_authorization:
         consumed = session.execute(
             models.order_adjustment_authorizations.update()
@@ -3703,6 +3718,7 @@ def create_local_order(
     )
     response = {
         **order,
+        "delivery_charge": charge,
         "lines": order_lines_data,
         "production_tasks": tasks_data,
         "consumption_snapshots": consumption_snapshots_data,
@@ -3768,14 +3784,29 @@ def quote_local_order(
     actor_user_id: str,
     adjustment_authorization_id: str | None = None,
     received_cash: object = _CASH_RECEIVED_UNSET,
+    *,
+    order_type: str = "dine-in",
+    delivery_selection: Any = None,
+    order_id: str | None = None,
 ) -> dict[str, Any]:
     """Return a non-persistent quote from the same Python pricer as creation."""
     require_permission(session, actor_user_id, "orders.create", branch_id)
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
+    from restaurant_os import delivery_fee
+
+    historical = get_order_detail(session, order_id, actor_user_id) if order_id else None
+    historical_cart = historical is not None and delivery_fee.same_cart(lines, historical["lines"])
     quote_lines: list[dict[str, Any]] = []
     subtotal_cents = 0
-    for item in lines:
+    for index, item in enumerate(lines):
+        if historical_cart:
+            assert historical is not None
+            captured_line = historical["lines"][index]
+            subtotal_cents += int(captured_line["line_total_cents"])
+            quote_lines.append({key: captured_line[key] for key in (
+                "product_id", "quantity", "unit_price_cents", "modifier_total_cents", "line_total_cents")})
+            continue
         priced = _price_order_line(
             session, item, branch_id, "quote", _id(), _now(), enforce_note_limit=False
         )
@@ -3807,8 +3838,30 @@ def quote_local_order(
                 "order_adjustment_total_mismatch",
                 "Order subtotal changed after supervisor authorization",
             )
+    from restaurant_os import delivery_fee
+
+    if order_type not in {"dine-in", "takeout", "delivery"}:
+        raise BusinessError("invalid_order_type", "Order type is not supported")
+    if historical:
+        require_permission(session, actor_user_id, "orders.amend", historical["branch_id"])
+        if historical["branch_id"] != branch_id or not historical["editable"]:
+            raise BusinessError("order_not_editable", "Order is not editable")
+        order_type = historical["order_type"]
+        if delivery_fee.same_cart(lines, historical["lines"]):
+            subtotal_cents = sum(int(line["line_total_cents"]) for line in historical["lines"])
+            previous_charge = delivery_fee.order_charge(session, str(historical["id"]))
+            previous_fee = int(previous_charge["charged_cents"]) if previous_charge else 0
+            adjustment_cents = subtotal_cents - (int(historical["total_cents"]) - previous_fee)
+    eligible = subtotal_cents - adjustment_cents
+    charge = delivery_fee.resolve_charge(session, branch_id, order_type, delivery_selection,
+                                         eligible, order_id=order_id)
+    total_cents = eligible + (int(charge["charged_cents"]) if charge else 0)
     return {
-        "schema_version": "order-quote.v1",
+        "schema_version": "order-quote.v2" if charge is not None else "order-quote.v1",
+        "delivery_charge": charge,
+        "delivery_quote_reference": delivery_fee.quote_reference(
+            actor_user_id, branch_id, order_type, lines, adjustment_authorization_id, charge,
+            total_cents, order_id) if charge is not None else None,
         "branch_id": branch_id,
         "currency": "MXN",
         "lines": quote_lines,
@@ -3818,8 +3871,8 @@ def quote_local_order(
             str(adjustment_authorization["reason"]) if adjustment_authorization else None
         ),
         "tax_cents": None,
-        "total_cents": subtotal_cents - adjustment_cents,
-        **({"cash_tender": _cash_tender_preview(subtotal_cents - adjustment_cents, received_cash)}
+        "total_cents": total_cents,
+        **({"cash_tender": _cash_tender_preview(total_cents, received_cash)}
            if received_cash is not _CASH_RECEIVED_UNSET else {}),
     }
 
@@ -4406,8 +4459,11 @@ def get_order_detail(
         or any(task["status"] != "PENDING" for task in tasks)
     )
     projection = _order_payment_projection(session, dict(order))
+    from restaurant_os.delivery_fee import order_charge
+
     return {
         **projection,
+        "delivery_charge": order_charge(session, order_id),
         # Canonical aliases used by the account/history projection.  Legacy fields
         # remain in the detail payload for existing POS consumers.
         "customer_label": (order.get("customer_snapshot") or {}).get("name")
@@ -4574,6 +4630,7 @@ def _pco005b_after_sensitive_write(_step: str) -> None:
 
 
 def _pco005_before_snapshot(session: Session, order: dict[str, Any]) -> dict[str, Any]:
+    from restaurant_os.delivery_fee import order_charge
     lines = session.execute(
         sa.select(models.order_lines)
         .where(models.order_lines.c.order_id == order["id"])
@@ -4596,6 +4653,7 @@ def _pco005_before_snapshot(session: Session, order: dict[str, Any]) -> dict[str
         .limit(1)
     ).scalar_one_or_none()
     return {
+        "delivery_charge": order_charge(session, order["id"]),
         "order": {
             "version": order["version"],
             "status": order["status"],
@@ -5310,7 +5368,7 @@ def apply_order_reopen_request(
         "settlement_method",
         "settlement_evidence_refs",
     }
-    allowed = required | {"register_id"}
+    allowed = required | {"register_id", "delivery_selection"}
     if (
         not required.issubset(payload)
         or not set(payload).issubset(allowed)
@@ -5362,6 +5420,13 @@ def apply_order_reopen_request(
         return replay
     if request["status"] != "APPROVED":
         raise BusinessError("order_reopen_transition_invalid", "Request is not approved")
+    if request["before_snapshot"].get("delivery_charge") is not None and session.scalar(
+        sa.select(models.order_corrections.c.id).where(
+            models.order_corrections.c.order_id == request["order_id"],
+            models.order_corrections.c.organization_id == ORGANIZATION_ID).limit(1)
+    ) is not None:
+        raise BusinessError("delivery_correction_chain_pending",
+                            "A further delivery correction requires cumulative compensation support")
     order = (
         session.execute(
             sa.select(models.orders)
@@ -5505,6 +5570,26 @@ def apply_order_reopen_request(
         correction_lines.append(
             {**row, "id": _id(), "quantity": quantity, "line_total_cents": line_total}
         )
+    from restaurant_os.delivery_fee import calculate_charge, normalize_selection
+
+    original_delivery = request["before_snapshot"].get("delivery_charge")
+    corrected_delivery = None
+    if original_delivery is not None:
+        original_products = sum(int(line["total_cents"]) for line in request["before_snapshot"]["lines"]
+                                if line["id"] in historic_lines)
+        if int(original_delivery["eligible_subtotal_cents"]) != original_products:
+            raise BusinessError("order_adjustment_reauthorization_required",
+                                "Discounted delivery correction requires canonical adjustment allocation")
+        selection = (normalize_selection(payload["delivery_selection"])
+                     if "delivery_selection" in payload else original_delivery["selection"])
+        if selection["mode"] == "SELECTED" and selection["tariff_id"] != original_delivery["tariff"]["id"]:
+            raise BusinessError("delivery_tariff_ineligible", "Paid correction must retain its historical tariff")
+        corrected_delivery = calculate_charge(
+            original_delivery["tariff"], original_delivery["policy"],
+            selection, corrected_total)
+        corrected_total += int(corrected_delivery["charged_cents"])
+    elif "delivery_selection" in payload:
+        raise BusinessError("delivery_policy_missing", "Historical order has no delivery charge")
     delta = corrected_total - int(payments[0]["amount_cents"])
     if delta and method != "cash" and not evidence:
         raise BusinessError("payment_adjustment_invalid", "Non-cash adjustment requires evidence")
@@ -5537,6 +5622,7 @@ def apply_order_reopen_request(
         "resulting_order_version": order["version"],
         "before_snapshot": request["before_snapshot"],
         "after_snapshot": {
+            "delivery_charge": corrected_delivery,
             "lines": [
                 {
                     "source_line_id": row["source_line_id"],
@@ -6283,10 +6369,13 @@ def amend_order(
     actor_user_id: str | None = None,
     *,
     commit: bool = True,
+    delivery_selection: Any = None,
+    delivery_quote_reference: Any = None,
 ) -> dict[str, Any]:
     if not idempotency_key.strip():
         raise BusinessError("idempotency_key_required", "Idempotency-Key is required")
     actor_id = _actor_user_id(actor_user_id)
+    _begin_cash_shift_serialization(session)
     order = (
         session.execute(sa.select(models.orders).where(models.orders.c.id == order_id))
         .mappings()
@@ -6296,6 +6385,12 @@ def amend_order(
         raise NotFoundError("order_not_found", "Order was not found")
     _require_order_write_fence(session, str(order["branch_id"]))
     require_permission(session, actor_id, "orders.amend", order["branch_id"])
+    order = session.execute(sa.select(models.orders).where(models.orders.c.id == order_id)
+                            .with_for_update()).mappings().one()
+    from restaurant_os import delivery_fee
+
+    command_hash = _pco005_hash({"lines": lines, "expected_version": expected_version, "delivery_selection": delivery_selection,
+                               "delivery_quote_reference": delivery_quote_reference})
     existing = (
         session.execute(
             sa.select(models.order_amendments).where(
@@ -6307,6 +6402,12 @@ def amend_order(
         .first()
     )
     if existing:
+        saved_hash = existing["after_snapshot"].get("delivery_command_hash")
+        if saved_hash is not None and saved_hash != command_hash:
+            raise BusinessError("idempotency_key_conflict", "Delivery amendment intention changed")
+        if saved_hash is not None and existing["after_snapshot"].get("delivery_response"):
+            require_permission(session, actor_id, "orders.read", order["branch_id"])
+            return dict(existing["after_snapshot"]["delivery_response"])
         return get_order_detail(session, order_id, actor_id)
     if not lines:
         raise BusinessError("invalid_quantity", "Order must have at least one line")
@@ -6358,6 +6459,15 @@ def amend_order(
             "production_already_started",
             "Order cannot be amended after production starts",
         )
+    previous_charge = delivery_fee.order_charge(session, order_id)
+    if previous_charge is not None and delivery_fee.same_cart(lines, old_lines):
+        return delivery_fee.amend_charge_only(
+            session, dict(order), old_lines, lines, delivery_selection, delivery_quote_reference,
+            actor_id, idempotency_key, command_hash, commit=commit)
+    if previous_charge and int(previous_charge["eligible_subtotal_cents"]) != sum(
+            int(line["line_total_cents"]) for line in old_lines):
+        raise BusinessError("order_adjustment_reauthorization_required",
+                            "Changing a discounted cart requires a new product adjustment authorization")
     now = _now()
     next_version = expected_version + 1
     before_snapshot = {
@@ -6527,6 +6637,15 @@ def amend_order(
 
         for combo_line in combo_new_lines:
             capture_combo_line(session, order=dict(order), line=combo_line, created_at=now)
+    delivery_fee.lock_catalog(session)
+    charge = delivery_fee.resolve_charge(session, order["branch_id"], order["order_type"],
+                                         delivery_selection, total_cents, order_id=order_id)
+    if charge is not None:
+        total_cents += int(charge["charged_cents"])
+        delivery_fee.verify_quote(delivery_quote_reference, actor_id, order["branch_id"],
+                                  order["order_type"], lines, None, charge, total_cents, order_id)
+        delivery_fee.capture_charge(session, {**dict(order), "version": next_version},
+                                    actor_id, charge)
     session.execute(
         models.orders.update()
         .where(models.orders.c.id == order_id)
@@ -6535,6 +6654,8 @@ def amend_order(
     after_snapshot = {
         "version": next_version,
         "total_cents": total_cents,
+        "delivery_charge": charge,
+        "delivery_command_hash": command_hash if charge is not None else None,
         "lines": [
             {
                 "id": line["id"],
@@ -6593,9 +6714,15 @@ def amend_order(
         branch_id=order["branch_id"],
         actor_user_id=actor_id,
     )
+    response = get_order_detail(session, order_id, actor_id)
+    if charge is not None:
+        session.execute(models.order_amendments.update().where(
+            models.order_amendments.c.order_id == order_id,
+            models.order_amendments.c.idempotency_key == idempotency_key.strip()).values(
+                after_snapshot={**after_snapshot, "delivery_response": _sanitize_for_json(response)}))
     if commit:
         session.commit()
-    return get_order_detail(session, order_id, actor_id)
+    return response
 
 
 def cancel_order(
@@ -6972,11 +7099,22 @@ def pay_order(
             sa.select(models.order_lines).where(
                 models.order_lines.c.order_id == order_id,
                 models.order_lines.c.status == "active",
-            )
+            ).order_by(models.order_lines.c.created_at, models.order_lines.c.id)
         ).mappings()
     ]
-    gross_cents = sum(int(line["line_total_cents"]) for line in active_lines)
-    if gross_cents != amount_cents or any(
+    from restaurant_os.delivery_fee import allocate_adjustment, order_charge
+
+    delivery_snapshot = order_charge(session, order_id)
+    products_gross = sum(int(line["line_total_cents"]) for line in active_lines)
+    fee_cents = int(delivery_snapshot["charged_cents"]) if delivery_snapshot else 0
+    product_adjustment = (products_gross - int(delivery_snapshot["eligible_subtotal_cents"])
+                          if delivery_snapshot else 0)
+    gross_cents = products_gross + fee_cents
+    allocations = allocate_adjustment([int(line["line_total_cents"]) for line in active_lines], product_adjustment)
+    adjustment_kind = session.scalar(sa.select(models.order_adjustment_authorizations.c.adjustment_type)
+        .where(models.order_adjustment_authorizations.c.consumed_order_id == order_id))
+    courtesy = product_adjustment if adjustment_kind == "courtesy" else 0
+    if gross_cents - product_adjustment != amount_cents or any(
         not line.get("family_snapshot_source") or not line.get("family_name_snapshot")
         for line in active_lines
     ):
@@ -6996,14 +7134,18 @@ def pay_order(
         "currency": order["currency"],
         "gross_cents": gross_cents,
         "net_cents": amount_cents,
-        "discount_cents": 0,
-        "courtesy_cents": 0,
-        "tax_cents": 0,
+        "discount_cents": product_adjustment - courtesy,
+        "courtesy_cents": courtesy,
+        "tax_cents": None if delivery_snapshot else 0,
         "quality_status": "captured",
         "confirmed_at": now,
         "created_at": now,
     }
     session.execute(models.sales_operation_snapshots.insert().values(**sales_snapshot))
+    if delivery_snapshot is not None:
+        session.execute(models.delivery_sale_snapshots.insert().values(
+            id=_id(), payment_id=payment["id"], order_id=order_id,
+            snapshot=delivery_snapshot, created_at=now))
     session.execute(
         models.sales_operation_line_snapshots.insert(),
         [
@@ -7019,12 +7161,12 @@ def pay_order(
                 "family_snapshot_source": line["family_snapshot_source"],
                 "quantity": line["quantity"],
                 "gross_cents": line["line_total_cents"],
-                "net_cents": line["line_total_cents"],
-                "discount_cents": 0,
-                "courtesy_cents": 0,
-                "tax_cents": 0,
+                "net_cents": int(line["line_total_cents"]) - allocations[index],
+                "discount_cents": allocations[index] if not courtesy else 0,
+                "courtesy_cents": allocations[index] if courtesy else 0,
+                "tax_cents": None if delivery_snapshot else 0,
             }
-            for line in active_lines
+            for index, line in enumerate(active_lines)
         ],
     )
     if _failure_hook:
@@ -9431,9 +9573,12 @@ def _create_print_jobs(
     lines = [
         dict(row)
         for row in session.execute(
-            sa.select(models.order_lines).where(models.order_lines.c.order_id == order["id"])
+            sa.select(models.order_lines).where(models.order_lines.c.order_id == order["id"],
+                                                models.order_lines.c.status == "active")
         ).mappings()
     ]
+    from restaurant_os.delivery_fee import order_charge
+
     common_payload = {
         "folio": order["folio"],
         "total_cents": order["total_cents"],
@@ -9454,12 +9599,13 @@ def _create_print_jobs(
         {
             "id": _id(),
             "organization_id": ORGANIZATION_ID,
-            "branch_id": BRANCH_ID,
+            "branch_id": order["branch_id"],
             "order_id": order["id"],
             "job_type": "ticket",
             "target": "POS-CAJA-01",
             "status": "QUEUED",
-            "payload": {**common_payload, "copy": "customer"},
+            "payload": {**common_payload, "copy": "customer",
+                        "delivery_charge": order_charge(session, order["id"])},
             "attempts": 1,
             "last_error": None,
             "created_at": created_at,
@@ -9468,7 +9614,7 @@ def _create_print_jobs(
         {
             "id": _id(),
             "organization_id": ORGANIZATION_ID,
-            "branch_id": BRANCH_ID,
+            "branch_id": order["branch_id"],
             "order_id": order["id"],
             "job_type": "kitchen",
             "target": "KDS-COCINA",
@@ -27688,6 +27834,9 @@ def create_public_order_intent(
                 "idempotency_conflict", "Idempotency key was used with another request"
             )
         return dict(prior["result"]), False
+    from restaurant_os.delivery_fee import require_compatible_channel
+
+    require_compatible_channel(session, branch_id, normalized["order_type"], "PUBLIC_INTENT")
     if normalized["order_type"] not in {"dine-in", "takeout", "delivery"}:
         raise BusinessError("public_order_schema_invalid", "Order type is invalid")
     if not normalized["customer_name"] or len(normalized["customer_name"]) > 160:
@@ -28091,6 +28240,9 @@ def accept_public_order_intent(
         else None
     )
     now, order_id = _now(), _id()
+    from restaurant_os.delivery_fee import require_compatible_channel
+
+    require_compatible_channel(session, intent["branch_id"], intent["order_type"], "PUBLIC_INTENT")
     folio = _next_unique_folio(session, intent["branch_id"])
     changed = cast(
         Any,

@@ -276,13 +276,13 @@ def diagnose(engine: Engine, organization_id: str, limit: int = 100) -> dict[str
             else:
                 coverage_partial = True
 
-        branch_zones: dict[str, str] = dict(
-            session.execute(
+        branch_zones: dict[str, str] = {
+            str(row[0]): str(row[1]) for row in session.execute(
                 sa.select(models.branches.c.id, models.branches.c.timezone).where(
                     models.branches.c.organization_id == organization_id
                 )
             ).all()
-        )
+        }
         for row in rows:
             if row["branch_id"] not in branch_zones:
                 record("purchase_branch_scope_conflict", purchases.name, row["id"])

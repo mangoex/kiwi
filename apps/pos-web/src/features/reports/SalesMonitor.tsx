@@ -3,6 +3,7 @@ import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { BarChart3, RefreshCw, Search } from 'lucide-react';
 import { Button } from '@restaurantos/ui';
 import { usePosSession } from '../../session';
+import { DeliveryFeeReport } from './DeliveryFeeReport';
 import {
   type BreakdownItem,
   type SalesDrillDownResponse,
@@ -287,6 +288,9 @@ const SalesMonitor = () => {
         </>
       )}
 
+      {applied && <DeliveryFeeReport key={`${applied.branchId}:${applied.fromDate}:${applied.toDate}:${applied.timeZone}`}
+        branchId={applied.branchId} start={localDayUtcBounds(applied.fromDate, applied.timeZone).fromUtc}
+        end={localDayUtcBounds(applied.toDate, applied.timeZone).toUtc} />}
       {drillMetric && (
         <section className="sales-monitor-drill" aria-labelledby="sales-monitor-drill-title">
           <div className="sales-monitor-drill-header">

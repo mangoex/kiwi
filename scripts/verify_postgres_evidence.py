@@ -7,6 +7,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 MODULES = (
+    "delivery_fee",
     "cash_ledger",
     "purchase_workspace",
     "operating_expenses",

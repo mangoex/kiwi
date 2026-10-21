@@ -8,6 +8,10 @@ export const CatalogHub: React.FC = () => {
   const hasCatalogManage = useAdminPermission('catalog.manage');
 
   const cards: HubCardItem[] = [
+    ...(hasCatalogManage ? [{ title: 'Servicios de domicilio',
+      description: 'Tarifas de envío, precio predeterminado y envío gratis por monto.',
+      icon: <Package size={26} />, iconBg: '#eff6ff', iconColor: '#2563eb',
+      path: '/delivery-services' }] : []),
     {
       title: 'Productos',
       description: 'Alta, precios, impuestos, visibilidad y estaciones de preparación de tu menú.',

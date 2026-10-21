@@ -573,11 +573,11 @@ def _prepare_order(session: Session, payload: dict[str, Any]) -> dict[str, Any]:
             models.inventory_items.c.id == presentation["item_id"],
             models.inventory_items.c.organization_id == ORGANIZATION_ID,
         )).mappings().one()
-        unit_codes: dict[str, str] = dict(session.execute(sa.select(
+        unit_codes: dict[str, str] = {str(row[0]): str(row[1]) for row in session.execute(sa.select(
             models.inventory_units.c.id, models.inventory_units.c.code,
         ).where(models.inventory_units.c.id.in_(
             [presentation["base_unit_id"], presentation["commercial_unit_id"]]
-        ))).all())
+        ))).all()}
         frozen_presentation = {
             **dict(presentation), "item_name": item["name"], "item_sku": item["sku"],
             "base_unit_code": unit_codes[presentation["base_unit_id"]],

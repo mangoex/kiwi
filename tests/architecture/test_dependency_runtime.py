@@ -38,6 +38,7 @@ def test_branch_authority_locks_require_executed_postgres_evidence(
     from verify_postgres_evidence import verify
 
     modules = [
+        "delivery_fee",
         "cash_ledger",
         "purchase_workspace",
         "operating_expenses",
@@ -116,6 +117,7 @@ def test_required_postgres_evidence_rejects_omitted_or_unexecuted_case(tmp_path,
     collection = tmp_path / "collection.txt"
     report = tmp_path / "report.xml"
     modules = [
+        "delivery_fee",
         "cash_ledger",
         "purchase_workspace",
         "operating_expenses",

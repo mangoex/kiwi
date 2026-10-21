@@ -406,10 +406,14 @@ def prepare_issue(
             "created_at": now,
             "updated_at": now,
         }
+        from restaurant_os.delivery_fee_fiscal import payment_charge
+
         snapshot = {
             "schema": "fiscal-command-payment/v1",
             "request": request,
             "payments": [asdict(payment) for payment in payments],
+            "delivery_charges": {identifier: payment_charge(session, identifier)
+                                 for identifier in sorted(order_ids)},
             "configuration": {
                 "id": configuration["id"],
                 "version": configuration["version"],

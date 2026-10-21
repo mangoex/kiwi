@@ -25,6 +25,7 @@ const CATEGORY_CONFIGS: CategoryNavConfig[] = [
     items: [
       { path: '/products', label: 'Productos' },
       { path: '/availability', label: 'Disponibilidad' },
+      { path: '/delivery-services', label: 'Servicios de domicilio' },
       {
         path: '/recipes',
         label: 'Recetas',

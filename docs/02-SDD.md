@@ -7054,3 +7054,263 @@ sólo con IDs/campos modificados; errores SQL móviles devuelven 503 sin paráme
 requests móviles se limitan a 64 KiB antes del parseo; logs de proveedor sólo resultado estable, sin teléfono/código/token.
 Contadores de límites existentes responden a la segunda pregunta; colisión tiene código estable
 mobile_customer_ambiguous, sin publicar candidatos ni datos personales.
+
+## 70. DELIVERY-FEE-001 — catálogo y cargo de entrega
+
+Estado: **núcleo POS online implementado y probado localmente; CI/release pendientes**.
+Canales/offline permanecen cerrados; preparación fiscal parcial, emisión agregada bloqueada.
+Evidencia y límites en `docs/implementation-plans/DELIVERY-FEE-001.md`. PRD-FR-283..288. Decisiones del usuario del
+2026-10-21: una sola tarifa por pedido; umbral inclusivo sobre productos tras descuentos, sin
+envío ni propina. El cargo inicial de Kiwi es $28.00 MXN con IVA 16% incluido. Precio inicial y
+habilitación productiva se configuran sólo con autorización de operación, no al correr migraciones.
+
+### SDD-ADR-047 Catálogo de servicios separado de productos productivos
+
+Se acepta para este diseño un catálogo de tarifas y un agregado monetario de entrega dentro del
+pedido. No se reutiliza `order_lines` de alimentos: hoy `_price_order_line` y creación se enlazan
+con recetas, reservas y tareas. Tampoco se representa envío gratis como descuento de alimentos.
+Una sola selección conserva identidad aun cuando el monto sea cero por umbral. Se descartan una
+receta ficticia, precio libre enviado por UI, varias tarifas acumulables, recalcular desde catálogo
+actual al cobrar historia y asumir que ingreso de envío equivale a pago del repartidor.
+No incorpora dependencias críticas ni proveedor de mapas. Selección automática por distancia
+queda para otra decisión; la selección manual de tarifas adicionales forma parte de este paquete.
+
+### 70.1 Persistencia y autoridad
+
+Modelo candidato a materializar mediante migración aditiva PostgreSQL y proyección SQLite:
+
+| Recurso | Campos y restricciones del contrato |
+| --- | --- |
+| `delivery_tariffs` | `id`, `organization_id`, `code`, `name`, `active`; código único organizacional; archivar, nunca borrar una identidad usada. |
+| `delivery_tariff_versions` | Identidad de tarifa, versión, vigencia UTC no solapada, nombre snapshot, `amount_cents >= 0`, moneda MXN, `tax_included=true`, tasa Decimal, referencia fiscal versionada por emisor. Captura monetaria hasta dos decimales; revisiones inmutables. |
+| Política efectiva de entrega | Versiones con ámbito corporativo o sucursal explícita, tarifas elegibles, una predeterminada, `free_threshold_cents` nullable y estrictamente positivo si se activa. `NULL` desactiva, no significa cero. Usa resolución y herencia de §58, sin selector de workspace ni elección por primera fila. |
+| Selección/cargo de pedido | Máximo una identidad de entrega por pedido, con revisiones enlazadas a `order_version`; `selection_mode`, estado efectivo, tarifa/versión, política efectiva, importe de lista, importe cobrado, base e impuesto exactos, base elegible, umbral, procedencia, actor y fecha. Snapshot suficiente sin consultar tarifas vigentes. |
+| Eventos y compensaciones | Historial append-only de selección, retiro, exención, restauración y correcciones; relación al comando y a revisión anterior. Correcciones pagadas usan §38.2.6 / PRD-FR-217, no UPDATE del pago original. |
+
+Alta/edición/publicación: `catalog.manage` corporativo y organización resuelta del actor. El ámbito
+de configuración de sucursal se valida mediante §58; no se acepta `organization_id` del body.
+Consulta POS sólo devuelve tarifas efectivas de su sucursal autorizada. Borrador usa `orders.create`;
+pedido impago usa `orders.amend` sobre el pedido real, versión esperada y estados editables actuales.
+Producción iniciada conserva la reapertura/autorización de FR-217 aun para una edición fee-only;
+no se usa que el cargo no consume inventario para saltar esa restricción del pedido.
+Quitar registra motivo estable `operator_removed` sin exigir texto libre ni aprobación de supervisor;
+no concede alterar precio, umbral o claves fiscales. Deshabilitar una tarifa impide seleccionarla
+en pedidos nuevos, no elimina ni cambia la seleccionada en pedidos ya confirmados.
+
+Default, pertenencia de tarifas y vigencias se validan en una publicación atómica con versión
+esperada y bloqueo de política/ámbito: no publicar default inactivo, ajeno, fuera de lista ni una
+política habilitada sin default. Dos publicaciones concurrentes producen un ganador y un conflicto.
+Una desactivación que invalide el default efectivo se rechaza, salvo publicar su reemplazo atómico.
+
+### 70.2 Selección y reglas deterministas
+
+Entrada de selección: `AUTO`, `SELECTED(tariff_id)` o `REMOVED`. No se aceptan arrays de tarifas,
+cantidades, importes, impuestos ni exenciones afirmadas por el cliente. AUTO resuelve el default;
+SELECTED exige tarifa elegible; REMOVED conserva la decisión sin volver a resolver el default.
+La preferencia se conserva durante la vida del borrador, incluso al salir de domicilio y volver:
+fuera de delivery se cobra cero, al regresar se restaura la elección/retiro previo. Un borrador nuevo
+o repetir pedido inicia AUTO con configuración vigente; no hereda retiros/precios del original.
+
+Precedencia de evaluación:
+
+1. Tipo distinto de `delivery`: `NOT_APPLICABLE`, importe cero; rechazar selección explícita de
+   tarifa en el comando de otro tipo. El borrador conserva su preferencia delivery separada.
+2. Tipo delivery habilitado con política ausente/inválida: error de configuración; no default cero.
+3. Selección `REMOVED`: `REMOVED`, importe cero, decisión auditable; prevalece sobre el umbral.
+4. Resolver AUTO/SELECTED y versión; calcular la base elegible y comparar `base >= threshold`.
+5. Si cumple: `WAIVED_THRESHOLD`, importe cobrado cero; de otro modo `CHARGED`, importe de tarifa.
+
+`eligible_subtotal_cents = products_subtotal_cents - authorized_product_adjustments_cents`.
+Incluye modificadores de precio y precios al público de productos/combo; no vuelve a sumar
+componentes de un combo. Excluye envío y propina; ajustes inválidos fallan antes del cálculo.
+`total_cents = eligible_subtotal_cents + delivery_charged_cents`, conservando los demás componentes
+monetarios canónicos existentes, si aplican; nunca reinterpretar un impuesto informativo como cargo.
+El umbral aplica a la única tarifa seleccionada; no existe “forzar cobro” que anule gratuidad.
+Al bajar del umbral en una edición impaga válida se reactiva la tarifa, excepto REMOVED.
+La política congelada al confirmar gobierna ediciones del mismo pedido; sustituir la tarifa
+explícitamente cotiza una versión elegible actual y congela la nueva, sin cambiar la política
+de gratuidad del pedido. Una tarifa histórica archivada se conserva si no se sustituye.
+
+### 70.3 Cotización, comandos e idempotencia
+
+Extender el servicio de precios Python compartido, con DTO nuevo `order-quote.v2` y proyección
+`delivery_charge` que incluya modo, estado, etiqueta, importe de lista/cobrado, base/IVA propios,
+tarifa/versión, política/versión, umbral/base elegible y errores estables. Mantener la semántica de
+`subtotal_cents` como productos antes del ajuste, con `delivery_charged_cents` explícito.
+No afirmar `tax_cents=0` o total fiscal determinado si los alimentos conservan impuestos desconocidos;
+el impuesto conocido del envío es separado y no certifica el del resto del pedido.
+
+Contrato a implementar bajo `/api/v1`:
+
+- Administración: `/delivery-tariffs` y revisiones; `/delivery-policies` por destino explícito,
+  lectura/publicación con autorización, idempotencia y control de versión. Paginación 1..100;
+  no exponer datos de clientes en el catálogo.
+- POS: `/delivery-options` de sucursal y extensión de `/orders/quote`, creación y enmienda.
+  Incorporar tipo de servicio, selección y revisión de pedido al contrato de cotización. La creación
+  y enmienda reciben referencia/hash de cotización y versiones esperadas; nunca el precio como autoridad.
+- Detalle/recuperación: incluir selección y snapshot efectivo. Un cliente v1 puede conservar
+  consulta de historia, pero no confirmar una venta delivery nueva con la política habilitada si
+  no soporta el contrato v2; error `delivery_contract_upgrade_required`, antes del cobro.
+
+La cotización devuelve una referencia verificable ligada a organización, actor/capacidad de canal,
+sucursal, tipo, carrito exacto, ajuste autorizado, selección, revisiones y versiones. Debe poder
+validarse sin confiar en el payload del navegador. Vigencia exacta y mecanismo de referencia se
+fijan en D02 antes del RED; cambios de contexto invalidan la cotización. Cotizar no reserva ni vende.
+Una publicación entre quote y creación produce `delivery_quote_stale`, nunca cobro mayor silencioso.
+En pedidos existentes se valida snapshot/política congelada, no se invalida sólo por publicar otra
+tarifa si la selección no cambió. `expected_version` serializa cambios de productos/envío/pago.
+
+En creación/enmienda se guarda en una transacción selección, cálculo, total, snapshot, auditoría,
+evento y outbox aplicable. Clave idempotente incluye selección/retiro y cotización; replay idéntico
+recupera resultado histórico tras reautorizar, antes de reconsultar tarifa/configuración actual.
+Misma clave con otra intención devuelve conflicto sin escritura. Bloqueo de pedido compartido con
+`pay_order` y liquidación de repartidor: pago y retiro concurrentes no pueden confirmar versiones
+monetarias diferentes. Respuesta tardía de una cotización no reemplaza el carrito/selección actual.
+
+Errores candidatos: `delivery_policy_missing`, `delivery_default_invalid`, `delivery_tariff_ineligible`,
+`delivery_quote_stale`, `delivery_selection_invalid`, `delivery_policy_version_conflict` y
+`delivery_contract_upgrade_required`; reutilizar errores de autorización, pedido pagado y versión.
+Mapear HTTP/DTO explícitamente en D02 y probarlos. No atrapar indiscriminadamente para devolver cero.
+
+### 70.4 Comanda, ticket, cobro y reportes
+
+Admin: Catálogos > Servicios de domicilio, separado de Productos/Recetas; lista de tarifas,
+revisiones, activas y política por destino. Mostrar importe final con IVA incluido, predeterminada
+y control “Envío gratis desde” con activación explícita; no guardar un cero ambiguo.
+POS/comanda: bloque Envío con selector único, importe y Quitar; Restaurar envío tras retiro.
+Mostrar “Gratis por monto”, importe original y umbral cuando corresponda, y “Retirado manualmente”
+sin confundirlos. Ocultar cobro fuera de domicilio. Preservar selección al guardar/recuperar y
+mostrar conflictos/error antes de confirmar. Controles de importe no editables desde comanda.
+
+Ticket cliente/hoja entrega: concepto separado, cantidad de servicio 1, importe o gratuidad y total;
+receta, unidades de alimentos y KDS no incluyen el cargo. Reimpresión usa el snapshot, no el catálogo.
+Base exacta del cargo: `Decimal(gross_cents)/100/(1+rate)`; IVA es diferencia exacta. ROUND_HALF_UP
+sólo para presentación conforme a ADR-010; $28 -> base $24.14, IVA $3.86. El adaptador fiscal
+aplica su contrato de precisión/redondeo por concepto y documento sin alterar el total pactado.
+
+Pago, saldo/recaudación del repartidor y corte incluyen el total canónico con envío una sola vez;
+el reembolso/remuneración logística sigue independiente. Extender la imagen de §38.2.6 con
+`delivery_charge` antes/después: conservar tarifa/política originales si no se cambia selección,
+reevaluar umbral sobre la imagen corregida mediante la política histórica y calcular el delta
+financiero con productos y cargo. Una modificación explícita del envío en una reapertura requiere
+la misma solicitud/decisión del Dueño, no una escritura ordinaria. La corrección debe enlazar los
+ajustes fiscales y de reporte correspondientes, sin mover pago ni corte originales. Una corrección
+de alimentos tampoco puede perder o duplicar el fee original al recalcular su total.
+Snapshots de asignación conservan el
+valor que tenían al asignar; un cambio monetario posterior produce revisión/evento enlazado y la
+deuda actual se deriva del pedido impago vigente, sin reescribir el historial del repartidor.
+Extender snapshots de venta y conciliación con dimensiones de productos/envío/impuestos conocidos,
+sin distribuir el envío entre alimentos. En historial sin captura distinguir `legacy_not_captured`:
+no inventar impuesto/fee cero, no cobrar retrospectivamente ni inferir por nombre de los tres
+productos eliminados. Excluir de unidades/ranking/consumo/food cost; permitir drill-down de envíos
+cobrados, exentos, retirados y compensados por sucursal/turno/canal/repartidor.
+
+CFDI/exportación: formar concepto de servicio desde snapshot cuando importe cobrado sea positivo,
+con mapeo SAT/emisor aprobado por PRD-FR-276. Exento/retirado conserva evidencia operativa, sin
+introducir concepto gravado ni impuesto sobre ingreso inexistente. El concepto de alimentos nunca
+vuelve a incluir el importe del envío. El flujo legacy de recibos que agrupa todo en “Consumo en
+restaurante” no es un atajo compatible: debe consumir el desglose canónico. Ausencia de información
+fiscal bloquea emisión, no inventa claves; no altera permisos/OPEN-006/007 ni autoriza sandbox real.
+
+### 70.5 Canales y offline
+
+Primera entrega operativa: POS online en sucursal piloto. Crear un contrato común que permita
+sumar canales propios después de verificar cada escritor real: intenciones públicas/móviles,
+aceptación, Asistto y adaptadores de marketplaces. Un cliente externo sólo puede proponer tarifa
+o transportar fee original según su contrato, no precio local ni exención no autorizada.
+Conservar `charged_by`, `fulfilled_by`, importe externo/payload original y referencia de origen;
+si pertenecen a un tercero, no volver a cobrar fee local. Modalidad ambigua se rechaza o pasa a
+revisión explícita, nunca se suma por intuición. No permitir que un pedido evada política local
+omitiendo el campo mientras otro canal de la sucursal ya la usa: bloquear el escritor incompatible
+o mantenerlo fuera de esa política mediante alcance de canal explícito probado.
+
+Offline es incremento dependiente, no una caché: proyectar catálogo/política versionados en SQLite,
+reutilizar grants/fencing de §58/ORD-OFF, registrar selección/snapshot/outbox e identidad del comando.
+La autorización firmada debe acotar las versiones/precios/políticas permitidos; la nube valida
+esa evidencia histórica, no acepta importes arbitrarios ni los recalcula a precio vigente.
+Política ausente, expirada o versión incompatible falla cerrado para esa operación. Antes de
+habilitar delivery local, comprobar ida/vuelta PostgreSQL/SQLite, recuperación y gateway real.
+Un gateway viejo no puede servir de ruta alternativa para omitir el fee de una sucursal activada.
+
+### 70.6 Migración, reversión y operación
+
+Asignar revisión Alembic libre en D00 sobre el head real; 0099 es sólo el head observado el
+2026-10-21. No reservar un número como si no hubiera trabajo concurrente. Esquema aditivo, sin
+restaurar productos eliminados ni backfill heurístico de historia. Ensayar upgrade desde head y
+downgrade vacío; downgrade con cargos/revisiones/outbox o documentos asociados falla sin pérdida.
+Rollback funcional: detener nuevas capturas del canal piloto, drenar pendientes y mantener lectores,
+reimpresión, conciliación y recuperación compatibles. No volver a un binario que ignore cargos ya
+persistidos ni poner precios en cero para simular reversión.
+
+Preguntas y señales de operación del futuro runtime:
+
+| Pregunta | Señal vinculada, sin PII |
+| --- | --- |
+| ¿Un delivery cobra la tarifa que corresponde, o una exención/retiro explicable? | Contadores por resultado, estado y canal acotados; auditoría por ID de pedido/política/revisión. |
+| ¿Quote, pedido, pago, ticket y fiscal concilian? | Resultado de conciliación y código de diferencia; detalle autorizado por IDs, nunca cuerpos fiscales ni domicilios en logs. |
+| ¿Reintentos/configuración obsoleta duplican o bloquean cargos? | Replay/conflicto/versiones incompatibles y cola/outbox del canal; latencia de comandos por resultado. |
+| ¿El repartidor debe entregar efectivo o recibir una remuneración distinta? | Saldo de recaudación por asignación histórica y referencia de liquidación; remuneración separada, costo desconocido explícito. |
+
+Afirmaciones, refutaciones y evidencia se registran en el plan DELIVERY-FEE-001. Una auditoría
+independiente del diseño no sustituye la auditoría R3 del diff de implementación, las pruebas ni CI.
+
+
+### 70.7 Contrato técnico ejecutado y límites del incremento online
+
+- `delivery_fee.py` y DTO `order-quote.v2`: selección AUTO/SELECTED/REMOVED, sin precio libre.
+  Referencia stateless firmada HMAC-SHA256 con separación de dominio, vigencia 120 segundos;
+  vincula actor/sucursal/tipo/líneas/ajuste/cargo/total/pedido. El POS recotiza a los 90 segundos
+  y ante `delivery_quote_stale`. No es una autorización fiscal ni un permiso transferible.
+- Esquema aditivo Alembic `0100_delivery_fee` sobre `0099_mobile_password_access`: identidades,
+  revisiones de tarifa/política/cargo, snapshots de venta e idempotencia de configuración.
+  No hay seed de $28 ni habilitación automática. Downgrade con cualquier historia se bloquea.
+- Configuración exige `catalog.manage` con ámbito organizacional real. Publicación y comandos
+  usan lock transaccional de catálogo; escritores operativos toman primero sucursal, luego
+  catálogo. Enmienda toma sucursal antes del pedido para compartir orden con cobro/recaudación.
+- Catálogo acotado técnicamente a 100 tarifas; importes/versiones son enteros con máximo
+  2,000,000,000; captura manual de precio/umbral admite dos decimales, sin redondeo silencioso.
+  Publicación de tarifa sin cambios conserva versión. Una selección histórica mantiene snapshot;
+  un pedido legacy sin snapshot no adquiere cargo por activar la sucursal posteriormente.
+- Pago congela envío fuera de alimentos. Ajustes autorizados de productos se distribuyen en
+  centavos por proporción y mayor residuo, desempate por orden estable de líneas; suma exacta
+  preservada, cortesía separada de descuento. El envío nunca participa en ese prorrateo.
+- Edición exclusiva de envío conserva IDs productivos y movimientos. Replay monetario devuelve
+  la respuesta original capturada aunque luego se restaure el envío. Producción iniciada o pago
+  confirmado conserva las restricciones de edición existentes.
+- PCO-005B recalcula umbral desde tarifa/política históricas y conserva original; selección
+  REMOVED/AUTO puede corregirse con la solicitud/decisión autorizadas. No cambia tarifa histórica
+  por otra tarifa. **Carrito ya descontado que cambia productos y corrección pagada con descuento
+  se bloquean** con `order_adjustment_reauthorization_required`: falta el contrato de nueva
+  autorización/asignación de descuento para esos recorridos, no se pierde descuento en silencio.
+- Ticket cliente lleva `delivery_charge` con estado/tarifa/importe/base/IVA; cocina conserva sólo
+  alimentos activos. Reimpresión usa payload persistido. Evidencia cubre contrato de impresión,
+  no una impresora física. Turno/caja/recaudación consumen el total del pedido una sola vez.
+- API `/reports/delivery-fees` y panel en Monitor de ventas: sucursal/periodo UTC, pagos y deltas de
+  corrección, paginación, cobrado/base/IVA/estado/canal y legacy sin desglose. Rango máximo 93 días,
+  100 filas por página. El panel declara que no hereda filtros de familia/caja/turno del monitor;
+  desglose adicional por repartidor/turno sigue pendiente, sin atribuciones históricas inventadas.
+- Fiscal: `service_item` prepara concepto exacto con Decimal y mapeo SAT/emisor explícito; la
+  preparación durable conserva cargo de pago/corrección. Falta evidencia fiscal canónica de
+  alimentos/dispatch seguro en FISCAL-001: ambos métodos legacy de emisión se bloquean antes
+  de enviar un agregado con envío. No se afirma CFDI completo ni se contacta PAC.
+- Escritores públicos, integraciones y lease offline comparten exclusión con publicación y
+  rechazan delivery incompatible antes de crear/cobrar. Activación rechaza lease no liberado.
+  Es una guarda del piloto online; C01/O01 siguen pendientes, sin afirmar soporte offline.
+
+
+Límite de compensaciones encadenadas del incremento online: una segunda corrección pagada de un
+pedido con cargo de domicilio se rechaza con `delivery_correction_chain_pending`, conservando
+la primera corrección y permitiendo replay de su mismo comando. Requiere contrato de saldo
+compensado acumulado antes de habilitar otra corrección, no recalcular contra el pago original.
+Regresión persistida: original3300/productos500/envío2800, retiro autorizado devuelve2800;
+una nueva solicitud no puede devolver otros2800. RED causal: segunda corrección se aplicaba;
+GREEN: una sola corrección. Es guarda técnica de compatibilidad, sin ampliar edición impaga.
+
+
+Compatibilidad de lectura con esquemas históricos: antes de consultar una tabla de domicilio
+inexistente, sólo se admite ausencia total de sus seis tablas en las revisiones Alembic conocidas
+0077_pos_branch_selection, 0087_fiscal_commands y 0099_mobile_password_access. Esas lecturas
+conservan la semántica legacy sin cargo. Revisión actual/desconocida o presencia parcial cuando
+falta la tabla solicitada produce delivery_schema_incomplete; una tabla existente usa su consulta
+normal (no es una validación global del esquema). Las escrituras de catálogo siguen requiriendo
+la migración0100. No se permite habilitar una política mediante este fallback.

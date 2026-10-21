@@ -68,9 +68,9 @@ def test_branch_routes_and_pos_sections_are_separated_and_guarded() -> None:
     hub = _read("apps/pos-web/src/features/admin/AdminHub.tsx")
     pos = _read("apps/pos-web/src/features/pos/PointOfSale.tsx")
 
-    assert "variations:'variation-notes'" in local
+    assert "variations: 'variation-notes'" in local
     assert "Comentarios del pedido" in local and "catalog.branch.manage" in local
-    assert "'ingredient-extras':'ingredient-variations'" in local
+    assert "'ingredient-extras': 'ingredient-variations'" in local
     assert "Ingredientes adicionales" in local
     assert all(
         value in local

@@ -13,12 +13,14 @@ const operationalUrl = asModule(readFileSync('packages/api-client/src/operationa
 const adminAccessUrl = asModule(readFileSync('packages/api-client/src/adminAccess.ts', 'utf8'));
 const reconciliationUrl = asModule(readFileSync('packages/api-client/src/reconciliationV2.ts', 'utf8'));
 const workspaceUrl = asModule(readFileSync('packages/api-client/src/branchWorkspace.ts', 'utf8'));
+const deliveryFeeUrl = asModule(readFileSync('packages/api-client/src/deliveryFee.ts', 'utf8'));
 const apiUrl = asModule(readFileSync('packages/api-client/src/index.ts', 'utf8')
   .replaceAll("'./cashierDrafts'", JSON.stringify(draftsUrl))
   .replaceAll("'./operationalOrders'", JSON.stringify(operationalUrl))
   .replaceAll("'./adminAccess'", JSON.stringify(adminAccessUrl))
   .replaceAll("'./reconciliationV2'", JSON.stringify(reconciliationUrl))
-  .replaceAll("'./branchWorkspace'", JSON.stringify(workspaceUrl)));
+  .replaceAll("'./branchWorkspace'", JSON.stringify(workspaceUrl))
+  .replaceAll("'./deliveryFee'", JSON.stringify(deliveryFeeUrl)));
 const api = await import(apiUrl);
 const storage = () => {
   const entries = new Map();
