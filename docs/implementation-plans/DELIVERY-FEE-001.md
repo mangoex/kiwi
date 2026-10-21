@@ -288,3 +288,13 @@ los destinos históricos deliberados de migración ni las comparaciones de filas
 El probe local específico no produjo evidencia concluyente y se detuvo; no se cuenta como verde.
 La ejecución completa de esas suites permanece obligatoria en CI. La migración0100 ya tiene
 cuatro pruebas PostgreSQL verdes y la cadena arquitectónica completa12passed localmente.
+
+
+CI401: 2360passed y20failed revelaron expectativas de head/fixtures y dos lecturas sobre esquemas
+históricos anteriores a0100. Se limita el fallback a tres revisiones conocidas, sin ninguna tabla
+de domicilio; ante tabla solicitada ausente en esquema actual/desconocido o parcial se bloquea.
+No valida integridad global cuando la tabla solicitada existe. Catálogo escrito exige migración.
+La auditoría Sol independiente revisó este delta sin bloqueantes:7pruebas y12probes adversariales
+SQLite verdes; no acreditan PostgreSQL. Se conservan oráculos de ticket/arquitectura y se agrega
+el módulo delivery_fee al fixture positivo del gate de evidencia PostgreSQL. CI405 frontend
+completo verde; PostgreSQL y suite completa del commit final siguen pendientes.

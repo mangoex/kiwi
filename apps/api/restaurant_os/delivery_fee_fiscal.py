@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
+from restaurant_os.delivery_fee import fee_table_available
 from restaurant_os.operations import BusinessError
 
 
@@ -40,6 +41,8 @@ def service_item(snapshot: dict[str, Any], emitter_id: str) -> dict[str, Any] | 
 
 
 def payment_charge(session: Session, order_id: str) -> dict[str, Any] | None:
+    if not fee_table_available(session, "delivery_sale_snapshots"):
+        return None
     snapshot = session.scalar(
         sa.select(models.delivery_sale_snapshots.c.snapshot).where(
             models.delivery_sale_snapshots.c.order_id == order_id
@@ -60,6 +63,8 @@ def payment_charge(session: Session, order_id: str) -> dict[str, Any] | None:
 
 def reject_aggregate_receipt(session: Session, order_ids: list[str]) -> None:
     """The legacy aggregate has no canonical food tax concepts. Never hide a delivery fee in it."""
+    if not fee_table_available(session, "delivery_sale_snapshots"):
+        return
     present = session.scalar(
         sa.select(models.delivery_sale_snapshots.c.id)
         .where(models.delivery_sale_snapshots.c.order_id.in_(order_ids))

@@ -30,6 +30,34 @@ from restaurant_os.operations import (
 
 QUOTE_SECONDS = 120
 _SELECTION_ERROR = "Delivery selection is invalid"
+_LEGACY_READ_REVISIONS = frozenset(
+    {
+        "0077_pos_branch_selection",
+        "0087_fiscal_commands",
+        "0099_mobile_password_access",
+    }
+)
+
+
+def fee_table_available(session: Session, required: str) -> bool:
+    """Only known pre-fee rollback schemas may omit every delivery table."""
+    inspector = sa.inspect(session.connection())
+    if inspector.has_table(required):
+        return True
+    from restaurant_os.delivery_fee_schema import tables
+
+    names = [table.name for table in tables(sa.MetaData())]
+    if not any(inspector.has_table(name) for name in names) and inspector.has_table(
+        "alembic_version"
+    ):
+        revisions = (
+            session.execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
+        )
+        if len(revisions) == 1 and revisions[0] in _LEGACY_READ_REVISIONS:
+            return False
+    raise BusinessError(
+        "delivery_schema_incomplete", "Delivery schema requires migration or repair"
+    )
 
 
 def allocate_adjustment(gross: list[int], adjustment: int) -> list[int]:
@@ -166,6 +194,8 @@ def _tariffs(session: Session) -> list[dict[str, Any]]:
 
 
 def current_policy(session: Session, branch_id: str) -> dict[str, Any] | None:
+    if not fee_table_available(session, "delivery_policies"):
+        return None
     p = models.delivery_policies
     for scope in (branch_id, "*"):
         row = (
@@ -457,6 +487,8 @@ def save_policy(
 
 
 def order_charge(session: Session, order_id: str) -> dict[str, Any] | None:
+    if not fee_table_available(session, "delivery_charge_revisions"):
+        return None
     row = session.execute(
         sa.select(models.delivery_charge_revisions.c.snapshot)
         .where(

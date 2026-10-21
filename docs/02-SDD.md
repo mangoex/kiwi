@@ -7305,3 +7305,12 @@ compensado acumulado antes de habilitar otra corrección, no recalcular contra e
 Regresión persistida: original3300/productos500/envío2800, retiro autorizado devuelve2800;
 una nueva solicitud no puede devolver otros2800. RED causal: segunda corrección se aplicaba;
 GREEN: una sola corrección. Es guarda técnica de compatibilidad, sin ampliar edición impaga.
+
+
+Compatibilidad de lectura con esquemas históricos: antes de consultar una tabla de domicilio
+inexistente, sólo se admite ausencia total de sus seis tablas en las revisiones Alembic conocidas
+0077_pos_branch_selection, 0087_fiscal_commands y 0099_mobile_password_access. Esas lecturas
+conservan la semántica legacy sin cargo. Revisión actual/desconocida o presencia parcial cuando
+falta la tabla solicitada produce delivery_schema_incomplete; una tabla existente usa su consulta
+normal (no es una validación global del esquema). Las escrituras de catálogo siguen requiriendo
+la migración0100. No se permite habilitar una política mediante este fallback.

@@ -67,7 +67,7 @@ def test_local_availability_is_in_canonical_pages_with_explicit_scope():
         assert page in catalog
     assert 'branch_id=${encodeURIComponent(branchId)}' in catalog
     assert 'catalog.branch.manage' in catalog and 'branch.admin.access' in catalog
-    assert "method:'PUT'" in catalog
+    assert "method: 'PUT'" in catalog
     assert 'row.has_local_override' in catalog
 
 

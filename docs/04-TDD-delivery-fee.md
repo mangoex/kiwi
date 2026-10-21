@@ -184,3 +184,9 @@ compensado acumulado antes de habilitar otra corrección, no recalcular contra e
 Regresión persistida: original3300/productos500/envío2800, retiro autorizado devuelve2800;
 una nueva solicitud no puede devolver otros2800. RED causal: segunda corrección se aplicaba;
 GREEN: una sola corrección. Es guarda técnica de compatibilidad, sin ampliar edición impaga.
+
+
+TC449: test_delivery_fee_schema_compatibility.py agrega siete casos de lecturas históricas,
+esquema actual/desconocido sin tablas y esquema parcial; el error original UndefinedTable fue
+RED causal. El gate PostgreSQL incluye delivery_fee tanto en su colección obligatoria como en
+el fixture positivo del verificador. Los destinos históricos de downgrade permanecen intactos.
