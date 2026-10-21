@@ -1,0 +1,392 @@
+.availability-workspace {
+  margin-top: 24px;
+  color: #17231d;
+}
+
+.availability-workspace--standalone {
+  margin: 0 auto;
+  max-width: 1240px;
+}
+
+.availability-hero {
+  align-items: center;
+  background: linear-gradient(135deg, #f3fbf5 0%, #ffffff 62%, #f4f7f5 100%);
+  border: 1px solid #dce8df;
+  border-radius: 24px;
+  display: flex;
+  gap: 18px;
+  padding: 24px 26px;
+}
+
+.availability-hero__icon {
+  align-items: center;
+  background: #173d2a;
+  border-radius: 18px;
+  box-shadow: 0 10px 24px rgba(23, 61, 42, 0.18);
+  color: #fff;
+  display: flex;
+  flex: 0 0 54px;
+  height: 54px;
+  justify-content: center;
+}
+
+.availability-eyebrow {
+  color: #52715f;
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.availability-hero h1 {
+  color: #14251b;
+  font-size: clamp(1.45rem, 2.6vw, 2rem);
+  letter-spacing: -0.025em;
+  margin: 0 0 5px;
+}
+
+.availability-hero p {
+  color: #5f6f65;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 760px;
+}
+
+.availability-toolbar {
+  align-items: end;
+  background: #fff;
+  border: 1px solid #e1e8e3;
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(30, 54, 40, 0.06);
+  display: flex;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 18px;
+}
+
+.availability-field {
+  display: grid;
+  flex: 0 1 330px;
+  gap: 7px;
+}
+
+.availability-field--search {
+  flex: 1 1 420px;
+}
+
+.availability-field > span,
+.availability-static-scope small {
+  color: #5e6d63;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.availability-control-with-icon {
+  align-items: center;
+  background: #f8faf8;
+  border: 1px solid #cfdbd2;
+  border-radius: 14px;
+  color: #5d7164;
+  display: flex;
+  min-height: 46px;
+  padding: 0 13px;
+}
+
+.availability-control-with-icon:focus-within {
+  border-color: #44845d;
+  box-shadow: 0 0 0 3px rgba(68, 132, 93, 0.12);
+}
+
+.availability-control-with-icon select,
+.availability-control-with-icon input {
+  background: transparent;
+  border: 0;
+  color: #1e3025;
+  flex: 1;
+  font: inherit;
+  font-weight: 650;
+  min-width: 0;
+  outline: 0;
+  padding: 0 10px;
+}
+
+.availability-static-scope {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-height: 46px;
+}
+
+.availability-static-scope span {
+  display: grid;
+  gap: 2px;
+}
+
+.availability-scope-note {
+  align-items: center;
+  border-radius: 14px;
+  display: flex;
+  font-size: 0.84rem;
+  gap: 10px;
+  margin: 12px 2px 18px;
+  padding: 11px 14px;
+}
+
+.availability-scope-note.corporate {
+  background: #edf7f0;
+  color: #315a40;
+}
+
+.availability-scope-note.branch {
+  background: #fff8e8;
+  color: #7a5a1d;
+}
+
+.availability-scope-note strong {
+  margin-right: 4px;
+}
+
+.availability-message,
+.availability-empty {
+  background: #f7faf8;
+  border-radius: 14px;
+  color: #506158;
+  margin: 12px 0;
+  padding: 13px 16px;
+}
+
+.availability-message--error {
+  background: #fff0f0;
+  color: #9b2c2c;
+}
+
+.availability-message--success {
+  background: #edf8f0;
+  color: #23603a;
+}
+
+.availability-product-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.availability-product-card {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e0e7e2;
+  border-radius: 20px;
+  box-shadow: 0 5px 18px rgba(29, 51, 38, 0.045);
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(220px, 1.35fr) minmax(230px, 1fr) minmax(330px, auto);
+  padding: 18px 20px;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.availability-product-card:hover {
+  border-color: #b9cbbf;
+  box-shadow: 0 11px 26px rgba(29, 51, 38, 0.08);
+  transform: translateY(-1px);
+}
+
+.availability-product-card__identity {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.availability-product-card__title-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.availability-product-card__title-row > strong {
+  color: #16271d;
+  font-size: 0.98rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.availability-product-card__sku,
+.availability-product-card small {
+  color: #77847c;
+  font-size: 0.76rem;
+}
+
+.availability-status-pill {
+  background: #eef8f1;
+  border-radius: 999px;
+  color: #2e7147;
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 5px 9px;
+}
+
+.availability-status-pill.unavailable {
+  background: #fff0f0;
+  color: #a13a3a;
+}
+
+.availability-digital-toggle {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.availability-digital-toggle > input {
+  height: 1px;
+  opacity: 0;
+  position: absolute;
+  width: 1px;
+}
+
+.availability-digital-toggle__track {
+  background: #347b4e;
+  border-radius: 999px;
+  flex: 0 0 42px;
+  height: 24px;
+  padding: 3px;
+  transition: background 160ms ease;
+}
+
+.availability-digital-toggle__track > span {
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.22);
+  display: block;
+  height: 18px;
+  margin-left: 18px;
+  transition: margin 160ms ease;
+  width: 18px;
+}
+
+.availability-digital-toggle.off .availability-digital-toggle__track {
+  background: #aeb8b1;
+}
+
+.availability-digital-toggle.off .availability-digital-toggle__track > span {
+  margin-left: 0;
+}
+
+.availability-digital-toggle:focus-within .availability-digital-toggle__track {
+  box-shadow: 0 0 0 3px rgba(68, 132, 93, 0.18);
+}
+
+.availability-digital-toggle__copy {
+  align-items: center;
+  color: #486056;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.availability-digital-toggle__copy > span {
+  display: grid;
+  gap: 2px;
+}
+
+.availability-digital-toggle__copy strong {
+  font-size: 0.8rem;
+}
+
+.availability-actions {
+  background: #f5f8f6;
+  border-radius: 13px;
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  padding: 4px;
+}
+
+.availability-actions button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  color: #627067;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 750;
+  gap: 5px;
+  padding: 9px 10px;
+}
+
+.availability-actions button:hover:not(:disabled),
+.availability-actions button.active {
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(34, 60, 44, 0.09);
+  color: #2b7045;
+}
+
+.availability-actions button.danger {
+  color: #a23939;
+}
+
+.availability-actions button.muted {
+  color: #5c6879;
+}
+
+.availability-actions button:disabled,
+.availability-digital-toggle:has(input:disabled) {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+@media (max-width: 1050px) {
+  .availability-product-card {
+    grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr);
+  }
+
+  .availability-actions {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+
+  .availability-actions button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 680px) {
+  .availability-hero {
+    align-items: flex-start;
+    border-radius: 20px;
+    padding: 20px;
+  }
+
+  .availability-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .availability-field,
+  .availability-field--search {
+    flex: auto;
+  }
+
+  .availability-product-card {
+    border-radius: 17px;
+    grid-template-columns: 1fr;
+    padding: 17px;
+  }
+
+  .availability-actions {
+    grid-column: auto;
+    overflow-x: auto;
+  }
+
+  .availability-actions button {
+    flex: 0 0 auto;
+  }
+}

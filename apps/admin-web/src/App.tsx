@@ -36,7 +36,7 @@ import { BranchesHub } from './features/hubs/BranchesHub';
 import { ReportsHub } from './features/hubs/ReportsHub';
 import { AdminAccessHub } from './features/hubs/AdminAccessHub';
 import { AdminSessionProvider } from './lib/adminSession';
-import { CatalogAdministration } from './features/catalog/CatalogAdministration';
+import { AvailabilityAdministration, CatalogAdministration } from './features/catalog/CatalogAdministration';
 import SharedModifierWorkspace from './features/catalog/SharedModifierWorkspace';
 import { AdminSessionBoundary } from './components/AdminSessionBoundary';
 
@@ -72,6 +72,7 @@ export const App = () => {
 
           {/* Subroutes: Catálogo y Menú */}
           <Route path="products" element={<CatalogAdministration kind="products" />} />
+          <Route path="availability" element={<AvailabilityAdministration />} />
           <Route path="recipes" element={<RecipesWorkspace />} />
           <Route path="categories" element={<CategoriesList />} />
           <Route path="variations" element={<CatalogAdministration kind="variations" />} />
