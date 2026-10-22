@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine
-from typing import Annotated, Any
+from collections.abc import Callable
+from typing import Annotated
 
 import sqlalchemy as sa
 from fastapi import Depends, Request, Response
@@ -21,8 +21,8 @@ def financial_read_guard(
     organization_scope: bool = False,
     order_resource: bool = False,
     invoice_resource: bool = False,
-) -> Callable[..., Coroutine[Any, Any, None]]:
-    async def guard(
+) -> Callable[..., None]:
+    def guard(
         request: Request,
         response: Response,
         session: Annotated[Session, Depends(get_session)],
