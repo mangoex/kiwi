@@ -7,7 +7,7 @@
 | F1-01..05 | Especificaciones, pruebas iniciales, autoridad y proyecciones de caja | Integración integral del paquete |
 | F1-06 | Lectores, canales y diagnóstico humano de sync; dos hallazgos de auditoría de descargas corregidos | Reconciliar manifiesto final de rutas/campos |
 | F1-07 | Respuestas tardías, caché, metadatos de sesión y primera adaptación de turnos/cortes | Completar movimientos de caja, cuentas, gastos, canales, reportes y demás consumidores; QA integral |
-| F1-08 | Sin cierre | Recepción sin costos, ajuste/revisión separadas, autorizaciones exactas y recorridos operativos |
+| F1-08 | Revisión de brechas confirmada (alias de conteo, recepción corporativa, autorización de pedidos) | Recepción sin costos, ajuste/revisión separadas, autorizaciones exactas y recorridos operativos |
 | F1-09 | Privacidad al suspender política, regresión local/PG | Preflight individual, clientes/leases incompatibles, ensayo completo de transición |
 | F1-10 | Evidencia focal acumulada | Integración completa, gateway/E2E y CI del commit |
 | F1-11 | Auditoría independiente iniciada; dos hallazgos reproducidos/corregidos | Revisión del diff final y cierre integral |
@@ -1364,3 +1364,18 @@ mypy verde en sus 48 módulos backend. Pruebas runtime frontend de capacidades/D
 identidad durable, sesión y transporte v2 verdes. Vista aislada de componentes revisada
 a 390 px con datos sintéticos; la QA visual del POS completo continúa pendiente.
 CI, build de release y recorrido completo de fase 1 no se presentan como aprobados.
+
+
+### Continuación posterior al checkpoint c06c166 — 2026-10-22
+
+Se verificó GitHub Actions para el SHA completo c06c1662ff81cb56203ecafd729611723a8c653f:
+no existen ejecuciones, ni de PR ni manuales. El workflow sólo escucha pull_request
+y workflow_dispatch. La continuación se entrega en rama/PR para ejecutar la suite
+completa de CI y corregir sus resultados antes de cerrar F1-10.
+
+Auditoría focal F1-08 confirmó tres brechas pendientes: alias heredado inventory.count
+a review/approve, recepción corporativa que exige gestión organizacional y devuelve
+precios, y cambios/cancelaciones ACCEPTED sin autorización exacta de encargado/Dueño.
+Se conservan como pendientes reales; no se habilita la política ni se amplían permisos
+para eludirlas. La siguiente secuencia es integrar los consumidores F1-07, cerrar estas
+fronteras F1-08, implementar preflight/compatibilidad F1-09 y verificar F1-10/11.
