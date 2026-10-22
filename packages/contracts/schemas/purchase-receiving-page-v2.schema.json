@@ -1,0 +1,168 @@
+{
+  "$defs": {
+    "ReceivingLine": {
+      "additionalProperties": false,
+      "properties": {
+        "allocation_id": {
+          "title": "Allocation Id",
+          "type": "string"
+        },
+        "warehouse_id": {
+          "title": "Warehouse Id",
+          "type": "string"
+        },
+        "item_id": {
+          "title": "Item Id",
+          "type": "string"
+        },
+        "item_name": {
+          "title": "Item Name",
+          "type": "string"
+        },
+        "presentation_id": {
+          "title": "Presentation Id",
+          "type": "string"
+        },
+        "presentation_name": {
+          "title": "Presentation Name",
+          "type": "string"
+        },
+        "presentation_quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Presentation Quantity"
+        },
+        "received_quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Received Quantity"
+        },
+        "pending_quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Pending Quantity"
+        }
+      },
+      "required": [
+        "allocation_id",
+        "warehouse_id",
+        "item_id",
+        "item_name",
+        "presentation_id",
+        "presentation_name",
+        "presentation_quantity",
+        "received_quantity",
+        "pending_quantity"
+      ],
+      "title": "ReceivingLine",
+      "type": "object"
+    },
+    "ReceivingOrder": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "folio": {
+          "title": "Folio",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "lines": {
+          "items": {
+            "$ref": "#/$defs/ReceivingLine"
+          },
+          "title": "Lines",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "folio",
+        "status",
+        "version",
+        "lines"
+      ],
+      "title": "ReceivingOrder",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "projection": {
+      "const": "operational",
+      "default": "operational",
+      "title": "Projection",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "integer"
+    },
+    "branch_id": {
+      "title": "Branch Id",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ReceivingOrder"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    }
+  },
+  "required": [
+    "policy_version",
+    "branch_id",
+    "items",
+    "next_cursor"
+  ],
+  "title": "ReceivingPage",
+  "type": "object"
+}

@@ -756,6 +756,7 @@ def supervisor_authorize_endpoint(
         return authorize_supervisor_step_up(
             session=session,
             supervisor_code_or_password=pin_or_code,
+            supervisor_identity=str(payload.get("supervisor_identity") or ""),
             branch_id=branch_id,
             permission_code=permission_code,
         )
@@ -3162,6 +3163,7 @@ def authorize_order_adjustment_endpoint(
             branch_id=branch_id,
             actor_user_id=actor_id,
             supervisor_code_or_password=str(payload.get("supervisor_pin") or ""),
+            supervisor_identity=str(payload.get("supervisor_identity") or ""),
             adjustment_type=str(adjustment.get("type") or ""),
             adjustment_value=adjustment.get("value"),
             reason=str(adjustment.get("reason") or ""),
@@ -3845,6 +3847,8 @@ def amend_order_endpoint(
             actor_id,
             delivery_selection=payload.get("delivery_selection"),
             delivery_quote_reference=payload.get("delivery_quote_reference"),
+            exception_authorization_id=payload.get("exception_authorization_id"),
+            exception_reason=payload.get("reason"),
         )
     )
 
@@ -3882,7 +3886,9 @@ def cancel_order_endpoint(
     actor_id = _human_actor(actor_user_id, authorization)
     response.headers["Cache-Control"] = "no-store"
     return _response(
-        lambda: cancel_order_operation(session, order_id, reason, classification, actor_id)
+        lambda: cancel_order_operation(session, order_id, reason, classification, actor_id,
+            expected_version=(payload or {}).get("expected_version"),
+            exception_authorization_id=(payload or {}).get("exception_authorization_id"))
     )
 
 
@@ -6607,6 +6613,7 @@ def approve_corporate_purchase(
 def receive_corporate_purchase(
     order_id: str,
     payload: dict[str, Any],
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
@@ -6614,8 +6621,11 @@ def receive_corporate_purchase(
 ) -> dict[str, Any]:
     from restaurant_os.corporate_purchases import receive_corporate_purchase_order
 
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
         lambda: receive_corporate_purchase_order(
             session, order_id, payload, actor_id, idempotency_key or ""
         )
@@ -9036,7 +9046,7 @@ def post_pos_uber_eats_order_status(
     new_status = str(payload.get("status", "")).strip().upper()
     if not new_status:
         raise HTTPException(status_code=400, detail="status es requerido.")
-    return channel_service.update_order_status(session, order_id, new_status, actor_id)
+    return _business_response(lambda: channel_service.update_order_status(session, order_id, new_status, actor_id))
 
 
 @router.get("/pos/didi-food/orders")
@@ -9071,7 +9081,7 @@ def post_pos_didi_food_order_status(
     new_status = str(payload.get("status", "")).strip().upper()
     if not new_status:
         raise HTTPException(status_code=400, detail="status es requerido.")
-    return channel_service.update_order_status(session, order_id, new_status, actor_id)
+    return _business_response(lambda: channel_service.update_order_status(session, order_id, new_status, actor_id))
 
 
 @router.get("/pos/rappi/orders")
@@ -9106,7 +9116,7 @@ def post_pos_rappi_order_status(
     new_status = str(payload.get("status", "")).strip().upper()
     if not new_status:
         raise HTTPException(status_code=400, detail="status es requerido.")
-    return channel_service.update_order_status(session, order_id, new_status, actor_id)
+    return _business_response(lambda: channel_service.update_order_status(session, order_id, new_status, actor_id))
 
 
 @router.get("/pos/whatsapp/orders")
@@ -9141,7 +9151,7 @@ def post_pos_whatsapp_order_status(
     new_status = str(payload.get("status", "")).strip().upper()
     if not new_status:
         raise HTTPException(status_code=400, detail="status es requerido.")
-    return channel_service.update_order_status(session, order_id, new_status, actor_id)
+    return _business_response(lambda: channel_service.update_order_status(session, order_id, new_status, actor_id))
 
 
 # ---------------------------------------------------------------------------

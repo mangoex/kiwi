@@ -4,6 +4,9 @@
     "OrderChargeV2": {
       "additionalProperties": false,
       "properties": {
+        "selection": {
+          "$ref": "#/$defs/OrderDeliverySelectionV2"
+        },
         "state": {
           "title": "State",
           "type": "string"
@@ -56,6 +59,7 @@
         }
       },
       "required": [
+        "selection",
         "state",
         "list_cents",
         "charged_cents",
@@ -103,6 +107,37 @@
         "authorization_version"
       ],
       "title": "OrderContextV2",
+      "type": "object"
+    },
+    "OrderDeliverySelectionV2": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "AUTO",
+            "REMOVED",
+            "SELECTED"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "tariff_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tariff Id"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "OrderDeliverySelectionV2",
       "type": "object"
     },
     "OrderDeliveryV2": {

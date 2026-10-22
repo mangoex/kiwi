@@ -128,7 +128,13 @@ export function cashMovementCapabilities(input: {
   canWithdraw: boolean;
   canDeposit: boolean;
   canCompensate?: boolean;
-}) {
+}, access?: {state: string; datasets: readonly string[]} | null) {
+  if (access && access.state !== 'legacy') {
+    const active = access.state === 'active';
+    input = {...input, canRead: active && input.canRead && access.datasets.includes('cash.movements'),
+      canWithdraw: active && input.canWithdraw, canDeposit: active && input.canDeposit,
+      canCompensate: active && input.canCompensate};
+  }
   const canWrite = input.canWithdraw || input.canDeposit;
   return {
     ...input,
@@ -137,4 +143,16 @@ export function cashMovementCapabilities(input: {
     canUse: input.canRead || canWrite,
     initialType: input.canWithdraw ? 'withdrawal' as const : 'deposit' as const,
   };
+}
+
+export function parseCashMovementAcknowledgement(value: unknown, revision: number, action: 'create'|'compensate'): string {
+  const keys = ['projection','schema_version','policy_version','command_id','resource_id','action','status','version','accepted_at','replay','correlation_id'];
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).sort().join('|') !== keys.sort().join('|')) throw new Error('Acuse de movimiento inválido.');
+  const row = value as Record<string,unknown>;
+  if(row.projection !== 'operational' || row.schema_version !== 2 || row.policy_version !== revision
+    || row.action !== `cash.movement.${action}` || row.status !== 'confirmed' || row.version !== 1
+    || typeof row.replay !== 'boolean'
+    || !['command_id','resource_id','accepted_at','correlation_id'].every(key => typeof row[key] === 'string' && row[key])) throw new Error('Acuse de movimiento inválido.');
+  return row.command_id as string;
 }

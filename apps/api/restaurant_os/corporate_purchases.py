@@ -54,7 +54,14 @@ ORDER_KEYS = {
 }
 LINE_KEYS = {"presentation_id", "quantity", "unit_price", "discount", "tax", "allocations"}
 ALLOCATION_KEYS = {"branch_id", "warehouse_id", "quantity"}
-RECEIPT_KEYS = {"expected_version", "branch_id", "warehouse_id", "received_at", "lines"}
+RECEIPT_KEYS = {
+    "expected_version",
+    "branch_id",
+    "warehouse_id",
+    "received_at",
+    "lines",
+    "discrepancy_reason",
+}
 RECEIPT_LINE_KEYS = {"allocation_id", "quantity"}
 
 logger = logging.getLogger(__name__)
@@ -110,6 +117,13 @@ def _observe_corporate_mutation(
 
 def _require_corporate_permission(session: Session, actor_id: str, permission: str) -> None:
     actor = _actor_user_id(actor_id)
+    from restaurant_os.financial_authority import FinancialAuthority
+    from restaurant_os.financial_reads import read_branches
+
+    authority = FinancialAuthority(session, actor, ORGANIZATION_ID)
+    for branch in read_branches(session, None):
+        if authority.policy_revision(branch) is not None:
+            authority.require_capability("purchases.prices.read", branch)
     if not _actor_has_organization_scope(session, actor, permission):
         _record_authorization_denied(
             session,
@@ -172,14 +186,27 @@ def _command_replay(
     command_type: str,
     key: str,
     request_hash: str,
+    receipt_scope: tuple[str, int] | None = None,
 ) -> dict[str, Any] | None:
     normalized_key = key.strip()
     if not normalized_key or len(normalized_key) > 180:
         raise BusinessError("idempotency_key_required", "Idempotency key is required")
     _acquire_idempotency_lock(session, "corporate-purchase", normalized_key)
+    table = models.corporate_purchase_commands
+    projection = (
+        sa.select(
+            table.c.actor_user_id,
+            table.c.command_type,
+            table.c.request_hash,
+            table.c.order_id,
+            table.c.result["receipt"]["id"].as_string().label("receipt_id"),
+        )
+        if receipt_scope
+        else sa.select(table)
+    )
     command = (
         session.execute(
-            sa.select(models.corporate_purchase_commands).where(
+            projection.where(
                 models.corporate_purchase_commands.c.organization_id == ORGANIZATION_ID,
                 models.corporate_purchase_commands.c.idempotency_key == normalized_key,
             )
@@ -203,6 +230,10 @@ def _command_replay(
         "replay",
         order_id=str(command["order_id"]) if command["order_id"] else None,
     )
+    if receipt_scope:
+        from restaurant_os.purchase_receiving import receipt_projection
+
+        return receipt_projection(session, str(command["receipt_id"]), *receipt_scope)
     return dict(command["result"])
 
 
@@ -436,8 +467,7 @@ def _allocation_cost_target(session: Session, allocation: dict[str, Any]) -> Dec
                 models.corporate_purchase_allocations.c.presentation_quantity,
             )
             .where(
-                models.corporate_purchase_allocations.c.order_line_id
-                == allocation["order_line_id"]
+                models.corporate_purchase_allocations.c.order_line_id == allocation["order_line_id"]
             )
             .order_by(
                 models.corporate_purchase_allocations.c.created_at,
@@ -472,11 +502,13 @@ def _validate_allocation_plan(session: Session, order: dict[str, Any]) -> None:
             models.corporate_purchase_order_lines.c.order_id == order["id"]
         )
     ).mappings():
-        allocations = list(session.execute(
-            sa.select(models.corporate_purchase_allocations).where(
-                models.corporate_purchase_allocations.c.order_line_id == line["id"]
-            )
-        ).mappings())
+        allocations = list(
+            session.execute(
+                sa.select(models.corporate_purchase_allocations).where(
+                    models.corporate_purchase_allocations.c.order_line_id == line["id"]
+                )
+            ).mappings()
+        )
         valid = bool(allocations)
         for field in ("presentation_quantity", "base_quantity"):
             valid = valid and sum(
@@ -484,11 +516,14 @@ def _validate_allocation_plan(session: Session, order: dict[str, Any]) -> None:
             ) == Decimal(str(line[field]))
         targets = []
         for row in allocations:
-            target = _allocation_cost_target(session, {
-                **dict(row),
-                "line_inventory_cost": line["inventory_cost"],
-                "line_presentation_quantity": line["presentation_quantity"],
-            })
+            target = _allocation_cost_target(
+                session,
+                {
+                    **dict(row),
+                    "line_inventory_cost": line["inventory_cost"],
+                    "line_presentation_quantity": line["presentation_quantity"],
+                },
+            )
             targets.append(target)
             valid = valid and target >= 0 and Decimal(str(row["base_quantity"])) > 0
             for field in ("presentation_quantity", "base_quantity"):
@@ -497,8 +532,10 @@ def _validate_allocation_plan(session: Session, order: dict[str, Any]) -> None:
         valid = valid and sum(targets, Decimal("0")) == Decimal(str(line["inventory_cost"]))
         if order["allocation_policy_version"] == 2:
             sequences = {row["allocation_sequence"] for row in allocations}
-            valid = valid and sequences == set(range(len(allocations))) and all(
-                row["inventory_cost_target"] is not None for row in allocations
+            valid = (
+                valid
+                and sequences == set(range(len(allocations)))
+                and all(row["inventory_cost_target"] is not None for row in allocations)
             )
         if not valid:
             raise BusinessError(
@@ -569,17 +606,33 @@ def _prepare_order(session: Session, payload: dict[str, Any]) -> dict[str, Any]:
                 "corporate_purchase_presentation_invalid", "Supplier presentation was not found"
             )
         presentation_values(session, dict(presentation), None)
-        item = session.execute(sa.select(models.inventory_items).where(
-            models.inventory_items.c.id == presentation["item_id"],
-            models.inventory_items.c.organization_id == ORGANIZATION_ID,
-        )).mappings().one()
-        unit_codes: dict[str, str] = {str(row[0]): str(row[1]) for row in session.execute(sa.select(
-            models.inventory_units.c.id, models.inventory_units.c.code,
-        ).where(models.inventory_units.c.id.in_(
-            [presentation["base_unit_id"], presentation["commercial_unit_id"]]
-        ))).all()}
+        item = (
+            session.execute(
+                sa.select(models.inventory_items).where(
+                    models.inventory_items.c.id == presentation["item_id"],
+                    models.inventory_items.c.organization_id == ORGANIZATION_ID,
+                )
+            )
+            .mappings()
+            .one()
+        )
+        unit_codes: dict[str, str] = {
+            str(row[0]): str(row[1])
+            for row in session.execute(
+                sa.select(
+                    models.inventory_units.c.id,
+                    models.inventory_units.c.code,
+                ).where(
+                    models.inventory_units.c.id.in_(
+                        [presentation["base_unit_id"], presentation["commercial_unit_id"]]
+                    )
+                )
+            ).all()
+        }
         frozen_presentation = {
-            **dict(presentation), "item_name": item["name"], "item_sku": item["sku"],
+            **dict(presentation),
+            "item_name": item["name"],
+            "item_sku": item["sku"],
             "base_unit_code": unit_codes[presentation["base_unit_id"]],
             "commercial_unit_code": unit_codes[presentation["commercial_unit_id"]],
         }
@@ -764,9 +817,7 @@ def create_corporate_purchase_order(
             "legal_entity_id": prepared["legal_entity_id"],
             "supplier_id": prepared["supplier_id"],
             "line_count": len(prepared["lines"]),
-            "allocation_count": sum(
-                len(line["allocations"]) for line in prepared["lines"]
-            ),
+            "allocation_count": sum(len(line["allocations"]) for line in prepared["lines"]),
             "destination_count": len(
                 {
                     (allocation["branch_id"], allocation["warehouse_id"])
@@ -866,11 +917,23 @@ def receive_corporate_purchase_order(
     idempotency_key: str,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    _require_corporate_permission(session, actor_id, "purchases.corporate.manage")
+    from restaurant_os.purchase_receiving import authority, receipt_projection
+
+    requested_branch = str(payload.get("branch_id", ""))
+    revision = authority(session, actor_id, requested_branch)
+    if revision is None:
+        _require_corporate_permission(session, actor_id, "purchases.corporate.manage")
     bounded_payload(payload, RECEIPT_KEYS)
     command_payload = {**payload, "order_id": order_id}
     request_hash = _command_hash("receive", command_payload)
-    replay = _command_replay(session, actor_id, "receive", idempotency_key, request_hash)
+    replay = _command_replay(
+        session,
+        actor_id,
+        "receive",
+        idempotency_key,
+        request_hash,
+        (requested_branch, revision) if revision is not None else None,
+    )
     if replay is not None:
         return replay
     order = _locked_order(session, order_id)
@@ -988,9 +1051,7 @@ def receive_corporate_purchase_order(
         base_quantity = _quantity(
             cumulative_base_quantity - Decimal(str(allocation["received_base_quantity"]))
         )
-        remaining_base_quantity = _quantity(
-            allocation_base_quantity - cumulative_base_quantity
-        )
+        remaining_base_quantity = _quantity(allocation_base_quantity - cumulative_base_quantity)
         is_partial = cumulative_quantity < Decimal(str(allocation["presentation_quantity"]))
         if base_quantity <= 0 or (is_partial and remaining_base_quantity <= 0):
             raise BusinessError(
@@ -1033,6 +1094,55 @@ def receive_corporate_purchase_order(
             }
         )
         seen.add(allocation_id)
+
+    reason = payload.get("discrepancy_reason")
+    if reason is not None and (
+        not isinstance(reason, str) or not reason.strip() or len(reason) > 1000
+    ):
+        raise BusinessError(
+            "corporate_purchase_difference_reason_invalid", "Use a reason of 1..1000 characters"
+        )
+    received_quantities = {row["id"]: row["receipt_presentation_quantity"] for row in prepared}
+    allocated = (
+        session.execute(
+            sa.select(
+                models.corporate_purchase_allocations.c.id,
+                models.corporate_purchase_allocations.c.presentation_quantity,
+                models.corporate_purchase_allocations.c.received_presentation_quantity,
+            )
+            .select_from(
+                models.corporate_purchase_allocations.join(models.corporate_purchase_order_lines)
+            )
+            .where(
+                models.corporate_purchase_order_lines.c.order_id == order_id,
+                models.corporate_purchase_allocations.c.branch_id == branch_id,
+                models.corporate_purchase_allocations.c.warehouse_id == warehouse_id,
+            )
+        )
+        .mappings()
+        .all()
+    )
+    differences = [
+        {
+            "allocation_id": row["id"],
+            "allocated_quantity": row["presentation_quantity"],
+            "received_quantity": received_quantities.get(row["id"], Decimal("0")),
+            "pending_quantity": _quantity(
+                Decimal(str(row["presentation_quantity"]))
+                - Decimal(str(row["received_presentation_quantity"]))
+                - received_quantities.get(row["id"], Decimal("0"))
+            ),
+        }
+        for row in allocated
+    ]
+    if (
+        revision is not None
+        and any(row["pending_quantity"] > 0 for row in differences)
+        and not reason
+    ):
+        raise BusinessError(
+            "corporate_purchase_difference_reason_required", "Partial receiving requires a reason"
+        )
 
     _require_exact_storage(session, prepared)
     _acquire_inventory_advisory_locks(
@@ -1216,6 +1326,8 @@ def receive_corporate_purchase_order(
             "status": next_status,
             "version": expected_version + 1,
             "receipt_id": receipt_id,
+            "discrepancy_reason": reason,
+            "differences": differences,
             "branch_id": branch_id,
             "warehouse_id": warehouse_id,
             "line_count": len(prepared),
@@ -1233,11 +1345,18 @@ def receive_corporate_purchase_order(
         branch_id=branch_id,
         actor_user_id=actor_id,
     )
-    order_result = _serialize_order(session, order_id)
-    receipt_result = next(row for row in order_result["receipts"] if row["id"] == receipt_id)
-    result = {"order": order_result, "receipt": receipt_result}
+    if revision is not None:
+        result = receipt_projection(session, receipt_id, branch_id, revision)
+    else:
+        order_result = _serialize_order(session, order_id)
+        receipt_result = next(row for row in order_result["receipts"] if row["id"] == receipt_id)
+        result = {"order": order_result, "receipt": receipt_result}
     _store_command(session, actor_id, "receive", idempotency_key, request_hash, order_id, result)
     session.commit()
+    if authority(session, actor_id, requested_branch) != revision:
+        raise BusinessError("cash_authorization_changed", "Receiving policy changed")
+    if revision is None:
+        _require_corporate_permission(session, actor_id, "purchases.corporate.manage")
     return result
 
 

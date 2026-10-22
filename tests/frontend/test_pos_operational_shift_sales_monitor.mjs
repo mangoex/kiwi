@@ -158,7 +158,9 @@ try {
   assert.match(salesMonitor, /Selecciona una sucursal con zona horaria válida/);
   assert.doesNotMatch(salesMonitor, /Todas las autorizadas/);
   assert.match(app, /path="sales-monitor"/);
-assert.ok(app.includes("AdministrativeReportRoute permissions={['reports.sales.read']}"));
+  assert.ok(app.includes('<SalesReportRoute/>'));
+  assert.ok(app.includes("access.capabilities['reports.operational.read']"));
+  assert.ok(app.includes("hasAdminCapability(session,'reports.sales.read')"), 'Legacy report authority is preserved');
   assert.match(adminHub, /Monitor de ventas/);
   assert.match(adminHub, /reports\.sales\.read/);
   assert.match(adminLayout, /\/sales-monitor/);

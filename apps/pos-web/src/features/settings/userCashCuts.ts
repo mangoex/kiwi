@@ -97,3 +97,47 @@ export const createUserCashCutIntent = <T>(command: string, key: string, payload
 );
 export const keepUserCashCutIntent = <T>(intent: T, code: string): T | null => code === 'idempotency_conflict' ? null : intent;
 export const formatCashCutMxn = (cents: number) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(cents / 100);
+
+
+export interface BlindCashDenominationEntry {
+  denomination_cents: number;
+  piece_count: number;
+}
+
+export interface BlindCashPaymentMethodEntry {
+  declared_cents: number | null;
+  voucher_count?: number;
+  references?: string[];
+}
+
+export interface BlindCashDeclarationPayload {
+  denominations: BlindCashDenominationEntry[];
+  payment_methods?: Record<'debit' | 'credit' | 'transfer' | 'platform', BlindCashPaymentMethodEntry>;
+  substitution_reason?: string;
+  version: number;
+}
+
+export const buildBlindCashDeclarationPayload = (
+  denominations: readonly BlindCashDenominationEntry[],
+  version: number,
+  options?: {
+    paymentMethods?: Record<'debit' | 'credit' | 'transfer' | 'platform', BlindCashPaymentMethodEntry>;
+    substitutionReason?: string;
+  },
+): BlindCashDeclarationPayload => {
+  const normalized = denominations.map((entry) => {
+    if (!integer(entry.denomination_cents) || entry.denomination_cents <= 0 || !integer(entry.piece_count) || entry.piece_count < 0) {
+      throw new Error('Denominación o cantidad de piezas inválida.');
+    }
+    return Object.freeze({
+      denomination_cents: entry.denomination_cents,
+      piece_count: entry.piece_count,
+    });
+  });
+  return Object.freeze({
+    denominations: normalized,
+    ...(options?.paymentMethods ? { payment_methods: options.paymentMethods } : {}),
+    ...(options?.substitutionReason?.trim() ? { substitution_reason: options.substitutionReason.trim() } : {}),
+    version,
+  });
+};

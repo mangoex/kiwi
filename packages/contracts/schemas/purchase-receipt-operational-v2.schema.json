@@ -1,0 +1,137 @@
+{
+  "$defs": {
+    "Receipt": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "order_id": {
+          "title": "Order Id",
+          "type": "string"
+        },
+        "branch_id": {
+          "title": "Branch Id",
+          "type": "string"
+        },
+        "warehouse_id": {
+          "title": "Warehouse Id",
+          "type": "string"
+        },
+        "received_at": {
+          "format": "date-time",
+          "title": "Received At",
+          "type": "string"
+        },
+        "received_by": {
+          "title": "Received By",
+          "type": "string"
+        },
+        "discrepancy_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Discrepancy Reason"
+        },
+        "lines": {
+          "items": {
+            "$ref": "#/$defs/ReceiptLine"
+          },
+          "title": "Lines",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "order_id",
+        "branch_id",
+        "warehouse_id",
+        "received_at",
+        "received_by",
+        "discrepancy_reason",
+        "lines"
+      ],
+      "title": "Receipt",
+      "type": "object"
+    },
+    "ReceiptLine": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "allocation_id": {
+          "title": "Allocation Id",
+          "type": "string"
+        },
+        "presentation_quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Presentation Quantity"
+        },
+        "base_quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Base Quantity"
+        }
+      },
+      "required": [
+        "id",
+        "allocation_id",
+        "presentation_quantity",
+        "base_quantity"
+      ],
+      "title": "ReceiptLine",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "projection": {
+      "const": "operational",
+      "default": "operational",
+      "title": "Projection",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "integer"
+    },
+    "receipt": {
+      "$ref": "#/$defs/Receipt"
+    }
+  },
+  "required": [
+    "policy_version",
+    "receipt"
+  ],
+  "title": "ReceivingReceipt",
+  "type": "object"
+}

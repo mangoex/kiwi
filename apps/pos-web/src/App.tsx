@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { fetchApi, hasAdminCapability } from '@restaurantos/api-client';
+import { fetchApi, hasAdminCapability, financialAccessForBranch } from '@restaurantos/api-client';
 import PosLayout from './components/PosLayout';
 import OperationalIntentRecovery from './components/OperationalIntentRecovery';
 import PointOfSale from './features/pos/PointOfSale';
@@ -13,6 +13,7 @@ import Settings from './features/settings/Settings';
 import AdminHub from './features/admin/AdminHub';
 import AttendanceReport from './features/attendance/AttendanceReport';
 import CashMovements from './features/cash/CashMovements';
+import Receiving from './features/purchases/Receiving';
 import SalesMonitor from './features/reports/SalesMonitor';
 import PCO007Reports from './features/reports/PCO007Reports';
 import { AdministrationAccess, AdminModuleRedirect } from './features/admin/AdminNavigation';
@@ -171,6 +172,15 @@ const AdministrativeReportRoute = ({permissions,children}:{permissions:string[];
   return permissions.some(code => hasAdminCapability(session,code)) ? <>{children}</> : <Navigate to="/pos" replace />;
 };
 
+const SalesReportRoute = () => {
+  const {session}=usePosSession();
+  const access=session?.active_branch ? financialAccessForBranch(session,session.active_branch.id) : null;
+  const allowed=access && access.state!=='legacy'
+    ? access.state==='active' && access.capabilities['reports.operational.read']
+    : hasAdminCapability(session,'reports.sales.read');
+  return allowed ? <SalesMonitor/> : <Navigate to="/pos" replace/>;
+};
+
 const AnyPermissionRoute: React.FC<{
   permissions: string[];
   children: React.ReactNode;
@@ -209,6 +219,7 @@ const App = () => {
                   </AnyPermissionRoute>
                 } />
                 <Route path="customers" element={<Customers />} />
+                <Route path="receiving" element={<PermissionRoute permission="purchases.receive"><Receiving/></PermissionRoute>} />
                 <Route path="history" element={<History />} />
                 <Route path="uber-orders" element={<PosModuleRoute module="uber_eats"><UberOrdersView /></PosModuleRoute>} />
                 <Route path="didi-orders" element={<PosModuleRoute module="didi_food"><DidiOrdersView /></PosModuleRoute>} />
@@ -222,11 +233,7 @@ const App = () => {
                   </AnyPermissionRoute>
                 } />
                 <Route path="settings" element={<Settings />} />
-                <Route path="sales-monitor" element={
-                  <AdministrativeReportRoute permissions={['reports.sales.read']}>
-                    <SalesMonitor />
-                  </AdministrativeReportRoute>
-                } />
+                <Route path="sales-monitor" element={<SalesReportRoute/>} />
                 <Route path="historical-reports" element={
                   <AdministrativeReportRoute permissions={['reports.ingredient_sales.read', 'reports.expenses.read']}>
                     <PCO007Reports />

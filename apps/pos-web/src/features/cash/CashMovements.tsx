@@ -1,5 +1,5 @@
 import React, { useEffect, useReducer, useState } from 'react';
-import { ApiError, fetchApi, hasPendingOperationalIntent } from '@restaurantos/api-client';
+import { ApiError, fetchApi, hasPendingOperationalIntent, financialAccessForBranch } from '@restaurantos/api-client';
 import { resolvePosBranchId, usePosSession } from '../../session';
 import {
   Wallet,
@@ -35,6 +35,7 @@ import {
   type CashCompensationState,
   nextCashIdempotencyKey,
   parseCashCents,
+  parseCashMovementAcknowledgement,
   reduceCashCompensationFormState,
 } from './cashMovementForm';
 import {
@@ -50,6 +51,7 @@ import {
   type OfflineCashStatus,
 } from './offlineCash';
 import './CashMovements.css';
+import {cashRecord,parseOperationalShift} from '../settings/cashProjections';
 
 type Concept = { concept_id: string; name: string; code: string };
 type CurrentShift = { cash_shift: { id: string } | null };
@@ -73,13 +75,15 @@ function centsToMxn(cents: number) {
 
 export default function CashMovements() {
   const { hasPermission, session } = usePosSession();
+  const branchId = resolvePosBranchId();
+  const access = session && branchId ? financialAccessForBranch(session,branchId) : null;
+  const protectedCash = access !== null && access.state !== 'legacy';
   const capabilities = cashMovementCapabilities({
     canRead: hasPermission('cash.movement.read'),
     canWithdraw: hasPermission('cash.movement.withdraw'),
     canDeposit: hasPermission('cash.movement.deposit'),
     canCompensate: hasPermission('cash.movement.compensate'),
-  });
-  const branchId = resolvePosBranchId();
+  },access);
   const registerId = localStorage.getItem('pos_register_id') || '';
   const [type, setType] = useState<'withdrawal' | 'deposit'>(capabilities.initialType);
   const [concepts, setConcepts] = useState<Concept[]>([]);
@@ -143,10 +147,15 @@ export default function CashMovements() {
   useEffect(() => {
     if (!capabilities.canWrite || !branchId || !registerId) return;
     setShiftReady(false);
-    void fetchApi<CurrentShift>(`/cash-shifts/current?branch_id=${encodeURIComponent(branchId)}&register_id=${encodeURIComponent(registerId)}`)
-      .then(data => setShiftReady(Boolean(data.cash_shift)))
+    const currentPath = protectedCash ? '/cash/shifts/current' : '/cash-shifts/current';
+    void fetchApi<CurrentShift>(`${currentPath}?branch_id=${encodeURIComponent(branchId)}&register_id=${encodeURIComponent(registerId)}`,{},protectedCash ? 'v2' : 'v1')
+      .then(data => {
+        if(protectedCash){const row=cashRecord(data,['cash_shift']);
+          if(row.cash_shift!==null)parseOperationalShift(row.cash_shift,branchId,access!.policy_version!);}
+        setShiftReady(Boolean(data.cash_shift));
+      })
       .catch(() => setStatus('No se pudo verificar el turno actual.'));
-  }, [branchId, capabilities.canWrite, registerId]);
+  }, [branchId, capabilities.canWrite, registerId, protectedCash]);
 
   useEffect(() => {
     if (!capabilities.canWrite || !shiftReady) return;
@@ -166,7 +175,7 @@ export default function CashMovements() {
     setOfflineGrant(null);
     setOfflineMovements([]);
     setOfflineStatus(null);
-    if (!capabilities.canWrite || !branchId || !gatewayDeviceId || !gatewayUrl) return;
+    if (protectedCash || !capabilities.canWrite || !branchId || !gatewayDeviceId || !gatewayUrl) return;
     let cancelled = false;
     const current = loadUsableOfflineCashGrant(branchId, gatewayDeviceId, gatewayUrl);
     setOfflineGrant(current);
@@ -192,7 +201,7 @@ export default function CashMovements() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [branchId, capabilities.canWrite, gatewayDeviceId, gatewayUrl]);
+  }, [branchId, capabilities.canWrite, gatewayDeviceId, gatewayUrl, protectedCash]);
 
   useEffect(() => {
     if (!gatewayUrl || !offlineGrant) return;
@@ -216,7 +225,8 @@ export default function CashMovements() {
     };
   }, [gatewayUrl, offlineGrant]);
 
-  if (!capabilities.canUse) return null;
+  if (access?.state === 'suspended') return <p role="alert">Los movimientos de esta sucursal están suspendidos. Contacta al Dueño.</p>;
+  if (!capabilities.canUse) return <p>No tienes permiso para operar o consultar movimientos en esta sucursal.</p>;
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -251,10 +261,11 @@ export default function CashMovements() {
         method: 'POST', headers: { 'Idempotency-Key': commandKey },
         body: JSON.stringify(payload),
       });
-      setCurrentSummary(result.current_summary);
+      if (protectedCash) parseCashMovementAcknowledgement(result,access!.policy_version!,'create');
+      setCurrentSummary(protectedCash ? null : result.current_summary);
       const refreshed = await refreshLedger();
       setAmount(''); setConceptText(''); setReference(''); setEvidence(''); setKey(null);
-      setStatus(refreshed ? 'Movimiento confirmado exitosamente.' : 'Movimiento confirmado; actualiza el ledger.');
+      setStatus(refreshed || !capabilities.canRead ? 'Movimiento confirmado exitosamente.' : 'Movimiento confirmado; actualiza el ledger.');
     } catch (error) {
       if (hasPendingOperationalIntent(error)) {
         setStatus('Recupera el resultado del servidor antes de cambiar la intención o enviarla al gateway.');
@@ -264,7 +275,7 @@ export default function CashMovements() {
         setKey(null); setStatus('La solicitud cambió y fue rechazada; genera una nueva intención.');
       } else if (
         (!(error instanceof ApiError) || error.status >= 500)
-        && gatewayUrl
+        && !protectedCash && gatewayUrl
         && gatewayDeviceId
         && offlineGrant
       ) {
@@ -320,7 +331,8 @@ export default function CashMovements() {
           body: JSON.stringify(payload),
         },
       );
-      setCurrentSummary(result.current_summary);
+      if (protectedCash) parseCashMovementAcknowledgement(result,access!.policy_version!,'compensate');
+      setCurrentSummary(protectedCash ? null : result.current_summary);
       const refreshed = await refreshLedger();
       dispatchCompensation({ type: 'complete' });
       setStatus(refreshed ? 'Movimiento compensado.' : 'Movimiento compensado; actualiza el ledger.');
@@ -361,7 +373,7 @@ export default function CashMovements() {
         </div>
 
         <div className="cash-header-kpis">
-          {currentSummary && (
+          {!protectedCash && currentSummary && (
             <div className="cash-kpi-card" role="status">
               <div className="cash-kpi-icon">
                 <Banknote size={22} />

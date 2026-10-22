@@ -793,6 +793,61 @@ con esa evidencia/decisión, no migres producción ni inicies la imagen que depe
 downgrade de 0058 está bloqueado: volver el código conserva la revisión y su auditoría; restaurar un
 snapshot completo requiere su propia ventana y autorización.
 
+### Liquidación de repartidores: recuperación del esquema 0096
+
+Si confirmar la recepción de efectivo devuelve `UndefinedTable` para
+`driver_cash_settlement_commands`, la base conectada no contiene una tabla requerida por la
+liquidación. La migración `0096_driver_cash_settlements` crea las tres tablas de este flujo;
+reiniciar o desplegar la API no ejecuta esa migración. `/health/ready` comprueba conectividad,
+pero no acredita que el esquema corresponda al código.
+
+La aplicación productiva requiere autorización separada conforme a `GOV-REL-001`, un respaldo
+restaurable y una ventana con las escrituras pausadas. Desde la consola del servicio API de
+Easypanel y la imagen aprobada, conserva la configuración de conexión del servicio e inspecciona:
+
+```bash
+cd /app/apps/api
+python -m alembic -c alembic.ini heads
+python -m alembic -c alembic.ini current -v
+```
+
+Para este paquete la head aprobada es `0096_driver_cash_settlements`. Si la revisión actual es
+`0095_branch_product_digital_visibility`, comprueba primero con una consulta de sólo lectura en
+la misma conexión/base y `search_path` que ninguna de las tres tablas esté presente:
+
+```sql
+SELECT current_database(), current_schema(),
+       to_regclass('driver_cash_settlements') AS settlements,
+       to_regclass('driver_cash_settlement_items') AS items,
+       to_regclass('driver_cash_settlement_commands') AS commands;
+```
+
+Si las tres referencias son `NULL`, aplica únicamente el paso pendiente. Una presencia parcial
+requiere diagnosticar la discrepancia antes de continuar:
+
+```bash
+python -m alembic -c alembic.ini upgrade 0096_driver_cash_settlements && \
+python -m alembic -c alembic.ini current -v
+```
+
+Una revisión anterior requiere revisar primero todas las migraciones intermedias. Si Alembic ya
+reporta `0096` pero falta una tabla, detén la recuperación: verifica la base y el esquema usados
+por API y Alembic; no uses `stamp`, downgrade ni creación manual para ocultar la discrepancia.
+Si el upgrade falla, conserva las escrituras pausadas y revisa el error antes de promover la API.
+
+Con la revisión `0096` confirmada, verifica en la misma base que existen
+`driver_cash_settlements`, `driver_cash_settlement_items` y `driver_cash_settlement_commands`.
+Valida `/health/ready` y la revisión del build. El error de tabla ausente observado en la consulta
+del comando idempotente sucede antes de crear pagos en ese intento; esto no acredita que otros
+intentos sobre esos pedidos no hayan cobrado. Relee el estado autorizado de cada pedido antes de
+reintentar y conserva la misma clave si se recupera una intención incierta.
+
+El canary autorizado debe confirmar una sola liquidación por la suma recibida y un replay sin
+pagos adicionales, y verificar su evidencia en caja. La migración no resuelve por sí misma una
+selección cuyo importe cambió desde la lectura del POS: ese caso requiere la corrección de
+concurrencia del contrato de confirmación. Una reversión de aplicación conserva el esquema;
+`0096` bloquea el downgrade cuando existe historia de liquidaciones.
+
 ## Criterio de listo
 
 ### Semilla gobernada no productiva

@@ -335,8 +335,10 @@ def acquire_gateway_lease(
     now: datetime,
 ) -> dict[str, Any]:
     """Acquire or renew the sole explicit gateway lease for one branch."""
+    from restaurant_os.blind_cash_transition import block_legacy_gateway
     from restaurant_os.delivery_fee import lock_catalog, require_compatible_channel
 
+    block_legacy_gateway(session, organization_id, branch_id)
     issued_at = _utc(now)
     lock_gateway_branch(session, organization_id=organization_id, branch_id=branch_id)
     lock_catalog(session)

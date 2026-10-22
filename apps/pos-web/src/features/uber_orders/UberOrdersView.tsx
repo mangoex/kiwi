@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button } from '@restaurantos/ui';
-import { fetchApi } from '@restaurantos/api-client';
+import { fetchApi, financialAccessForBranch } from '@restaurantos/api-client';
+import OperationalChannelOrders from './OperationalChannelOrders';
 import {
   Bike,
   Clock,
@@ -117,6 +118,11 @@ const PROVIDER_CONFIG: Record<
 };
 
 export default function ChannelOrdersView({ provider = 'UBER_EATS' }: ChannelOrdersViewProps) {
+  const {session}=usePosSession();
+  const access=session?.active_branch?financialAccessForBranch(session,session.active_branch.id):null;
+  return access && access.state!=='legacy'?<OperationalChannelOrders provider={provider} path={PROVIDER_CONFIG[provider].apiPath} access={access}/>:<LegacyChannelOrdersView provider={provider}/>;
+}
+function LegacyChannelOrdersView({ provider = 'UBER_EATS' }: ChannelOrdersViewProps) {
   const config = PROVIDER_CONFIG[provider];
   const queryClient = useQueryClient();
   const { session } = usePosSession();

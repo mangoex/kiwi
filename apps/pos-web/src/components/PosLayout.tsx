@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { fetchApi, canOpenPosAdministration } from '@restaurantos/api-client';
+import { fetchApi, canOpenPosAdministration, financialAccessForBranch } from '@restaurantos/api-client';
 import { confirmWorkspaceNavigation } from '@restaurantos/ui';
 import {
   ShoppingCart,
@@ -144,10 +144,15 @@ const PosLayout = () => {
     };
   }, [refreshPendingOrderCount]);
 
+  const financialAccess=session?.active_branch ? financialAccessForBranch(session,session.active_branch.id) : null;
   const navItems = [
     { path: '/pos', label: 'Punto de Venta', icon: <ShoppingCart size={22} /> },
     { path: '/customers', label: 'Clientes', icon: <Users size={22} /> },
     { path: '/history', label: 'Pedidos', icon: <Clock size={22} /> },
+    ...(financialAccess?.state==='active' && hasPermission('purchases.receive')
+      ? [{path:'/receiving',label:'Recibir compras',icon:<ShoppingBag size={22}/>}]:[]),
+    ...(financialAccess?.state==='active' && financialAccess.capabilities['reports.operational.read']
+      ? [{path:'/sales-monitor',label:'Reporte operativo',icon:<BarChart3 size={22}/>}]:[]),
     ...(posModules.uber_eats ? [{ path: '/uber-orders', label: 'Uber Eats', icon: <Share2 size={22} style={{ color: '#10b981' }} /> }] : []),
     ...(posModules.didi_food ? [{ path: '/didi-orders', label: 'DiDi Food', icon: <Bike size={22} style={{ color: '#f97316' }} /> }] : []),
     ...(posModules.rappi ? [{ path: '/rappi-orders', label: 'Rappi', icon: <ShoppingBag size={22} style={{ color: '#ec4899' }} /> }] : []),

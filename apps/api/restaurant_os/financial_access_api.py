@@ -17,11 +17,28 @@ from restaurant_os.api import (
     _required_actor_from_request,
 )
 from restaurant_os.auth import verify_session_token
+from restaurant_os.blind_cash_transition import TransitionInput, preflight
 from restaurant_os.config import get_settings
 from restaurant_os.financial_access import FinancialAccessService, GrantInput, RevokeInput
 from restaurant_os.operations import ORGANIZATION_ID
 
 router = APIRouter(prefix="/api/v2/financial-access", tags=["Financial authority"])
+
+
+@router.post("/branches/{branch_id}/preflight")
+def transition_preflight(
+    branch_id: str,
+    payload: TransitionInput,
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(lambda: preflight(session, actor, branch_id, payload))
+
+
 ResultT = TypeVar("ResultT")
 
 

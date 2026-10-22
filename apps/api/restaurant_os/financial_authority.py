@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from restaurant_os import models
 from restaurant_os import operations as ops
 from restaurant_os.financial_access_schema import CAPABILITIES, DATASETS
+from restaurant_os.order_exception_schema import CAPABILITY as ORDER_EXCEPTION_CAPABILITY
 
 T = TypeVar("T")
 Pair = tuple[str, str]
@@ -28,16 +29,18 @@ def authorize_capability_assignment(
 ) -> None:
     """Ordinary admin.manage must not bootstrap new reviewed capabilities."""
     ids = list(permission_ids)
-    protected = set(CAPABILITIES)
+    protected = set(CAPABILITIES) | {ORDER_EXCEPTION_CAPABILITY}
     count_review = session.scalar(
         sa.select(models.permissions.c.id)
         .where(
             models.permissions.c.id.in_(ids),
-            models.permissions.c.code.in_(("inventory.count.review", "inventory.count.approve")),
+            models.permissions.c.code.in_(
+                ("inventory.count.review", "inventory.count.approve", "orders.discount.authorize")
+            ),
         )
         .limit(1)
     )
-    if count_review is not None:
+    if count_review is not None and authority_tables_available(session):
         policy = models.blind_cash_policy_revisions
         # Privacy/assignment safeguards survive suspension; no return to broad roles.
         active = session.scalar(
@@ -46,7 +49,9 @@ def authorize_capability_assignment(
             .limit(1)
         )
         if active is not None:
-            protected.update(("inventory.count.review", "inventory.count.approve"))
+            protected.update(
+                ("inventory.count.review", "inventory.count.approve", "orders.discount.authorize")
+            )
     sensitive = session.scalar(
         sa.select(models.permissions.c.id)
         .where(
@@ -78,6 +83,7 @@ def authorize_role_assignment(session: Session, actor: str, role_id: str) -> Non
 
 OWNER_DEFAULTS = frozenset(
     {
+        ORDER_EXCEPTION_CAPABILITY,
         "financial.data.read",
         "financial.delegations.manage",
         "cash.user_cut.finalize",
@@ -94,6 +100,7 @@ OWNER_DEFAULTS = frozenset(
         "inventory.count.capture",
         "inventory.count.review",
         "inventory.count.approve",
+        "orders.discount.authorize",
     }
 )
 CAPABILITY_CODES = frozenset(CAPABILITIES) | OWNER_DEFAULTS | {"cash.user_cut.capture"}
@@ -388,8 +395,47 @@ class FinancialAuthority:
         return protected_policy_revision(self.session, self.organization_id, branch_id)
 
 
+_LEGACY_AUTHORITY_REVISIONS = frozenset(
+    {
+        "0077_pos_branch_selection",
+        "0087_fiscal_commands",
+        "0099_mobile_password_access",
+        "0100_delivery_fee",
+    }
+)
+
+
+def authority_tables_available(session: Session) -> bool:
+    """Only known pre-0101 schemas or isolated legacy fixtures may omit authority tables."""
+    cached = session.info.get("_cc_authority_tables")
+    if isinstance(cached, bool):
+        return cached
+    inspector = sa.inspect(session.connection())
+    from restaurant_os.financial_access_schema import tables
+
+    names = [table.name for table in tables(sa.MetaData())]
+    if all(inspector.has_table(name) for name in names):
+        session.info["_cc_authority_tables"] = True
+        return True
+    if not any(inspector.has_table(name) for name in names):
+        if not inspector.has_table("alembic_version"):
+            session.info["_cc_authority_tables"] = False
+            return False
+        revisions: Sequence[str] = (
+            session.execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
+        )
+        if len(revisions) == 1 and revisions[0] in _LEGACY_AUTHORITY_REVISIONS:
+            session.info["_cc_authority_tables"] = False
+            return False
+    raise ops.BusinessError(
+        "financial_schema_incomplete", "Financial authority schema requires migration or repair"
+    )
+
+
 def protected_policy_revision(session: Session, organization: str, branch: str) -> int | None:
     """None means not activated; suspension must never enable a legacy fallback."""
+    if not authority_tables_available(session):
+        return None
     policy = models.blind_cash_policy_revisions
     row = session.execute(
         sa.select(policy.c.revision, policy.c.event)

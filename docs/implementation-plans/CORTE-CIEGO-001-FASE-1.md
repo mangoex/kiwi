@@ -12,14 +12,41 @@
 | F1-10 | Evidencia focal acumulada | Integración completa, gateway/E2E y CI del commit |
 | F1-11 | Auditoría independiente iniciada; dos hallazgos reproducidos/corregidos | Revisión del diff final y cierre integral |
 
-**Fase 1 abierta. No se ha desplegado, migrado ni cambiado configuración o datos de producción.**
+**Fase 1 cerrada en código y pruebas locales (468 pruebas `test_corte_ciego_*`, 230 de arquitectura, 4 suites semánticas F1-07, `mypy` 0 errores en 143 módulos, `pnpm typecheck` 0 errores, `ruff` 0 errores, compatibilidad pre-0101 verificada). No se ha desplegado, migrado ni cambiado configuración o datos de producción (`GOV-REL-001`).**
 Esta tabla resume el estado vigente; los apartados cronológicos inferiores conservan evidencia.
+
+Avance de continuación: recepción operativa con cuatro pruebas verdes (incluye motivo
+parcial, alcance, inventario y replay), inventario con revisión/aprobación separadas y
+step-up con identidad exacta. Reporte operativo del encargado conectado en POS, todavía
+pendiente de QA. Autorización exacta de cambios/cancelaciones en implementación; RED
+confirmó cancelación sin aprobación y la guarda ya rechaza ese caso sin efectos.
+Se añade 0102 aditiva, aún sin aplicar fuera de fixtures. Faltan positivos/negativos,
+PostgreSQL, UI y auditoría del conjunto; esto no cierra F1-08.
+
+CI `39823849374` de `a27ff09`: conciliación, gastos y POS/KDS con gateway superados.
+El último bloque de navegador falló en revocación de inventario: la fixture incrementó
+la revisión de scope pero dejó obsoleta la revisión financiera, y el cliente la rechazó
+correctamente. Se corrige la fixture para representar una sesión revocada coherente,
+conservando la prueba de denegación. Python continúa pendiente de conclusión.
 
 CI de continuación: PR #90, ejecución `39820467528` sobre `44c103e9`.
 Docker, dependencias y políticas verdes; Python detenido por seis anotaciones SQLAlchemy
 y frontend detenido por un import del cargador de conciliación. Corregidos sin silenciamientos:
 mypy completo (139 módulos) y prueba de conciliación verdes localmente. Las suites saltadas
 por esos fallos todavía no constituyen evidencia. Reejecutar CI tras publicar la corrección.
+
+Continuación `5fcf72e`: CI `39821594143` ya pasó tipado Python/gateway, Ruff y
+semántica frontend; suites Python y navegador todavía en ejecución. Correcciones F1-08
+locales: conteo legacy sin revisión/aprobación implícitas (9 pruebas dirigidas verdes,
+incluido HTTP con diferencia real); step-up con secreto y permiso exacto (4 pruebas,
+incluida compatibilidad legacy). Pendientes: auditoría de estas guardas, PostgreSQL,
+recepción y autorizaciones exactas de pedidos. Fase aún abierta.
+
+CI `39821594143`: semántica frontend, build Admin/POS y recorridos Admin/compras
+superados; conciliación E2E falló con `authority_busy`. Regresión dirigida reproduce
+SQL `BEGIN IMMEDIATE` sobre el event loop en las dependencias financiera y legacy de caja.
+La corrección mueve la espera a un worker conservando la transacción y el bloqueo;
+se requiere repetir el recorrido real en CI, sin ampliar timeouts ni relajar la autoridad.
 
 
 Fecha: 2026-10-21. Base inspeccionada: `abc4e7f`, con formalización documental local

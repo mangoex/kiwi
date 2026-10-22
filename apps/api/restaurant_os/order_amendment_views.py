@@ -31,7 +31,8 @@ class OrderAmendmentReceiptV2(FinancialRecord):
 
 
 def amendment_digest(
-    lines: list[dict[str, Any]], expected_version: int, selection: Any, reference: Any
+    lines: list[dict[str, Any]], expected_version: int, selection: Any, reference: Any,
+    reason: str | None = None,
 ) -> str:
     return ops._pco005_hash(
         {
@@ -39,6 +40,7 @@ def amendment_digest(
             "expected_version": expected_version,
             "delivery_selection": selection,
             "delivery_quote_reference": reference,
+            **({"exception_reason": reason} if reason is not None else {}),
         }
     )
 
@@ -75,6 +77,7 @@ def amendment_command(
     execute: Callable[[bool], dict[str, Any]] | None,
     *,
     commit: bool = True,
+    authorize: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     try:
         governance_lock(session, ops.ORGANIZATION_ID)
@@ -122,6 +125,8 @@ def amendment_command(
             if execute is None:
                 raise ops.NotFoundError("order_amendment_not_found", "Amendment was not found")
             ops._require_order_write_fence(session, branch)
+            if authorize is not None:
+                authorize()
             execute(False)
             stored = _stored(session, order, normalized_key)
             if stored is None or stored["request_hash"] != digest:

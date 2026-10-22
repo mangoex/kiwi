@@ -92,6 +92,36 @@ indiscriminadamente. Si esta frontera falta, F1-08 bloquea activar ese recorrido
 
 ## 3. Concesiones, persistencia y revocación
 
+Refinamiento F1-08 de las guardas de §2: `inventory.count.review/approve` usan la
+autoridad vigente bajo política protegida tanto al ejecutar como al proyectar. El alias
+heredado y el comodín organizacional no sustituyen la asignación explícita o Dueño revisado.
+La suspensión conserva la denegación. Fuera de política se conserva la compatibilidad.
+El step-up de descuentos exige secreto personal y `orders.discount.authorize` explícito
+en sucursal o Dueño revisado; código público de empleado y facultad administrativa genérica
+no autorizan. Asignar este permiso bajo política protegida exige el gobierno del Dueño.
+Las credenciales nunca forman parte del acuse ni de la evidencia de auditoría.
+
+Refinamiento F1-08 de CC-D08: `orders.exceptions.authorize` separa autorizar cambios y
+cancelaciones del permiso de ejecutarlos. No se asigna por nombre de rol. Se verifica la
+identidad exacta del autorizador y su secreto personal; dos cuentas con el mismo secreto
+no son intercambiables. La autorización central queda ligada a organización, sucursal,
+operador, pedido, acción, versión y hash del contenido/motivo, con vigencia técnica de
+dos minutos (igual al step-up de descuentos). El consumo revalida autoridad y versión;
+se registra en la misma transacción que la acción, sin guardar credenciales. Una
+referencia opaca puede persistir para recuperación; el secreto nunca entra en la cola.
+La migración aditiva 0102 separa autorizaciones y consumos append-only. Su downgrade se
+bloquea si hay evidencia o asignaciones, sin borrar historia. No activa sucursales.
+Una recuperación de acuse ya confirmado sigue siendo lectura del propio comando;
+no vuelve a ejecutar ni necesita un nuevo permiso de acción. Las restricciones de
+pagos, producción y compensación siguen en el dominio existente.
+
+Recepción protegida: `/api/v2/purchases/receiving` sólo entrega asignaciones y cantidades
+de la sucursal. El comando corporativo existente devuelve un recibo cerrado sin precios;
+el replay lo reconstruye desde el recibo persistido, revalidando autoridad. Una entrega
+que deja cantidades pendientes en el almacén requiere `discrepancy_reason` (1..1000
+caracteres), incluido en la huella idempotente y auditoría con cantidades/recibo.
+Se conserva `PARTIALLY_RECEIVED`; no se inventa cierre definitivo de faltantes.
+
 Se añade en implementación un registro independiente de lectura financiera humana.
 No reciclar un rol de Supervisor ni una capability de agente como concesión. Cada grant
 identifica organización, receptor humano, Dueño concedente, motivo y UTC de emisión.

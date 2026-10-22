@@ -1,0 +1,50 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "projection": {
+      "const": "operational",
+      "default": "operational",
+      "title": "Projection",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "integer"
+    },
+    "authorization_id": {
+      "title": "Authorization Id",
+      "type": "string"
+    },
+    "order_id": {
+      "title": "Order Id",
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "amend",
+        "cancel"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "applied": {
+      "title": "Applied",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "policy_version",
+    "authorization_id",
+    "order_id",
+    "action",
+    "applied"
+  ],
+  "title": "ExceptionReceipt",
+  "type": "object"
+}

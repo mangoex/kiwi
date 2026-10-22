@@ -42,27 +42,27 @@ class ChannelIntegrationService:
             if bind.dialect.name == "postgresql":
                 session.execute(
                     sa.text(
-                        'ALTER TABLE channel_integrations ADD COLUMN IF NOT EXISTS '
-                        'return_url VARCHAR(500)'
+                        "ALTER TABLE channel_integrations ADD COLUMN IF NOT EXISTS "
+                        "return_url VARCHAR(500)"
                     )
                 )
                 session.execute(
                     sa.text(
-                        'ALTER TABLE channel_integrations ADD COLUMN IF NOT EXISTS '
-                        'master_prompt TEXT'
+                        "ALTER TABLE channel_integrations ADD COLUMN IF NOT EXISTS "
+                        "master_prompt TEXT"
                     )
                 )
                 session.execute(
                     sa.text(
-                        'ALTER TABLE orders DROP CONSTRAINT IF EXISTS '
-                        'ck_orders_cash_shift_required_except_public_intent'
+                        "ALTER TABLE orders DROP CONSTRAINT IF EXISTS "
+                        "ck_orders_cash_shift_required_except_public_intent"
                     )
                 )
                 session.execute(
                     sa.text(
-                        'ALTER TABLE orders ADD CONSTRAINT '
-                        'ck_orders_cash_shift_required_except_public_intent '
-                        'CHECK (cash_shift_id IS NOT NULL OR channel IN '
+                        "ALTER TABLE orders ADD CONSTRAINT "
+                        "ck_orders_cash_shift_required_except_public_intent "
+                        "CHECK (cash_shift_id IS NOT NULL OR channel IN "
                         "('UBER_EATS', 'DIDI_FOOD', 'RAPPI', 'WHATSAPP') "
                         "OR (channel = 'PUBLIC_INTENT' AND public_order_intent_id IS "
                         "NOT NULL AND public_order_intent_status = 'ACCEPTED'))"
@@ -260,8 +260,13 @@ class ChannelIntegrationService:
         return True
 
     def list_webhook_logs(
-        self, session: Session, organization_id: str, provider: str, limit: int = 50,
-        *, actor_user_id: str | None = None,
+        self,
+        session: Session,
+        organization_id: str,
+        provider: str,
+        limit: int = 50,
+        *,
+        actor_user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         from restaurant_os.integration_log_views import list_logs
 
@@ -608,7 +613,11 @@ class ChannelIntegrationService:
         from restaurant_os.channel_order_views import list_channel_orders
 
         return list_channel_orders(
-            session, branch_id, provider, status_filter, actor_user_id,
+            session,
+            branch_id,
+            provider,
+            status_filter,
+            actor_user_id,
             lambda: self._list_pos_orders(session, branch_id, provider, status_filter),
         )
 
@@ -687,6 +696,25 @@ class ChannelIntegrationService:
         new_status: str,
         actor_id: str | None = None,
     ) -> dict[str, Any]:
+        from restaurant_os import operations as ops
+        from restaurant_os.financial_authority import governance_lock, protected_policy_revision
+
+        governance_lock(session, ORGANIZATION_ID)
+        branch = session.scalar(
+            sa.select(models.orders.c.branch_id).where(
+                models.orders.c.id == order_id,
+                models.orders.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        if (
+            branch is not None
+            and protected_policy_revision(session, ORGANIZATION_ID, str(branch)) is not None
+        ):
+            # This legacy setter bypasses events, inventory and exact approvals. A protected
+            # branch must use canonical commands; enabling this adapter requires its own migration.
+            raise ops.BusinessError(
+                "channel_contract_upgrade_required", "Use an authorized order workflow"
+            )
         now = datetime.now(timezone.utc)
         order = (
             session.execute(sa.select(models.orders).where(models.orders.c.id == order_id))

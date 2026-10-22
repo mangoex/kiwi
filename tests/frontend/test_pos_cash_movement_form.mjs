@@ -145,7 +145,8 @@ try {
   );
   const app = readFileSync(join(root, 'apps/pos-web/src/App.tsx'), 'utf8');
   assert.match(component, /localStorage\.getItem\('pos_register_id'\)/);
-  assert.match(component, /\/cash-shifts\/current\?/);
+  assert.match(component, /protectedCash \? '\/cash\/shifts\/current' : '\/cash-shifts\/current'/);
+  assert.match(component, /protectedCash \? 'v2' : 'v1'/);
   assert.match(component, /\/cash\/movements\?branch_id=/);
   assert.match(component, /!capabilities\.canWrite/);
   assert.match(component, /capabilities\.canRead && <section aria-label="Ledger de caja">/);

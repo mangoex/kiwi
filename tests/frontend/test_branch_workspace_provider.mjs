@@ -26,7 +26,7 @@ export const useEffect=fn=>{if(globalThis.auditHooks.initial)globalThis.auditHoo
 export const useContext=()=>null;
 export default {createElement:(_type,props)=>props};
 `);
-const modules=new Map(['cashierDrafts','operationalOrders','adminAccess','reconciliationV2','branchWorkspace','deliveryFee']
+const modules=new Map(['cashierDrafts','operationalOrders','adminAccess','reconciliationV2','branchWorkspace','deliveryFee','projectionContract']
   .map(name=>[name,mod(readFileSync('packages/api-client/src/'+name+'.ts','utf8'))]));
 let apiSource=readFileSync('packages/api-client/src/index.ts','utf8');
 for(const [name,url] of modules)apiSource=apiSource.replaceAll("'./"+name+"'",JSON.stringify(url));

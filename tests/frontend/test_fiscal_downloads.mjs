@@ -5,7 +5,7 @@ import ts from 'typescript';
 const moduleUrl = source => 'data:text/javascript;base64,' + Buffer.from(ts.transpileModule(source, {
   compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022},
 }).outputText).toString('base64');
-const modules=new Map(['cashierDrafts','operationalOrders','adminAccess','reconciliationV2','branchWorkspace','deliveryFee']
+const modules=new Map(['cashierDrafts','operationalOrders','adminAccess','reconciliationV2','branchWorkspace','deliveryFee','projectionContract']
   .map(name=>[name,moduleUrl(readFileSync(`packages/api-client/src/${name}.ts`,'utf8'))]));
 let source=readFileSync('packages/api-client/src/index.ts','utf8');
 for (const [name,url] of modules) source=source.replaceAll(`'./${name}'`,JSON.stringify(url));

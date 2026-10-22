@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Card, Modal } from '@restaurantos/ui';
-import { ApiError, fetchApi } from '@restaurantos/api-client';
+import { ApiError, fetchApi, financialAccessForBranch } from '@restaurantos/api-client';
+import OperationalHistory from './OperationalHistory';
 import { Bike, Calendar, ChefHat, ChevronRight, Clock, CreditCard, Pencil, Printer, ReceiptText, RefreshCcw, Search, X } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { localDayUtcBounds } from '../reports/salesMonitorState';
@@ -880,4 +881,11 @@ const History = () => {
   </div>;
 };
 
-export default History;
+export default function ScopedHistory() {
+  const {session}=usePosSession();
+  const access=session?.active_branch ? financialAccessForBranch(session,session.active_branch.id):null;
+  if(access && access.state!=='legacy' && (access.state!=='active' || !access.datasets.includes('sales'))) {
+    return <OperationalHistory key={`${session?.user.id}:${access.branch_id}:${access.policy_version}`} access={access}/>;
+  }
+  return <History/>;
+}

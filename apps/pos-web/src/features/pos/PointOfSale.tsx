@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button, Modal } from '@restaurantos/ui';
 import {
   fetchApi,
+  financialAccessForBranch,
   ApiError,
   loadOperationalOrderConfig,
   offlineOrderStatusLabel,
@@ -44,6 +45,8 @@ import { useCashTenderPreview } from './useCashTenderPreview';
 import { readPaymentAttempt, paymentWasDefinitelyRejected, submitCashierPayment } from './cashierPayment';
 import { readPendingOrderAction } from './CashierOrderActionDialog';
 import { useCashierDrafts } from './useCashierDrafts';
+import {OrderExceptionDialog} from './OrderExceptionDialog';
+import {parseAttendedOrder} from '../history/operationalOrders';
 import {
   isAssistedDraftComplete,
   selectedForQuestion,
@@ -159,7 +162,7 @@ interface EditableOrderLine extends EditableLineSnapshot {
   line_notes?: string | null;
 }
 interface EditableOrder {
-  delivery_charge?: DeliveryCharge | null;
+  delivery_charge?: Pick<DeliveryCharge,'selection'> | null;
   id: string;
   folio: string;
   version: number;
@@ -323,6 +326,7 @@ const PointOfSale = () => {
   const editOrderId = routeEditOrderId || searchParams.get('edit_order_id') || '';
   const { session, state: sessionState, hasPermission, selectBranch } = usePosSession();
   const branchId = session?.active_branch?.id || '';
+  const protectedPolicy = session && branchId ? financialAccessForBranch(session, branchId) : null;
   const showCatalogVisuals = session?.active_branch?.pos_catalog_visuals_enabled !== false;
   const allowedBranches = session?.allowed_branches || [];
   const [online, setOnline] = useState(navigator.onLine);
@@ -369,6 +373,7 @@ const PointOfSale = () => {
   const [orderQuote, setOrderQuote] = useState<OrderQuote | null>(null);
   const [deliverySelection, setDeliverySelection] = useState<DeliverySelection>({ mode: 'AUTO' });
   const [editingOrder, setEditingOrder] = useState<EditableOrder | null>(null);
+  const [exceptionCommand,setExceptionCommand]=useState<Record<string,unknown>|null>(null);
   const [quoteState, setQuoteState] = useState<QuoteState>('idle');
   const [deliveryQuoteRefresh, setDeliveryQuoteRefresh] = useState(0);
   const [checkoutState, setCheckoutState] = useState<CheckoutState>('idle');
@@ -423,6 +428,7 @@ const PointOfSale = () => {
   const [tempCourtesyValue, setTempCourtesyValue] = useState('10');
   const [tempReason, setTempReason] = useState('Cortesía de la casa');
   const [supervisorPin, setSupervisorPin] = useState('');
+  const [supervisorIdentity, setSupervisorIdentity] = useState('');
   const [pinError, setPinError] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<PosCustomer | null>(null);
   const [upsellRecs, setUpsellRecs] = useState<Array<{ product_id: string; product_name: string; price_cents: number; reason: string }>>([]);
@@ -781,7 +787,18 @@ const PointOfSale = () => {
     if (!editOrderId) return;
     let cancelled = false;
     setEditLoadError('');
-    requestOrder<EditableOrder>(`/orders/${editOrderId}`)
+    const protectedRead=protectedPolicy && protectedPolicy.state!=='legacy';
+    const version=Number(searchParams.get('version'));
+    const read:Promise<EditableOrder>=protectedRead
+      ? !Number.isSafeInteger(version) || version<1 || localOrderConfig
+        ? Promise.reject(new Error('Abre el pedido desde su contexto central vigente en Pedidos.'))
+        : fetchApi(`/orders/${encodeURIComponent(editOrderId)}?expected_version=${version}`,{},'v2').then(value=>{
+          const detail=parseAttendedOrder(value,branchId,protectedPolicy.policy_version!,editOrderId,version,session!.scope.authorization_version!);
+          return {...detail,owner_name:detail.customer_label || undefined,
+            payment_method_intent:detail.payment_method_intent as PaymentMethod|null};
+        })
+      : requestOrder<EditableOrder>(`/orders/${editOrderId}`);
+    read
       .then((order) => {
         if (cancelled) return;
         if (!order.editable) {
@@ -1462,6 +1479,13 @@ const PointOfSale = () => {
 
     try {
       if (editingOrder) {
+        if(protectedPolicy && protectedPolicy.state!=='legacy') {
+          if(localOrderConfig) throw new Error('Esta autorización requiere operación central compatible.');
+          setExceptionCommand({delivery_selection:payload.delivery_selection,
+            delivery_quote_reference:payload.delivery_quote_reference,
+            lines:payload.lines.map(line=>({...line,source_line_id:line.source_line_id ?? null}))});
+          setCheckoutState('idle');setPaymentOpen(false);return;
+        }
         const amendment = await requestOrder(`/orders/${editingOrder.id}/amendments`, {
           method: 'POST',
           headers: { 'Idempotency-Key': crypto.randomUUID() },
@@ -1567,8 +1591,12 @@ const PointOfSale = () => {
 
   const handleApplyCourtesy = async () => {
     if (editingOrder) return;
+    if (protectedPolicy && protectedPolicy.state !== 'legacy' && !supervisorIdentity.trim()) {
+      setPinError('Ingresa el correo o código de empleado de quien autoriza.');
+      return;
+    }
     if (!supervisorPin || supervisorPin.trim().length < 4) {
-      setPinError('Ingresa el PIN o código del supervisor o administrador.');
+      setPinError('Ingresa la contraseña personal de quien autoriza.');
       return;
     }
     setPinError('');
@@ -1580,6 +1608,7 @@ const PointOfSale = () => {
         method: 'POST',
         body: JSON.stringify({
           supervisor_pin: supervisorPin.trim(),
+          supervisor_identity: supervisorIdentity.trim(),
           branch_id: branchId,
           lines: buildOrderLines(cart),
           adjustment: {
@@ -2134,7 +2163,7 @@ const PointOfSale = () => {
       </Modal>
       <Modal
         isOpen={isCourtesyModalOpen}
-        onClose={() => setIsCourtesyModalOpen(false)}
+        onClose={() => {setSupervisorPin('');setSupervisorIdentity('');setIsCourtesyModalOpen(false);}}
         title="Autorización de Cortesía o Descuento"
       >
         <div style={{ display: 'grid', gap: 14 }}>
@@ -2203,7 +2232,13 @@ const PointOfSale = () => {
             </select>
           </label>
           <label>
-            PIN o código de supervisor *
+            Correo o código de empleado de quien autoriza
+            <input value={supervisorIdentity} maxLength={180} autoComplete="username"
+              onChange={(event) => setSupervisorIdentity(event.target.value)}
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8 }} />
+          </label>
+          <label>
+            Contraseña personal *
             <input
               type="password"
               maxLength={64}
@@ -2220,7 +2255,7 @@ const PointOfSale = () => {
               </Button>
             ) : <span />}
             <div style={{ display: 'flex', gap: 8 }}>
-              <Button variant="secondary" onClick={() => setIsCourtesyModalOpen(false)}>Cancelar</Button>
+              <Button variant="secondary" onClick={() => {setSupervisorPin('');setSupervisorIdentity('');setIsCourtesyModalOpen(false);}}>Cancelar</Button>
               <Button variant="primary" onClick={() => void handleApplyCourtesy()}>Autorizar y aplicar</Button>
             </div>
           </div>
@@ -2236,6 +2271,12 @@ const PointOfSale = () => {
         </div>
       </Modal>
       {/* Payment Modal */}
+      {exceptionCommand && editingOrder && protectedPolicy && <OrderExceptionDialog
+        authority={JSON.stringify([session?.user.id,branchId])} orderId={editingOrder.id} folio={editingOrder.folio}
+        version={editingOrder.version} policyVersion={protectedPolicy.policy_version!} action="amend" command={exceptionCommand}
+        onClose={()=>setExceptionCommand(null)} onApplied={()=>{window.location.href='/pos/history';}}>
+        <ul>{cart.map(line=><li key={line.lineId}>{line.quantity} × {line.name}{line.notes ? ` · ${line.notes}`:''}</li>)}</ul>
+      </OrderExceptionDialog>}
       <Modal isOpen={isPaymentOpen} onClose={() => setPaymentOpen(false)} title={editingOrder ? 'Revisar cambios del pedido' : orderType === 'dine-in' ? 'Cobrar y confirmar pedido' : 'Revisar pedido'}>
         {/* Cliente seleccionado o búsqueda */}
         {!editingOrder && (selectedCustomer ? (

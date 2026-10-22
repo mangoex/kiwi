@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiError, fetchApi } from '@restaurantos/api-client';
+import { ApiError, fetchApi, financialAccessForBranch } from '@restaurantos/api-client';
+import OperationalReportPanel from './OperationalReportPanel';
 import { BarChart3, RefreshCw, Search } from 'lucide-react';
 import { Button } from '@restaurantos/ui';
 import { usePosSession } from '../../session';
@@ -49,7 +50,7 @@ const serviceLabel = (value: string) => ({
   'dine-in': 'En sucursal', takeout: 'Para llevar', delivery: 'A domicilio',
 }[value] || value);
 
-const SalesMonitor = () => {
+const FinancialSalesMonitor = () => {
   const { session } = usePosSession();
   const isOrganizationScope = session?.scope.level === 'organization';
   const [branches, setBranches] = useState<BranchOption[]>(() => session?.active_branch ? [{
@@ -318,4 +319,12 @@ const BreakdownTable = ({ title, items }: { title: string; items: BreakdownItem[
   </section>
 );
 
-export default SalesMonitor;
+export default function SalesMonitor() {
+  const {session}=usePosSession();
+  const branch=session?.active_branch;
+  const access=session && branch ? financialAccessForBranch(session,branch.id) : null;
+  if(access && access.state!=='legacy' && (access.state!=='active' || !access.datasets.includes('sales'))) {
+    return <OperationalReportPanel key={`${access.branch_id}:${access.policy_version}`} access={access} timezone={branch?.timezone || 'UTC'}/>;
+  }
+  return <FinancialSalesMonitor/>;
+}

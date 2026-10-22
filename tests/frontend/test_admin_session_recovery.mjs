@@ -20,6 +20,7 @@ const apiUrl = asModule(readFileSync('packages/api-client/src/index.ts', 'utf8')
   .replaceAll("'./adminAccess'", JSON.stringify(adminAccessUrl))
   .replaceAll("'./reconciliationV2'", JSON.stringify(reconciliationUrl))
   .replaceAll("'./branchWorkspace'", JSON.stringify(workspaceUrl))
+  .replaceAll("'./projectionContract'", JSON.stringify(asModule(readFileSync('packages/api-client/src/projectionContract.ts', 'utf8'))))
   .replaceAll("'./deliveryFee'", JSON.stringify(deliveryFeeUrl)));
 const api = await import(apiUrl);
 const storage = () => {

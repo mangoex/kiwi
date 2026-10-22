@@ -10,6 +10,7 @@ export * from './cashierDrafts';
 export * from './adminAccess';
 export * from './reconciliationV2';
 export * from './branchWorkspace';
+export * from './projectionContract';
 
 export class ApiError extends Error {
   public operationalIntentPending = false;

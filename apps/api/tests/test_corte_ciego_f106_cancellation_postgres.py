@@ -22,7 +22,14 @@ def test_concurrent_cancellation_has_one_effect(amendment_pg: AmendmentWorld) ->
         with world.factory() as session:
             barrier.wait(10)
             try:
-                return "ok", ops.cancel_order(session, world.order, actor_user_id=ADMIN_USER_ID)
+                return "ok", ops.cancel_order(
+                    session,
+                    world.order,
+                    actor_user_id=ADMIN_USER_ID,
+                    reason="Synthetic cancellation",
+                    expected_version=1,
+                    exception_authorization_id=world.cancellation_authorization,
+                )
             except ops.BusinessError as exc:
                 session.rollback()
                 return "denied", exc.code
@@ -30,7 +37,7 @@ def test_concurrent_cancellation_has_one_effect(amendment_pg: AmendmentWorld) ->
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(apply) for _ in range(2)]
         results = [future.result(30) for future in futures]
-    assert ("denied", "order_already_cancelled") in results, results
+    assert ("denied", "order_exception_consumed") in results, results
     receipts = [value for status, value in results if status == "ok"]
     assert len(receipts) == 1 and receipts[0]["projection"] == "operational"
     with world.factory() as session:
@@ -60,6 +67,12 @@ def test_concurrent_cancellation_has_one_effect(amendment_pg: AmendmentWorld) ->
         )
         assert releases and sorted(releases) == sorted(-quantity for quantity in reservations)
         assert session.scalar(sa.select(models.orders.c.total_cents)) == 12300
+        assert (
+            session.scalar(
+                sa.select(sa.func.count()).select_from(models.order_exception_consumptions)
+            )
+            == 1
+        )
 
 
 def test_receipt_audit_failure_is_atomic(
@@ -76,9 +89,22 @@ def test_receipt_audit_failure_is_atomic(
 
     monkeypatch.setattr(ops, "_audit", fail)
     with world.factory() as session, pytest.raises(sa.exc.SQLAlchemyError):
-        ops.cancel_order(session, world.order, actor_user_id=ADMIN_USER_ID)
+        ops.cancel_order(
+            session,
+            world.order,
+            actor_user_id=ADMIN_USER_ID,
+            reason="Synthetic cancellation",
+            expected_version=1,
+            exception_authorization_id=world.cancellation_authorization,
+        )
     with world.factory() as session:
         assert session.scalar(sa.select(models.orders.c.status)) == "ACCEPTED"
+        assert (
+            session.scalar(
+                sa.select(sa.func.count()).select_from(models.order_exception_consumptions)
+            )
+            == 0
+        )
         assert (
             session.scalar(
                 sa.select(sa.func.count())

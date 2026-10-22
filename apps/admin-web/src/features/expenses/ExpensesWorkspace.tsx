@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, fetchApi } from '@restaurantos/api-client';
+import { ApiError, fetchApi, financialAccessForBranch } from '@restaurantos/api-client';
+import {expensePage,expenseDraft,expenseReceipt,type ExpenseMetadata,type ExpenseDetail,type ExpenseReceipt} from './expenseProjections';
 import { registerWorkspaceNavigationGuard } from '@restaurantos/ui';
 import { useAdminSession, useAdminPermission } from '../../lib/adminSession';
 import type { ExpenseConcept, ExpenseDocument, ExpenseInput, ExpenseCashContext, ExpenseSummary } from '../../../../../packages/contracts/operating-expenses-v1';
@@ -26,6 +27,9 @@ function Workspace({ catalog }: {
 }) {
     const { session } = useAdminSession();
     const branch = session.active_branch.id;
+    const access=financialAccessForBranch(session,branch);
+    const protectedExpenses=access?.state!=='legacy';
+    const financial=access?.state==='legacy' || (access?.state==='active' && access?.datasets.includes('expenses'));
     const scope = `${session.user.id}:${branch}`;
     const canWrite = useAdminPermission('expenses.manage');
     const canReadConcepts = useAdminPermission('expense.concept.read');
@@ -34,9 +38,12 @@ function Workspace({ catalog }: {
     const canWithdraw = useAdminPermission('cash.movement.withdraw');
     const canCancel = useAdminPermission('expenses.cancel');
     const canCompensate = useAdminPermission('cash.movement.compensate');
-    const canReport = useAdminPermission('reports.expenses.read');
+    const reportPermission = useAdminPermission('reports.expenses.read');
+    const canReport=reportPermission && financial;
     const queryClient = useQueryClient();
-    const [selected, setSelected] = useState<ExpenseDocument | null>(null);
+    const [selected, setSelected] = useState<ExpenseDetail | null>(null);
+    const [metadata,setMetadata]=useState<ExpenseMetadata|null>(null);
+    const [acknowledgement,setAcknowledgement]=useState('');
     const [editing, setEditing] = useState(false);
     const [form, setForm] = useState(empty);
     const [concept, setConcept] = useState<ExpenseConcept | null>(null);
@@ -71,9 +78,12 @@ function Workspace({ catalog }: {
     const concepts = useQuery<ExpenseConcept[]>({ queryKey: ['expense-concepts', scope, catalog], queryFn: () => fetchApi(`/expense-concepts?branch_id=${branch}&archived=${catalog && canCatalog}`), enabled: canReadConcepts });
     const filters = new URLSearchParams({ branch_id: branch, cursor, status: statusFilter, payment_method: methodFilter, concept_id: conceptFilter });
     const documents = useQuery<{
-        items: ExpenseDocument[];
+        items: (ExpenseDocument|ExpenseMetadata)[];
         next_cursor: string | null;
-    }>({ queryKey: ['expenses', scope, filters.toString()], queryFn: () => fetchApi(`/expenses?${filters}`), enabled: !catalog });
+    }>({ queryKey: ['expenses', scope, filters.toString(),financial,access?.policy_version], queryFn: async () => {
+        const value=await fetchApi(`/expenses?${filters}`,{},financial?'v1':'v2');
+        return financial ? value as {items:ExpenseDocument[];next_cursor:string|null} : expensePage(value,branch,access?.policy_version!);
+    }, enabled: !catalog && access?.state!=='suspended' });
     const cash = useQuery<ExpenseCashContext>({ queryKey: ['expense-cash', scope, selected?.id], queryFn: () => fetchApi(`/expenses/cash-context?branch_id=${branch}`), enabled: !catalog && selected?.status === 'draft' && selected.payment_method === 'cash' && canWrite && canWithdraw, staleTime: 0 });
     const reportFilters = new URLSearchParams({ branch_id: branch, from_date: from, to_date: to, concept_id: conceptFilter, payment_method: methodFilter });
     const summary = useQuery<ExpenseSummary>({ queryKey: ['expense-summary', scope, reportFilters.toString()], queryFn: () => fetchApi(`/expenses/summary?${reportFilters}`), enabled: !catalog && canReport && Boolean(from && to && from <= to) });
@@ -83,9 +93,10 @@ function Workspace({ catalog }: {
         setRegister(boxes.find(b => b.register_id === hint)?.register_id || (boxes.length === 1 ? boxes[0].register_id : ''));
     }, [cash.data, scope]);
     const refresh = () => Promise.all(['expenses', 'expense-concepts', 'expense-cash', 'expense-summary', 'cash-shifts', 'cash-movements'].map(key => queryClient.invalidateQueries({ queryKey: [key] })));
-    const applied = async (result: ExpenseDocument | ExpenseConcept | {
+    const applied = async (result: ExpenseDocument | ExpenseConcept | ExpenseReceipt | {
         abandoned: true;
     }) => {
+        if(protectedExpenses && !catalog)expenseReceipt(result,branch,access?.policy_version!);
         sessionStorage.removeItem(storageKey);
         attempt.current = null;
         setUncertain(false);
@@ -95,7 +106,15 @@ function Workspace({ catalog }: {
         setForm(empty);
         setConcept(null);
         setConceptForm({ code: '', name: '', description: '' });
-        if ('folio' in result)
+        setMetadata(null);setSelected(null);
+        if ('projection' in result) {
+            const receipt=expenseReceipt(result,branch,access?.policy_version!);
+            setAcknowledgement(`Operación confirmada: ${receipt.status}. Acuse ${receipt.id}`);
+            if(receipt.status==='draft' && receipt.version!==null){
+                const value=await fetchApi(`/expenses/${receipt.id}?expected_version=${receipt.version}`);
+                setSelected(expenseDraft(value,branch,access?.policy_version!,receipt.id,receipt.version));
+            }
+        } else if ('folio' in result)
             setSelected(result);
         await refresh().catch(() => { if (alive.current)
             setError('El registro se guardó. Actualiza la lista para consultar los cambios.'); });
@@ -114,14 +133,15 @@ function Workspace({ catalog }: {
         // Recovery metadata only. Draft contents and evidence remain in memory/server.
         try {
             sessionStorage.setItem(storageKey, JSON.stringify({ key: next.key, path: next.path, method: next.method }));
-            const result = await fetchApi<ExpenseDocument | ExpenseConcept>(next.path, { method: next.method, headers: { 'Idempotency-Key': next.key }, body: JSON.stringify(next.body) });
+            const result = await fetchApi<ExpenseDocument | ExpenseConcept | ExpenseReceipt>(next.path, { method: next.method, headers: { 'Idempotency-Key': next.key }, body: JSON.stringify(next.body) });
+            if(protectedExpenses && next.path.startsWith('/expenses'))expenseReceipt(result,branch,access?.policy_version!);
             if (alive.current)
                 await applied(result);
         }
         catch (cause) {
             if (!alive.current)
                 return;
-            const definitive = cause instanceof ApiError && cause.status >= 400 && cause.status < 500;
+            const definitive = cause instanceof ApiError && !cause.operationalIntentPending && cause.status >= 400 && cause.status < 500;
             if (definitive && !uncertain) {
                 attempt.current = null;
                 sessionStorage.removeItem(storageKey);
@@ -207,7 +227,17 @@ function Workspace({ catalog }: {
             setError(cause instanceof Error ? cause.message : 'Revisa el importe.');
         }
     };
-    const edit = (doc: ExpenseDocument) => { setSelected(doc); setEditing(true); setForm({ concept_id: doc.concept_id, document_date: doc.document_date, amount: (doc.total_cents / 100).toFixed(2), tax: doc.tax_cents === null ? '' : (doc.tax_cents / 100).toFixed(2), payment_method: doc.payment_method, reference: doc.reference, notes: doc.notes, evidence: doc.evidence_refs.join('\n') }); };
+    const edit = (doc: ExpenseDetail) => { setSelected(doc); setEditing(true); setForm({ concept_id: doc.concept_id, document_date: doc.document_date, amount: (doc.total_cents / 100).toFixed(2), tax: doc.tax_cents === null ? '' : (doc.tax_cents / 100).toFixed(2), payment_method: doc.payment_method, reference: doc.reference, notes: doc.notes, evidence: doc.evidence_refs.join('\n') }); };
+    const selectDocument=async(doc:ExpenseDocument|ExpenseMetadata)=>{
+        setSelected(null);setMetadata(null);setEditing(false);setCancelOpen(false);setError('');
+        if('total_cents' in doc){setSelected(doc);return;}
+        setMetadata(doc);
+        if(doc.status==='draft' && doc.created_by===session.user.id && canWrite){
+            try{const value=await fetchApi(`/expenses/${doc.id}?expected_version=${doc.version}`);
+                if(alive.current)setSelected(expenseDraft(value,branch,access?.policy_version!,doc.id,doc.version));
+            }catch(cause){if(alive.current)setError(cause instanceof Error?cause.message:'No se pudo consultar el borrador.');}
+        }
+    };
     const confirm = () => {
         if (!selected)
             return;
@@ -233,6 +263,7 @@ function Workspace({ catalog }: {
     {(catalog ? canReadExpenses : canReadConcepts) && <Link to={catalog ? '/expenses' : '/expense-concepts'}>{catalog ? 'Ver gastos' : 'Conceptos de gasto'}</Link>}{!catalog && canWrite && <button disabled={blocked} onClick={() => { setSelected(null); setForm(empty); setEditing(true); }}>Nuevo gasto</button>}</nav>
     </header>
     {(error || readError) && <p role="alert" className="expense-message">{error || readError?.message}</p>}
+    {acknowledgement && <p role="status">{acknowledgement}</p>}
     {uncertain && <div role="status" className="expense-message">Hay una operación pendiente de verificar. <button disabled={busy} onClick={() => void recover()}>Recuperar resultado</button>
         <button disabled={busy} onClick={() => void resolve()}>Cerrar intento pendiente</button>
         <p>Si ya se guardó, se recuperará su resultado. Si no se ejecutó, se impedirá un envío tardío.</p>
@@ -276,13 +307,13 @@ function Workspace({ catalog }: {
         </section>
       <div className="expense-layout">
         <section className="expense-panel">
-        <h2>Registros</h2>{documents.isPending && <p>Cargando gastos…</p>}{documents.data?.items.length === 0 && <p>No hay gastos para estos filtros.</p>}{documents.data?.items.map(doc => <button className="expense-row expense-select" disabled={blocked} key={doc.id} onClick={() => { setSelected(doc); setEditing(false); setCancelOpen(false); }}>
+        <h2>Registros</h2>{documents.isPending && <p>Cargando gastos…</p>}{documents.data?.items.length === 0 && <p>No hay gastos para estos filtros.</p>}{documents.data?.items.map(doc => <button className="expense-row expense-select" disabled={blocked} key={doc.id} onClick={() => {void selectDocument(doc);}}>
             <span>
-            <strong>{doc.concept_snapshot.name}</strong>
+            <strong>{'concept_snapshot' in doc?doc.concept_snapshot.name:concepts.data?.find(concept=>concept.id===doc.concept_id)?.name || 'Gasto'}</strong>
             <small>{doc.document_date} · {expenseMethods[doc.payment_method]}</small>
             <small>{doc.status === 'draft' ? 'Borrador' : doc.status === 'confirmed' ? 'Confirmado' : 'Anulado'}</small>
             </span>
-            <strong>{money(doc.total_cents)}</strong>
+            {'total_cents' in doc && <strong>{money(doc.total_cents)}</strong>}
             </button>)}<div className="expense-actions">{Boolean(cursor) && <button onClick={() => setCursor('')}>Primera página</button>}{documents.data?.next_cursor != null && <button onClick={() => setCursor(documents.data!.next_cursor!)}>Siguiente</button>}</div>
         </section>
       {editing ? <form className="expense-panel" onSubmit={save}>
@@ -351,7 +382,20 @@ function Workspace({ catalog }: {
                     <p>El turno original debe seguir abierto.</p>
                     </>}<button type="submit">Confirmar anulación</button>
                 </fieldset>
-                </form>}{selected.status === 'cancelled' && <p>Registro anulado: {selected.cancellation_reason}</p>}</section> : <section className="expense-panel">
+            </form>}{selected.status === 'cancelled' && <p>Registro anulado: {selected.cancellation_reason}</p>}</section> : metadata ? <section className="expense-panel">
+              <h2>Estado del gasto</h2><p>{metadata.document_date} · {expenseMethods[metadata.payment_method]} · {metadata.status}</p>
+              <p>La consulta de importes requiere acceso financiero. Los borradores propios se consultan al atender su versión vigente.</p>
+              {metadata.status==='confirmed' && canCancel && (metadata.payment_method!=='cash' || canCompensate) && <>
+                <button disabled={blocked} onClick={()=>{setCancelOpen(true);setReason('');setReturnEvidence('');setReturned(false);}}>Anular gasto</button>
+                {cancelOpen && <form onSubmit={event=>{event.preventDefault();void perform(`/expenses/${metadata.id}/cancel`,{branch_id:branch,version:metadata.version,reason,
+                  ...(metadata.payment_method==='cash'?{cash_returned:returned,evidence_refs:returnEvidence.split('\n').filter(Boolean)}:{})});}}>
+                  <fieldset disabled={blocked}><label>Motivo de anulación<textarea required maxLength={600} value={reason} onChange={event=>setReason(event.target.value)}/></label>
+                  {metadata.payment_method==='cash' && <><label><input type="checkbox" required checked={returned} onChange={event=>setReturned(event.target.checked)}/>Confirmo la devolución del efectivo a la caja original</label>
+                  <label>Evidencia de devolución<textarea required value={returnEvidence} onChange={event=>setReturnEvidence(event.target.value)}/></label></>}
+                  <button type="submit">Confirmar anulación</button></fieldset>
+                </form>}
+              </>}
+            </section> : <section className="expense-panel">
             <h2>Revisa un gasto</h2>
             <p>Selecciona un registro para consultar su detalle o crear una nueva captura.</p>
             </section>}</div>
