@@ -165,6 +165,9 @@ def _lock_grant_actor(
             "branch_offline_preflight_required", "Offline authority migration is required"
         )
     ops._authority_governance_lock(session)
+    from restaurant_os.blind_cash_transition import block_legacy_gateway
+
+    block_legacy_gateway(session, organization, branch)
     from restaurant_os.branch_workspaces import _lock_actor, validate_branch_context
 
     _lock_actor(session, actor)

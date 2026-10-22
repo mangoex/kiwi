@@ -46,6 +46,9 @@ try {
         profile.admin_capabilities['inventory.read'] = false;
         profile.inventory_query_capabilities = { organization_read: false, branches: [] };
         profile.scope.authorization_version = (profile.scope.authorization_version || 1) + 1;
+        // A real session snapshots both authorities at the same revision. Keep the
+        // revocation fixture coherent; mismatched snapshots must fail closed.
+        profile.financial_access.authorization_version = profile.scope.authorization_version;
         return route.fulfill({ json: profile });
       }
       if (overviewError && url.pathname.endsWith('/inventory/overview')) return route.fulfill({ status: 503, json: { detail: { code: 'inventory_overview_unavailable', message: 'Consulta temporalmente no disponible.' } } });

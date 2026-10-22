@@ -39,3 +39,5 @@ scratch/
 /.playwright-cli/
 /output/
 .DS_Store
+
+tmp/

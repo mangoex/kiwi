@@ -95,7 +95,13 @@ class OrderDeliveryV2(FinancialRecord):
     assigned_at: datetime
 
 
+class OrderDeliverySelectionV2(FinancialRecord):
+    mode: Literal["AUTO", "REMOVED", "SELECTED"]
+    tariff_id: str | None = None
+
+
 class OrderChargeV2(FinancialRecord):
+    selection: OrderDeliverySelectionV2
     state: str
     list_cents: int
     charged_cents: int

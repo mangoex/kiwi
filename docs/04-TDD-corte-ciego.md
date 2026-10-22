@@ -510,3 +510,11 @@ por actor/sucursal con recuperación al remount. test_operational_intents.mjs in
 preparación central y 409 post-commit para open/close v2. La regresión PostgreSQL
 test_corte_ciego_f107_session_postgres.py comprueba revocación persistida sin perder
 concesiones independientes ni alterar el fondo histórico. No acredita cierre F1-10.
+
+F1-08, TC-458/459: `test_corte_ciego_f108_inventory.py` refuta alias heredado,
+comodín organizacional sin revisión y aprobación implícita por permiso de revisión;
+el recorrido HTTP prueba conteo enviado con diferencia, proyección ciega y ausencia de
+movimientos ante denegación, seguido de aprobación explícita. Se mantienen regresiones
+de conteo legacy. `test_corte_ciego_f108_step_up.py` rechaza código público sin secreto,
+administrador sin autoridad explícita y admite secreto propio de autorizador o Dueño.
+Recepción y autorización exacta de cambios/cancelaciones siguen pendientes de este bloque.

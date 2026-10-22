@@ -325,6 +325,22 @@ def test_executed_scoped_action_gives_context_only_to_its_actor(
     assert before.status_code == 403, before.text
     with world.sessions() as session:
         if action == "amendment":
+            from corte_ciego_approval_fixtures import approved
+
+            lines = [{"product_id": "018f6f73-2d0a-74f0-8f1c-000000000111", "quantity": 2}]
+            auth_id = approved(
+                world.sessions,
+                world.order_id,
+                "amend",
+                1,
+                "scoped-action-amendment",
+                {
+                    "lines": lines,
+                    "delivery_selection": None,
+                    "delivery_quote_reference": None,
+                },
+                actor_user_id=actor_id,
+            )
             ops.amend_order(
                 session,
                 world.order_id,
@@ -332,6 +348,8 @@ def test_executed_scoped_action_gives_context_only_to_its_actor(
                 1,
                 "scoped-action-amendment",
                 actor_id,
+                exception_authorization_id=auth_id,
+                exception_reason="scoped-action-amendment",
             )
         else:
             # Reuse the real order/lines as delivery fixture inputs, then execute

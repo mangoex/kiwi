@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 
+from restaurant_os.blind_cash_phase2_schema import tables as blind_cash_phase2_tables
 from restaurant_os.delivery_fee_schema import tables as delivery_fee_tables
 from restaurant_os.expense_schema_v1 import tables as expense_tables
 from restaurant_os.financial_access_schema import tables as financial_access_tables
@@ -16,9 +17,11 @@ from restaurant_os.offline_authorization_schema import tables as offline_authori
 from restaurant_os.offline_cutover_schema import table as offline_cutover_table
 from restaurant_os.operational_intent_schema import WORKSPACE_SCOPE_INDEX
 from restaurant_os.operational_intent_schema import table as operational_intent_table
+from restaurant_os.order_exception_schema import tables as order_exception_tables
 from restaurant_os.supplier_xml_schema import tables as supplier_xml_tables
 
 metadata = sa.MetaData()
+order_exception_authorizations, order_exception_consumptions = order_exception_tables(metadata)
 
 (
     financial_owner_reviews, financial_access_grants, financial_access_grant_scopes,
@@ -4092,3 +4095,12 @@ operational_command_intents = operational_intent_table(metadata, cash_lifecycle=
 )
 
 mobile_customer_credentials, mobile_auth_attempts = _mobile_password_tables(metadata)
+(
+    blind_cash_denominations,
+    user_cash_cut_declarations,
+    user_cash_cut_method_reconciliations,
+    user_cash_cut_error_reports,
+    owner_alerts,
+    owner_alert_recipients,
+    operational_control_events,
+) = blind_cash_phase2_tables(metadata)

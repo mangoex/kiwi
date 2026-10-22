@@ -266,5 +266,5 @@ def test_empty_downgrade_reverses_and_history_blocks_destructive_downgrade(facto
         )
         assert (
             session.scalar(sa.text("SELECT version_num FROM alembic_version"))
-            == "0100_delivery_fee"
+            == "0102_order_exceptions"
         )

@@ -7,6 +7,7 @@ from typing import Annotated, Any
 import sqlalchemy as sa
 from fastapi import Depends, Request, Response
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from restaurant_os import models
 from restaurant_os import operations as ops
@@ -97,4 +98,5 @@ async def cash_legacy_guard(
         if any(active_revision(session, str(branch)) is not None for branch in branches):
             raise ops.BusinessError("cash_contract_upgrade_required", "Use the version 2 contract")
 
-    _response(check)
+    # SQL lock waits must leave the event loop free to close sibling transactions.
+    await run_in_threadpool(_response, check)

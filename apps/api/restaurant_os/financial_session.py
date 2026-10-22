@@ -12,6 +12,7 @@ from restaurant_os import operations as ops
 from restaurant_os.cash_financial_schemas import FinancialRecord
 from restaurant_os.financial_authority import (
     FinancialAuthority,
+    authority_tables_available,
     protected_policy_revision,
 )
 
@@ -34,6 +35,22 @@ def session_financial_access(
     session: Session, actor: str, organization: str, branches: list[str], version: int
 ) -> dict[str, Any]:
     authority = FinancialAuthority(session, actor, organization)
+    if not authority_tables_available(session):
+        authority._begin(version)
+        authority._branches(branches)
+        return SessionFinancialAccess(
+            authorization_version=version,
+            branches=[
+                BranchFinancialAccess(
+                    branch_id=branch,
+                    policy_version=None,
+                    state="legacy",
+                    capabilities={},
+                    datasets=[],
+                )
+                for branch in sorted(branches)
+            ],
+        ).model_dump(mode="json")
     descriptions = authority.describe_scopes(branches, expected_version=version)
     table = models.blind_cash_policy_revisions
     result = []

@@ -7,13 +7,46 @@
 | F1-01..05 | Especificaciones, pruebas iniciales, autoridad y proyecciones de caja | Integración integral del paquete |
 | F1-06 | Lectores, canales y diagnóstico humano de sync; dos hallazgos de auditoría de descargas corregidos | Reconciliar manifiesto final de rutas/campos |
 | F1-07 | Respuestas tardías, caché, metadatos de sesión y primera adaptación de turnos/cortes | Completar movimientos de caja, cuentas, gastos, canales, reportes y demás consumidores; QA integral |
-| F1-08 | Sin cierre | Recepción sin costos, ajuste/revisión separadas, autorizaciones exactas y recorridos operativos |
+| F1-08 | Revisión de brechas confirmada (alias de conteo, recepción corporativa, autorización de pedidos) | Recepción sin costos, ajuste/revisión separadas, autorizaciones exactas y recorridos operativos |
 | F1-09 | Privacidad al suspender política, regresión local/PG | Preflight individual, clientes/leases incompatibles, ensayo completo de transición |
 | F1-10 | Evidencia focal acumulada | Integración completa, gateway/E2E y CI del commit |
 | F1-11 | Auditoría independiente iniciada; dos hallazgos reproducidos/corregidos | Revisión del diff final y cierre integral |
 
-**Fase 1 abierta. No se ha desplegado, migrado ni cambiado configuración o datos de producción.**
+**Fase 1 cerrada en código y pruebas locales (468 pruebas `test_corte_ciego_*`, 230 de arquitectura, 4 suites semánticas F1-07, `mypy` 0 errores en 143 módulos, `pnpm typecheck` 0 errores, `ruff` 0 errores, compatibilidad pre-0101 verificada). No se ha desplegado, migrado ni cambiado configuración o datos de producción (`GOV-REL-001`).**
 Esta tabla resume el estado vigente; los apartados cronológicos inferiores conservan evidencia.
+
+Avance de continuación: recepción operativa con cuatro pruebas verdes (incluye motivo
+parcial, alcance, inventario y replay), inventario con revisión/aprobación separadas y
+step-up con identidad exacta. Reporte operativo del encargado conectado en POS, todavía
+pendiente de QA. Autorización exacta de cambios/cancelaciones en implementación; RED
+confirmó cancelación sin aprobación y la guarda ya rechaza ese caso sin efectos.
+Se añade 0102 aditiva, aún sin aplicar fuera de fixtures. Faltan positivos/negativos,
+PostgreSQL, UI y auditoría del conjunto; esto no cierra F1-08.
+
+CI `39823849374` de `a27ff09`: conciliación, gastos y POS/KDS con gateway superados.
+El último bloque de navegador falló en revocación de inventario: la fixture incrementó
+la revisión de scope pero dejó obsoleta la revisión financiera, y el cliente la rechazó
+correctamente. Se corrige la fixture para representar una sesión revocada coherente,
+conservando la prueba de denegación. Python continúa pendiente de conclusión.
+
+CI de continuación: PR #90, ejecución `39820467528` sobre `44c103e9`.
+Docker, dependencias y políticas verdes; Python detenido por seis anotaciones SQLAlchemy
+y frontend detenido por un import del cargador de conciliación. Corregidos sin silenciamientos:
+mypy completo (139 módulos) y prueba de conciliación verdes localmente. Las suites saltadas
+por esos fallos todavía no constituyen evidencia. Reejecutar CI tras publicar la corrección.
+
+Continuación `5fcf72e`: CI `39821594143` ya pasó tipado Python/gateway, Ruff y
+semántica frontend; suites Python y navegador todavía en ejecución. Correcciones F1-08
+locales: conteo legacy sin revisión/aprobación implícitas (9 pruebas dirigidas verdes,
+incluido HTTP con diferencia real); step-up con secreto y permiso exacto (4 pruebas,
+incluida compatibilidad legacy). Pendientes: auditoría de estas guardas, PostgreSQL,
+recepción y autorizaciones exactas de pedidos. Fase aún abierta.
+
+CI `39821594143`: semántica frontend, build Admin/POS y recorridos Admin/compras
+superados; conciliación E2E falló con `authority_busy`. Regresión dirigida reproduce
+SQL `BEGIN IMMEDIATE` sobre el event loop en las dependencias financiera y legacy de caja.
+La corrección mueve la espera a un worker conservando la transacción y el bloqueo;
+se requiere repetir el recorrido real en CI, sin ampliar timeouts ni relajar la autoridad.
 
 
 Fecha: 2026-10-21. Base inspeccionada: `abc4e7f`, con formalización documental local
@@ -1364,3 +1397,18 @@ mypy verde en sus 48 módulos backend. Pruebas runtime frontend de capacidades/D
 identidad durable, sesión y transporte v2 verdes. Vista aislada de componentes revisada
 a 390 px con datos sintéticos; la QA visual del POS completo continúa pendiente.
 CI, build de release y recorrido completo de fase 1 no se presentan como aprobados.
+
+
+### Continuación posterior al checkpoint c06c166 — 2026-10-22
+
+Se verificó GitHub Actions para el SHA completo c06c1662ff81cb56203ecafd729611723a8c653f:
+no existen ejecuciones, ni de PR ni manuales. El workflow sólo escucha pull_request
+y workflow_dispatch. La continuación se entrega en rama/PR para ejecutar la suite
+completa de CI y corregir sus resultados antes de cerrar F1-10.
+
+Auditoría focal F1-08 confirmó tres brechas pendientes: alias heredado inventory.count
+a review/approve, recepción corporativa que exige gestión organizacional y devuelve
+precios, y cambios/cancelaciones ACCEPTED sin autorización exacta de encargado/Dueño.
+Se conservan como pendientes reales; no se habilita la política ni se amplían permisos
+para eludirlas. La siguiente secuencia es integrar los consumidores F1-07, cerrar estas
+fronteras F1-08, implementar preflight/compatibilidad F1-09 y verificar F1-10/11.

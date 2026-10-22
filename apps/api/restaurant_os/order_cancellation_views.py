@@ -35,6 +35,7 @@ def cancellation_command(
     execute: Callable[[bool], dict[str, Any]],
     *,
     commit: bool,
+    authorize: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     try:
         governance_lock(session, ops.ORGANIZATION_ID)
@@ -56,6 +57,8 @@ def cancellation_command(
             return result
         # Serialize before the core reads status, not after it has cached an eligible order.
         ops._require_order_write_fence(session, branch)
+        if authorize is not None:
+            authorize()
         changed = execute(False)
         result = OrderCancellationReceiptV2(
             policy_version=revision,

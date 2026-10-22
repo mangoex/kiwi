@@ -60,7 +60,7 @@ const storage = () => {
 };
 globalThis.localStorage = storage();
 globalThis.sessionStorage = storage();
-const modules = new Map(['cashierDrafts','operationalOrders','adminAccess','reconciliationV2','branchWorkspace','deliveryFee']
+const modules = new Map(['cashierDrafts','operationalOrders','adminAccess','reconciliationV2','branchWorkspace','deliveryFee','projectionContract']
   .map(name => [name, name === 'branchWorkspace' ? workspaceUrl : asModule(readFileSync(`packages/api-client/src/${name}.ts`, 'utf8'))]));
 let apiSource = readFileSync('packages/api-client/src/index.ts', 'utf8');
 for (const [name,url] of modules) apiSource = apiSource.replaceAll(`'./${name}'`,JSON.stringify(url));

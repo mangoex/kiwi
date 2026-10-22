@@ -15,6 +15,8 @@ assert.match(source, /Intl\.NumberFormat/);
 assert.match(source, /parseUserCashCutCents/);
 assert.match(source, /buildUserCashCutCreatePayload/);
 assert.match(source, /buildUserCashCutCountedPayload/);
+assert.match(source, /buildBlindCashDeclarationPayload/);
+assert.match(source, /BlindCashDenominationEntry/);
 assert.match(source, /buildUserCashCutFinalizePayload/);
 assert.match(source, /buildUserCashCutReopenRequestPayload/);
 assert.match(source, /counted_cash_cents: countedCashCents, version/);

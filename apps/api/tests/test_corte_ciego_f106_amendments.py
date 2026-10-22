@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 import sqlalchemy as sa
+from corte_ciego_approval_fixtures import approved
 from corte_ciego_fixtures import ident
 from restaurant_os import models
 from restaurant_os import operations as ops
@@ -30,6 +31,7 @@ class AmendmentWorld:
     factory: Any
     order: str
     body: dict[str, Any]
+    cancellation_authorization: str = ""
 
     def post(self, *, recover: bool = False, key: str = KEY) -> Any:
         return self.client.post(
@@ -67,8 +69,19 @@ def amendment_world() -> Iterator[AmendmentWorld]:
     body.update(order_id=order, expected_version=1, delivery_selection={"mode": "REMOVED"})
     body.pop("delivery_quote_reference")
     body["delivery_quote_reference"] = quote(client, body)["delivery_quote_reference"]
+    factory = _test_session_factory(client)
+    body["reason"] = "Synthetic amendment"
+    body["exception_authorization_id"] = approved(
+        factory,
+        order,
+        "amend",
+        1,
+        body["reason"],
+        {key: body[key] for key in ("lines", "delivery_selection", "delivery_quote_reference")},
+    )
+    cancellation = approved(factory, order, "cancel", 1, "Synthetic cancellation", {})
     try:
-        yield AmendmentWorld(client, _test_session_factory(client), order, body)
+        yield AmendmentWorld(client, factory, order, body, cancellation)
     finally:
         client.close()
 
@@ -341,19 +354,17 @@ def test_other_current_actor_cannot_recover_owning_users_command(
     amendment_world: AmendmentWorld,
 ) -> None:
     world = amendment_world
-    created = world.client.post(
-        "/api/v1/users",
-        headers=_admin_headers(),
-        json={
-            "email": "another-amender@fixture.invalid",
-            "display_name": "Other amender",
-            "employee_code": "AMD002",
-            "password": ident("synthetic-f106-user").upper() + "Aa1!",
-            "role_id": ADMIN_ROLE_ID,
-        },
-    )
-    assert created.status_code == 200, created.text
-    other_actor = created.json()["id"]
+    # Two already-reviewed synthetic actors. Account provisioning is not this
+    # receipt test's subject; assigning a protected role now has its own authority.
+    other_actor = ident("synthetic-f106-other-actor")
+    with world.factory() as session:
+        original = dict(session.execute(sa.select(models.users).where(
+            models.users.c.id == ADMIN_USER_ID)).mappings().one())
+        session.execute(models.users.insert().values({**original, "id":other_actor,
+            "email":"another-amender@fixture.invalid", "employee_code":None}))
+        session.execute(models.user_roles.insert().values(user_id=other_actor,
+            role_id=ADMIN_ROLE_ID, branch_id=ops.BRANCH_ID))
+        session.commit()
     activate(world.factory)
     assert world.post().status_code == 200
     from restaurant_os.order_amendment_views import recover_amendment
@@ -377,8 +388,12 @@ def test_cart_amendment_keeps_outer_transaction_and_body_identity(
     order = result.json()["id"]
     activate(world.factory)
     lines = [{"product_id": PRODUCT, "quantity": 2}]
+    approval = approved(world.factory, order, "amend", 1, "Synthetic cart", {"lines": lines})
+    authorization = {"exception_authorization_id": approval, "exception_reason": "Synthetic cart"}
     with world.factory() as session:
-        receipt = ops.amend_order(session, order, lines, 1, KEY, ADMIN_USER_ID, commit=False)
+        receipt = ops.amend_order(
+            session, order, lines, 1, KEY, ADMIN_USER_ID, commit=False, **authorization
+        )
         assert receipt["version"] == 2 and "total_cents" not in receipt
         assert (
             session.scalar(
@@ -393,9 +408,18 @@ def test_cart_amendment_keeps_outer_transaction_and_body_identity(
             == 1
         )
         assert session.scalar(sa.select(sa.func.count()).select_from(models.order_amendments)) == 0
-        receipt = ops.amend_order(session, order, lines, 1, KEY, ADMIN_USER_ID)
-        assert ops.amend_order(session, order, lines, 1, KEY, ADMIN_USER_ID) == receipt
+        receipt = ops.amend_order(session, order, lines, 1, KEY, ADMIN_USER_ID, **authorization)
+        assert (
+            ops.amend_order(session, order, lines, 1, KEY, ADMIN_USER_ID, **authorization)
+            == receipt
+        )
         with pytest.raises(ops.BusinessError, match="intention changed"):
             ops.amend_order(
-                session, order, [{"product_id": PRODUCT, "quantity": 3}], 1, KEY, ADMIN_USER_ID
+                session,
+                order,
+                [{"product_id": PRODUCT, "quantity": 3}],
+                1,
+                KEY,
+                ADMIN_USER_ID,
+                **authorization,
             )

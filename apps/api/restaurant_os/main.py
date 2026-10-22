@@ -98,24 +98,39 @@ def create_app() -> FastAPI:
     app.state.public_order_intents_enabled = settings.public_order_intents_enabled
     app.state.mobile_customer_access_enabled = settings.mobile_customer_access_enabled
     app.state.mobile_customer_rate_limiter = (
-        RedisPublicOrderRateLimiter(
-            settings.redis_url, 300, 15,
-            settings.public_order_rate_limit_hmac_secret or settings.secret_key,
-        ) if settings.redis_url else (
-            InMemoryPublicOrderRateLimiter(300, 15, settings.secret_key)
-            if settings.environment != "production" else None
+        (
+            RedisPublicOrderRateLimiter(
+                settings.redis_url,
+                300,
+                15,
+                settings.public_order_rate_limit_hmac_secret or settings.secret_key,
+            )
+            if settings.redis_url
+            else (
+                InMemoryPublicOrderRateLimiter(300, 15, settings.secret_key)
+                if settings.environment != "production"
+                else None
+            )
         )
-    ) if settings.mobile_customer_access_enabled else None
-    if settings.mobile_customer_access_enabled and all((
-        settings.twilio_account_sid, settings.twilio_auth_token, settings.twilio_verify_service_sid,
-    )):
+        if settings.mobile_customer_access_enabled
+        else None
+    )
+    if settings.mobile_customer_access_enabled and all(
+        (
+            settings.twilio_account_sid,
+            settings.twilio_auth_token,
+            settings.twilio_verify_service_sid,
+        )
+    ):
         app.state.mobile_phone_verifier = TwilioPhoneVerifier(
-            settings.twilio_account_sid or "", settings.twilio_auth_token or "",
+            settings.twilio_account_sid or "",
+            settings.twilio_auth_token or "",
             settings.twilio_verify_service_sid or "",
         )
     tracking_limiter = (
         RedisPublicOrderRateLimiter(
-            settings.redis_url, settings.public_tracking_global_rate_limit_per_minute,
+            settings.redis_url,
+            settings.public_tracking_global_rate_limit_per_minute,
             settings.public_tracking_client_rate_limit_per_minute,
             settings.public_order_rate_limit_hmac_secret,
         )
@@ -130,7 +145,8 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def public_tracking_privacy(
-        request: Request, call_next: Callable[[Request], Awaitable[Response]],
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         response = await call_next(request)
         if request.url.path.startswith(("/api/v1/public/order-intents/", "/api/v1/mobile/")):
@@ -178,10 +194,34 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def governed_validation_error(request: Request, exc: RequestValidationError) -> Response:
+        if (
+            request.url.path.startswith("/api/v2/orders/")
+            and request.url.path.endswith("/exception-authorizations")
+        ) or request.url.path in {
+            "/api/v1/auth/supervisor-authorize",
+            "/api/v1/orders/adjustments/authorize",
+        }:
+            # Validation errors must not echo supervisor credentials, even for malformed JSON.
+            return JSONResponse(
+                status_code=422,
+                headers={"Cache-Control": "no-store"},
+                content={
+                    "detail": {
+                        "code": "supervisor_request_invalid",
+                        "message": "Invalid authorization request",
+                    }
+                },
+            )
         if request.url.path.startswith("/api/v1/mobile/"):
-            return JSONResponse(status_code=422, content={"detail": {
-                "code": "mobile_schema_invalid", "message": "Revisa los datos capturados",
-            }})
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": {
+                        "code": "mobile_schema_invalid",
+                        "message": "Revisa los datos capturados",
+                    }
+                },
+            )
         if request.url.path.startswith("/api/v1/purchases/xml-imports/"):
             return JSONResponse(
                 status_code=422,

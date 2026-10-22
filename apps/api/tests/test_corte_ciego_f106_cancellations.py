@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 import sqlalchemy as sa
+from corte_ciego_approval_fixtures import approved
 from restaurant_os import models
 from restaurant_os import operations as ops
 from restaurant_os.auth import create_session_token
@@ -19,7 +20,11 @@ def cancel(world: AmendmentWorld) -> Any:
     return world.client.post(
         f"/api/v1/orders/{world.order}/cancel",
         headers=_admin_headers(),
-        json={"reason": "Synthetic cancellation"},
+        json={
+            "reason": "Synthetic cancellation",
+            "expected_version": 1,
+            "exception_authorization_id": world.cancellation_authorization,
+        },
     )
 
 
@@ -102,7 +107,15 @@ def test_commit_false_is_owned_by_caller(amendment_world: AmendmentWorld) -> Non
     world = amendment_world
     activate(world.factory)
     with world.factory() as session:
-        result = ops.cancel_order(session, world.order, actor_user_id=ADMIN_USER_ID, commit=False)
+        result = ops.cancel_order(
+            session,
+            world.order,
+            reason="Synthetic cancellation",
+            actor_user_id=ADMIN_USER_ID,
+            commit=False,
+            expected_version=1,
+            exception_authorization_id=world.cancellation_authorization,
+        )
         assert result["projection"] == "operational"
         assert session.scalar(sa.select(models.orders.c.status)) == "CANCELLED"
         session.rollback()
@@ -214,10 +227,27 @@ def test_produced_order_keeps_classification_and_inventory_effect(
         assert result.status_code == 200, result.text
     activate(world.factory)
     assert cancel(world).status_code == 409
+    with world.factory() as session:
+        version = session.scalar(
+            sa.select(models.orders.c.version).where(models.orders.c.id == world.order)
+        )
+    approval = approved(
+        world.factory,
+        world.order,
+        "cancel",
+        version,
+        "Synthetic produced cancellation",
+        {"classification": classification},
+    )
     result = world.client.post(
         f"/api/v1/orders/{world.order}/cancel",
         headers=_admin_headers(),
-        json={"reason": "Synthetic produced cancellation", "classification": classification},
+        json={
+            "reason": "Synthetic produced cancellation",
+            "classification": classification,
+            "expected_version": version,
+            "exception_authorization_id": approval,
+        },
     )
     assert result.status_code == 200 and "total_cents" not in result.json(), result.text
     assert result.json()["cancellation_kind"] == classification

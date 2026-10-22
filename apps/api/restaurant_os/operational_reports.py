@@ -118,14 +118,14 @@ def operational_report(
         )
         .subquery()
     )
-    names = session.scalars(
+    names: list[str] = list(session.scalars(
         sa.select(ranked.c.product_name_snapshot)
         .where(
             ranked.c.name_rank == 1,
         )
         .order_by(ranked.c.units.desc(), ranked.c.product_id)
         .limit(10)
-    ).all()
+    ))
     return OperationalReportV2(
         branch_id=branch_id,
         period=period,

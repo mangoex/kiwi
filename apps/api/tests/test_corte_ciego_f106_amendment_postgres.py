@@ -1,12 +1,17 @@
 """Real PostgreSQL amendments: one effect, immutable history and atomic receipts."""
 
+import runpy
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from threading import Barrier
 from typing import Any
 
 import pytest
 import sqlalchemy as sa
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from corte_ciego_approval_fixtures import approved
 from corte_ciego_storage import isolated_database
 from fastapi.testclient import TestClient
 from restaurant_os import models
@@ -28,7 +33,26 @@ def amendment_pg(monkeypatch: pytest.MonkeyPatch) -> Iterator[AmendmentWorld]:
     get_settings.cache_clear()
     try:
         for engine in isolated_database("postgresql"):
-            models.metadata.create_all(engine)
+            models.metadata.create_all(
+                engine,
+                tables=[
+                    table
+                    for table in models.metadata.tables.values()
+                    if table.name
+                    not in {"order_exception_authorizations", "order_exception_consumptions"}
+                ],
+            )
+            migration = runpy.run_path(
+                str(
+                    Path(__file__).parents[1]
+                    / "alembic/versions/202610220100_0102_order_exceptions.py"
+                )
+            )
+            with (
+                engine.begin() as connection,
+                Operations.context(MigrationContext.configure(connection)),
+            ):
+                migration["upgrade"]()
             factory = sessionmaker(bind=engine, expire_on_commit=False)
             with factory() as session:
                 _seed(session)
@@ -46,8 +70,21 @@ def amendment_pg(monkeypatch: pytest.MonkeyPatch) -> Iterator[AmendmentWorld]:
                 )
                 body.pop("delivery_quote_reference")
                 body["delivery_quote_reference"] = quote(client, body)["delivery_quote_reference"]
+                body["reason"] = "Synthetic amendment"
+                body["exception_authorization_id"] = approved(
+                    factory,
+                    order,
+                    "amend",
+                    1,
+                    body["reason"],
+                    {
+                        key: body[key]
+                        for key in ("lines", "delivery_selection", "delivery_quote_reference")
+                    },
+                )
+                cancellation = approved(factory, order, "cancel", 1, "Synthetic cancellation", {})
                 activate(factory)
-                yield AmendmentWorld(client, factory, order, body)
+                yield AmendmentWorld(client, factory, order, body, cancellation)
     finally:
         get_settings.cache_clear()
 
@@ -65,6 +102,8 @@ def apply(
         commit=commit,
         delivery_selection=world.body["delivery_selection"],
         delivery_quote_reference=world.body["delivery_quote_reference"],
+        exception_reason=world.body["reason"],
+        exception_authorization_id=world.body["exception_authorization_id"],
     )
 
 

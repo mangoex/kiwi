@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { Button, Input, Modal } from '@restaurantos/ui';
-import { fetchApi } from '@restaurantos/api-client';
+import { fetchApi, financialAccessForBranch } from '@restaurantos/api-client';
 import {
   User, Phone, Mail, MapPin, ReceiptText, Search, Plus,
   Store, ShoppingBag, MessageCircle, ChevronLeft, ChevronRight,
@@ -95,6 +95,8 @@ const getInitials = (name: string): string => {
 const Customers = () => {
   const { session } = usePosSession();
   const branchId = session?.active_branch?.id || '';
+  const access=session?financialAccessForBranch(session,branchId):null;
+  const financial=access?.state==='legacy' || (access?.state==='active' && access.datasets.includes('sales'));
   const branchName = session?.active_branch?.name || 'Sucursal';
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [total, setTotal] = useState(0);
@@ -301,14 +303,14 @@ const Customers = () => {
         <div style={{ background: 'var(--bg-card, #ffffff)', border: '1px solid var(--glass-border, #e2e8f0)', borderRadius: '14px', padding: '14px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
           <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Con Historial de Compras</span>
           <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#10b981', marginTop: '4px' }}>
-            {stats.withOrders}
+            {financial?stats.withOrders:'Acceso financiero requerido'}
           </div>
         </div>
 
         <div style={{ background: 'var(--bg-card, #ffffff)', border: '1px solid var(--glass-border, #e2e8f0)', borderRadius: '14px', padding: '14px 18px', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
           <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Ticket Promedio</span>
           <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-main, #0f172a)', marginTop: '4px' }}>
-            {formatMoney(stats.avgTicket)}
+            {financial?formatMoney(stats.avgTicket):'Acceso financiero requerido'}
           </div>
         </div>
       </div>
@@ -469,7 +471,7 @@ const Customers = () => {
 
                         {/* Order Summary */}
                         <td style={{ padding: '14px 18px' }}>
-                          {customer.order_summary?.order_count > 0 ? (
+                          {financial && customer.order_summary?.order_count > 0 ? (
                             <div>
                               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', padding: '2px 8px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700 }}>
                                 <ShoppingBag size={12} />

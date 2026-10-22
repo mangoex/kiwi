@@ -21,6 +21,22 @@ PROVIDERS = ["UBER_EATS", "DIDI_FOOD", "RAPPI", "WHATSAPP"]
 PATHS = ["uber-eats", "didi-food", "rappi", "whatsapp"]
 
 
+def test_legacy_channel_status_cannot_bypass_exact_exception(cash_world: CashWorld):
+    world = cash_world
+    with world.sessions() as session:
+        order = seed_channels(session, ident("order:1"))[0]
+    with world.sessions() as session, pytest.raises(ops.BusinessError) as failure:
+        ChannelIntegrationService().update_order_status(
+            session, order, "CANCELLED", world.actors["cashier"]
+        )
+    assert failure.value.code == "channel_contract_upgrade_required"
+    with world.sessions() as session:
+        assert (
+            session.scalar(sa.select(models.orders.c.status).where(models.orders.c.id == order))
+            == "PENDING"
+        )
+
+
 def seed_channels(session: Session, source_order: str) -> list[str]:
     template = dict(
         session.execute(sa.select(models.orders).where(models.orders.c.id == source_order))

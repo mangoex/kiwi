@@ -54,7 +54,7 @@ def test_pco_002_catalog_is_preserved_with_additive_pco_003_ledger_routes() -> N
     assert "def compensate_cash_movement(" in operations
     assert '@router.post("/cash/movements")' in api
     assert '@router.post("/cash/movements/{movement_id}/compensations")' in api
-    assert '@router.get("/cash/movements")' in api
+    assert '@router.get("/cash/movements"' in api
 
 
 def test_owner_admin_concepts_and_pos_ledger_are_additive() -> None:

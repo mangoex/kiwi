@@ -1,4 +1,4 @@
-"""Version 2 cash reads and receipts; phase-2 capture is deliberately not activated."""
+"""Version 2 cash reads, receipts, and CORTE-CIEGO-001 Phases 2-6 endpoints."""
 
 from __future__ import annotations
 
@@ -11,6 +11,17 @@ from pydantic import BaseModel, ConfigDict, Field
 from restaurant_os import models
 from restaurant_os import operations as ops
 from restaurant_os.api import ActorUserDep, AuthorizationDep, SessionDep
+from restaurant_os.blind_cash_phase2 import (
+    configure_denominations,
+    confirm_declaration,
+    denomination_catalog_ready,
+    finalize_blind_cut,
+    get_financial_reconciliation_detail,
+    list_denominations,
+    record_custody_delivery,
+    report_cut_error,
+    save_declaration_draft,
+)
 from restaurant_os.cash_command_views import shift_command
 from restaurant_os.cash_financial_schemas import (
     CashShiftFinancialV2,
@@ -28,6 +39,22 @@ from restaurant_os.cash_views import (
 )
 from restaurant_os.financial_access_api import _human_actor, _response
 from restaurant_os.financial_authority import governance_lock
+from restaurant_os.operational_controls import (
+    authorize_and_reprint_ticket,
+    evaluate_consumption_variance_alerts,
+    evaluate_delayed_orders,
+    evaluate_expiring_lots,
+    evaluate_high_waste_alerts,
+    open_cash_drawer_no_sale,
+)
+from restaurant_os.owner_alerts import (
+    acknowledge_owner_alert,
+    configure_alert_recipient,
+    list_owner_alerts,
+    retry_pending_alerts,
+)
+from restaurant_os.product_margins import evaluate_product_margins
+from restaurant_os.suggested_purchases import list_suggested_purchases
 
 router = APIRouter(prefix="/api/v2", tags=["Cash projections"])
 
@@ -267,6 +294,13 @@ def cut_capture_gate(
             else "finalize"
         )
         key = request.headers.get("Idempotency-Key", "")
+
+        # Phase 2 denomination capture & blind finalization pathways
+        if action == "count" and "denominations" in payload:
+            return confirm_declaration(session, user, str(cut_id), payload, key)
+        if action == "finalize":
+            return finalize_blind_cut(session, user, str(cut_id), payload, key)
+
         stored = session.scalar(
             sa.select(models.user_cash_cut_commands.c.id).where(
                 models.user_cash_cut_commands.c.organization_id == ops.ORGANIZATION_ID,
@@ -275,10 +309,23 @@ def cut_capture_gate(
             )
         )
         if stored is None:
+            if action == "create" and denomination_catalog_ready(session, ops.ORGANIZATION_ID):
+                views.authority.require_capability("cash.user_cut.capture", str(meta["branch_id"]))
+                return ops.UserCashCutService(session).create(payload, key, user)
             views.authority.require_capability(
                 "cash.user_cut.finalize" if action == "finalize" else "cash.user_cut.capture",
                 str(meta["branch_id"]),
             )
+            if (
+                action == "count"
+                and ("counted_cash_cents" in payload or "total_cents" in payload)
+                and denomination_catalog_ready(session, ops.ORGANIZATION_ID)
+            ):
+                raise ops.BusinessError(
+                    "client_total_forbidden",
+                    "Client-calculated totals are not accepted; "
+                    "submit denomination piece counts only",
+                )
             raise ops.BusinessError("cash_capture_not_ready", "Phase 2 capture is not active")
         service = ops.UserCashCutService(session)
         if action == "create":
@@ -355,3 +402,259 @@ def decide_correction(
         )
 
     return _response(execute)
+
+
+# --- Phase 2: Denominations, Drafts, Custody Delivery, Error Reports, Reconciliation ---
+
+
+@router.get("/cash/denominations")
+def get_denominations(
+    branch_id: str,
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(lambda: {"items": list_denominations(session, user, branch_id)})
+
+
+@router.put("/cash/denominations")
+def put_denominations(
+    payload: dict[str, Any],
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(lambda: {"items": configure_denominations(session, user, payload)})
+
+
+@router.put("/cash/user-cuts/{cut_id}/declaration-draft")
+def put_declaration_draft(
+    cut_id: str,
+    payload: dict[str, Any],
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(lambda: save_declaration_draft(session, user, cut_id, payload))
+
+
+@router.post("/cash/user-cuts/{cut_id}/custody-delivery")
+def post_custody_delivery(
+    cut_id: str,
+    payload: dict[str, Any],
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(lambda: record_custody_delivery(session, user, cut_id, payload))
+
+
+@router.post("/cash/user-cuts/{cut_id}/error-reports")
+def post_cut_error_report(
+    cut_id: str,
+    payload: dict[str, Any],
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(lambda: report_cut_error(session, user, cut_id, payload))
+
+
+@router.get("/financial/cash/user-cuts/{cut_id}/reconciliation")
+def get_cut_reconciliation(
+    cut_id: str,
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(lambda: get_financial_reconciliation_detail(session, user, cut_id))
+
+
+# --- Phase 3: Owner Alerts, Delegate Recipients, Retry ---
+
+
+@router.get("/financial/owner-alerts")
+def get_owner_alerts(
+    branch_id: str,
+    response: Response,
+    session: SessionDep,
+    alert_type: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(
+        lambda: {
+            "items": list_owner_alerts(session, user, branch_id=branch_id, alert_type=alert_type)
+        }
+    )
+
+
+@router.post("/financial/owner-alerts/recipients")
+def post_owner_alert_recipient(
+    payload: dict[str, Any],
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(
+        lambda: configure_alert_recipient(
+            session,
+            user,
+            branch_id=str(payload.get("branch_id", "")),
+            user_id=str(payload.get("user_id", "")),
+            alert_type=str(payload.get("alert_type", "")),
+            channel=str(payload.get("channel", "in_app")),
+            is_active=bool(payload.get("is_active", True)),
+        )
+    )
+
+
+@router.post("/financial/owner-alerts/retry")
+def post_owner_alerts_retry(
+    payload: dict[str, Any],
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    branch_id = payload.get("branch_id")
+    return _response(
+        lambda: retry_pending_alerts(session, user, branch_id=str(branch_id) if branch_id else None)
+    )
+
+
+@router.post("/financial/owner-alerts/{alert_id}/acknowledge")
+def post_acknowledge_owner_alert(
+    alert_id: str,
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(lambda: acknowledge_owner_alert(session, user, alert_id))
+
+
+# --- Phase 4: Suggested Purchases ---
+
+
+@router.get("/inventory/suggested-purchases")
+def get_suggested_purchases(
+    branch_id: str,
+    response: Response,
+    session: SessionDep,
+    include_all_below_max: bool = False,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(
+        lambda: list_suggested_purchases(
+            session,
+            user,
+            branch_id,
+            include_all_below_max=include_all_below_max,
+        )
+    )
+
+
+# --- Phase 5: Product Margins ---
+
+
+@router.get("/financial/products/margins")
+def get_product_margins(
+    branch_id: str,
+    response: Response,
+    session: SessionDep,
+    product_id: str | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(
+        lambda: evaluate_product_margins(
+            session,
+            user,
+            branch_id,
+            product_id=product_id,
+        )
+    )
+
+
+# --- Phase 6: Operational Controls (Ticket Reprint, No-Sale Drawer Open, Alert Evaluations) ---
+
+
+@router.post("/orders/{order_id}/reprint-ticket")
+def post_reprint_ticket(
+    order_id: str,
+    payload: dict[str, Any],
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(lambda: authorize_and_reprint_ticket(session, user, order_id, payload))
+
+
+@router.post("/cash/shifts/{shift_id}/open-drawer-no-sale")
+def post_open_drawer_no_sale(
+    shift_id: str,
+    payload: dict[str, Any],
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    user = actor(response, actor_user_id, authorization)
+    return _response(lambda: open_cash_drawer_no_sale(session, user, shift_id, payload))
+
+
+@router.post("/operational-controls/evaluate")
+def post_evaluate_operational_controls(
+    payload: dict[str, Any],
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor(response, actor_user_id, authorization)
+    branch_id = str(payload.get("branch_id", ""))
+    lots = payload.get("lots")
+    delay_minutes = int(payload.get("delay_threshold_minutes", 25))
+
+    def run_eval() -> dict[str, Any]:
+        waste_alerts = evaluate_high_waste_alerts(session, branch_id)
+        variance_alerts = evaluate_consumption_variance_alerts(session, branch_id)
+        fefo_result = evaluate_expiring_lots(
+            session, branch_id, lots=lots if isinstance(lots, list) else None
+        )
+        delayed_alerts = evaluate_delayed_orders(
+            session, branch_id, threshold_minutes=delay_minutes
+        )
+        return {
+            "branch_id": branch_id,
+            "high_waste_alerts": waste_alerts,
+            "consumption_variance_alerts": variance_alerts,
+            "fefo_lots": fefo_result["fefo_lots"],
+            "expiring_lot_alerts": fefo_result["alerts"],
+            "delayed_order_alerts": delayed_alerts,
+        }
+
+    return _response(run_eval)
