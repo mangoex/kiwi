@@ -3140,14 +3140,13 @@ una interpretación local permisiva.
 
 ### Base visual clara vigente
 
-POS, Administración, KDS y móvil importan `packages/ui/src/styles/neutral.css` como base visual
-compartida. Sustituye los acentos y el tema oscuro automático por superficies claras y escala
-de grises, con Segoe UI/Helvetica Neue/Arial de sistema, sin descargar fuentes ni agregar paquetes.
-El filtro de escala de grises vive exclusivamente en la raíz del documento para cubrir colores
-legacy inline, imágenes y portales sin cambiar el contenedor de los overlays fijos. Los estados
-conservan texto, iconos, bordes y foco visible. Esta fase visual sustituye las prescripciones previas
-de color en las aplicaciones operativas; el sitio público conserva su diseño independiente.
-La reversión de la base compartida retira sus imports sin cambiar datos ni contratos.
+POS, Administración, KDS y móvil importan packages/ui/src/styles/neutral.css como base visual
+clara compartida. Mantiene superficies claras (color-scheme: only light), tipografía de sistema
+y tokens de color semánticos (verde éxito/marca, naranja advertencia, rojo peligro/alerta, azul información,
+púrpura IA). Por instrucción explícita de negocio, se elimina la condición de escala de grises
+para conservar en todo momento el color natural de fotografías, imágenes de platillos, notificaciones
+y estados operativos sin alterar el contenedor de los overlays fijos. Los estados conservan texto,
+iconos, bordes y foco visible accesible.
 
 El catálogo centra nombres y permite renglones únicamente entre palabras completas, sin guiones
 automáticos ni truncamiento. Las pestañas de modificadores y sus opciones usan la misma cuadrícula
@@ -4551,10 +4550,10 @@ autorización separada.
 
 ### 54.1 Paleta determinista
 
-**Presentación vigente:** la base compartida de §42 sustituye esta paleta cromática por blanco,
-gris y negro. Las clases por ID canónico se conservan para compatibilidad; `neutral.css` aplica
-variables neutrales a `pos-sale-screen` y controla los estados normal, hover y activo del menú.
-Las definiciones cromáticas siguientes quedan como antecedente para una futura paleta aprobada.
+**Presentación vigente:** rige la paleta cromática clara por CatalogMenuGroupId sobre superficies
+limpias: ll usa verde Kiwi, ood coral, drinks azul, other violeta y avorites ámbar.
+Cada entrada contiene un tono sólido para su botón superior y variables pastel/borde/texto para el centro.
+La identidad proviene exclusivamente del ID canónico; nombres de categorías o productos no se interpretan para elegir color.
 
 La presentación define una paleta local por `CatalogMenuGroupId`, sin campos nuevos de catálogo ni
 persistencia: `all` usa verde Kiwi, `food` coral, `drinks` azul, `other` violeta y `favorites` ámbar.
