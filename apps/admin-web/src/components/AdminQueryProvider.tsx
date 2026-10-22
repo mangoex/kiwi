@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
+import { subscribeToApiReadAuthorityChange } from '@restaurantos/api-client';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createAdminQueryClient } from '../lib/sessionRecovery';
 
@@ -16,6 +17,7 @@ export function AdminQueryProvider({ children }: { children: ReactNode }) {
     currentClient.current = nextClient;
     setClient(nextClient);
   }, []);
+  useEffect(() => subscribeToApiReadAuthorityChange(reset), [reset]);
   return (
     <ResetSessionQueries.Provider value={reset}>
       <QueryClientProvider client={client}>{children}</QueryClientProvider>

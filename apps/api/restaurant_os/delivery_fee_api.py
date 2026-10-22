@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from restaurant_os import delivery_fee, models
 from restaurant_os.api import (
@@ -14,12 +14,13 @@ from restaurant_os.api import (
     _business_response,
     _required_actor_from_request,
 )
+from restaurant_os.financial_read_guard import financial_read_guard
 from restaurant_os.operations import ORGANIZATION_ID
 
 router = APIRouter(prefix="/api/v1", tags=["Delivery services"])
 
 
-@router.get("/reports/delivery-fees")
+@router.get("/reports/delivery-fees", dependencies=[Depends(financial_read_guard("sales"))])
 def delivery_report(
     branch_id: str,
     start: datetime,

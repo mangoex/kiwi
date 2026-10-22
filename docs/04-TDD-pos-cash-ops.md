@@ -1,5 +1,10 @@
 # TDD — POS-CASH-OPS-001 estrategia de verificación
 
+CORTE-CIEGO-001: [TDD-TS-157..160 / TC-450..465](04-TDD-corte-ciego.md) define la
+extensión aprobada sin ejecución. La evidencia histórica PCO-006 sólo cubre su
+baseline; los criterios ajustados TC-114/118 requieren nueva evidencia antes de
+afirmar cumplimiento de autoridad/lectura de SDD §71.
+
 **Estado:** PCO-001 ejecutó autorización, bootstrap/transición y migración de partes de `TDD-TS-077`,
 `TDD-TC-073`, `TDD-TS-084` y `TDD-TS-087` en SQLite y PostgreSQL aislado. PCO-002 ejecutó y Sol
 auditó el subconjunto de catálogo de `TDD-TS-078` mediante `TDD-TC-084` en SQLite y PostgreSQL
@@ -160,9 +165,13 @@ de apertura fallan antes de escribir. La migración sólo backfillea una fuente 
 
 ## TDD-TC-114 Matriz de permisos y alcance
 
-API real cubre positivos Líder, Supervisor, Administrador y Dueño, y negativos Cajero, Cajero jefe,
-branch NULL, sucursal ajena, actor inactivo/cross-org y rol visible adulterado. La denegación deja
-huella financiera idéntica y auditoría redactada.
+Baseline PCO-006 cubrió positivos Líder, Supervisor, Administrador y Dueño. Para
+CORTE-CIEGO-001 separar captura propia de Cajero/sustitución de encargado, finalización
+por encargado o Dueño y lectura por Dueño/delegado. Supervisor/Administrador no son
+positivos por nombre; Cajero/Cajero jefe/delegado sólo financiero no finalizan.
+Branch NULL, sucursal ajena, actor inactivo/cross-org y rol adulterado fallan sin
+cambio de huella financiera, con auditoría redactada. TC-450..452 define la extensión
+pendiente de automatizar, sin atribuirle resultados del baseline.
 
 ## TDD-TC-115 Contrato estricto y fórmula Python
 
@@ -188,8 +197,11 @@ row locking. El harness rechaza `DATABASE_URL`, nombres no aislados y host remot
 ## TDD-TC-118 Historial cursor y snapshot inmutable
 
 Lista/detalle prueban filtros, límite `1..100`, cursor ligado al hash, scope y redacción. Cambiar
-usuario, zona, pago o movimiento después de FINALIZED no cambia el DTO; evidencia, motivo completo,
+usuario, zona, pago o movimiento después de FINALIZED no cambia el snapshot histórico; evidencia, motivo completo,
 hash e Idempotency-Key nunca salen.
+El snapshot histórico no cambia; sí puede cambiar la proyección autorizada. En
+CORTE-CIEGO-001 actor operativo no recibe snapshot financiero y revocación impide
+replay/descarga con autoridad anterior; TC-450/462 prueba también reconstrucción masiva.
 
 ## TDD-TC-119 Reapertura y compensación append-only
 

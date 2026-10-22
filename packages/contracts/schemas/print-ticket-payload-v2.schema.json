@@ -1,0 +1,495 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "OrderChargeV2": {
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "title": "State",
+          "type": "string"
+        },
+        "list_cents": {
+          "title": "List Cents",
+          "type": "integer"
+        },
+        "charged_cents": {
+          "title": "Charged Cents",
+          "type": "integer"
+        },
+        "net_cents": {
+          "title": "Net Cents",
+          "type": "integer"
+        },
+        "tax_cents": {
+          "title": "Tax Cents",
+          "type": "integer"
+        },
+        "eligible_subtotal_cents": {
+          "title": "Eligible Subtotal Cents",
+          "type": "integer"
+        },
+        "free_threshold_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Free Threshold Cents"
+        },
+        "currency": {
+          "title": "Currency",
+          "type": "string"
+        },
+        "tariff_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tariff Name"
+        }
+      },
+      "required": [
+        "state",
+        "list_cents",
+        "charged_cents",
+        "net_cents",
+        "tax_cents",
+        "eligible_subtotal_cents",
+        "free_threshold_cents",
+        "currency",
+        "tariff_name"
+      ],
+      "title": "OrderChargeV2",
+      "type": "object"
+    },
+    "OrderModifierV2": {
+      "additionalProperties": false,
+      "properties": {
+        "group_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Group Id"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Group Name"
+        },
+        "option_id": {
+          "title": "Option Id",
+          "type": "string"
+        },
+        "option_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Option Name"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "effect_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect Type"
+        },
+        "selection_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection Kind"
+        },
+        "portions": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portions"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "comment_preset_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comment Preset Id"
+        },
+        "extra_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extra Id"
+        },
+        "portion_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portion Count"
+        },
+        "portion_quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portion Quantity"
+        },
+        "sale_price_cents_per_portion": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sale Price Cents Per Portion"
+        },
+        "price_delta_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price Delta Cents"
+        },
+        "applied_price_delta_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applied Price Delta Cents"
+        },
+        "catalog_price_delta_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Catalog Price Delta Cents"
+        },
+        "included": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Included"
+        },
+        "kitchen_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kitchen Text"
+        },
+        "station": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Station"
+        },
+        "component_product_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component Product Id"
+        },
+        "component_product_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component Product Name"
+        },
+        "component_quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component Quantity"
+        }
+      },
+      "required": [
+        "option_id"
+      ],
+      "title": "OrderModifierV2",
+      "type": "object"
+    },
+    "Tender": {
+      "additionalProperties": false,
+      "properties": {
+        "received_cents": {
+          "title": "Received Cents",
+          "type": "integer"
+        },
+        "change_cents": {
+          "title": "Change Cents",
+          "type": "integer"
+        },
+        "shortfall_cents": {
+          "title": "Shortfall Cents",
+          "type": "integer"
+        },
+        "can_confirm": {
+          "title": "Can Confirm",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "received_cents",
+        "change_cents",
+        "shortfall_cents",
+        "can_confirm"
+      ],
+      "title": "Tender",
+      "type": "object"
+    },
+    "TicketLine": {
+      "additionalProperties": false,
+      "properties": {
+        "product_name": {
+          "title": "Product Name",
+          "type": "string"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "station": {
+          "title": "Station",
+          "type": "string"
+        },
+        "line_notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line Notes"
+        },
+        "line_total_cents": {
+          "title": "Line Total Cents",
+          "type": "integer"
+        },
+        "selected_modifiers": {
+          "items": {
+            "$ref": "#/$defs/OrderModifierV2"
+          },
+          "title": "Selected Modifiers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "product_name",
+        "quantity",
+        "station",
+        "line_total_cents",
+        "selected_modifiers"
+      ],
+      "title": "TicketLine",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "copy": {
+      "const": "customer",
+      "title": "Copy",
+      "type": "string"
+    },
+    "folio": {
+      "title": "Folio",
+      "type": "string"
+    },
+    "total_cents": {
+      "title": "Total Cents",
+      "type": "integer"
+    },
+    "payment_id": {
+      "title": "Payment Id",
+      "type": "string"
+    },
+    "cash_tender": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Tender"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "delivery_charge": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OrderChargeV2"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "lines": {
+      "items": {
+        "$ref": "#/$defs/TicketLine"
+      },
+      "title": "Lines",
+      "type": "array"
+    }
+  },
+  "required": [
+    "copy",
+    "folio",
+    "total_cents",
+    "payment_id",
+    "lines"
+  ],
+  "title": "TicketPayload",
+  "type": "object"
+}

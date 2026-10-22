@@ -22,6 +22,9 @@ def report(
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
+    from restaurant_os.financial_reads import require_financial_read
+
+    require_financial_read(session, actor, branch_id, ("sales",))
     require_permission(session, actor, "reports.sales.read", branch_id)
     _branch(session, branch_id)
     if (

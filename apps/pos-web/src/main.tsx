@@ -1,4 +1,5 @@
 import React from "react";
+import { subscribeToApiReadAuthorityChange } from "@restaurantos/api-client";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "./App.css";
@@ -20,6 +21,10 @@ if ('serviceWorker' in navigator) {
 }
 
 const queryClient = new QueryClient();
+subscribeToApiReadAuthorityChange(() => {
+  void queryClient.cancelQueries();
+  queryClient.clear();
+});
 
 createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

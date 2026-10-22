@@ -431,6 +431,9 @@ class InvoicingService:
         actor_user_id: str | None = None,
         branch_context: str | None = None,
     ) -> list[dict[str, Any]]:
+        from restaurant_os.financial_reads import require_financial_read
+
+        require_financial_read(session, actor_user_id, branch_id, ("sales",))
         query = sa.select(models.cfdi_invoices).where(
             models.cfdi_invoices.c.organization_id == org_id
         )
@@ -475,23 +478,32 @@ class InvoicingService:
         permission: str = "invoicing.read",
         branch_context: str | None = None,
     ) -> dict[str, Any] | None:
+        from restaurant_os.financial_reads import require_financial_read
+
+        branch_id = session.scalar(sa.select(models.cfdi_invoices.c.branch_id).where(
+            models.cfdi_invoices.c.organization_id == org_id,
+            models.cfdi_invoices.c.id == invoice_id,
+        ))
+        if branch_id is None:
+            require_permission(session, actor_user_id or "", permission, None)
+            return None
+        if permission == "invoicing.read":
+            require_financial_read(session, actor_user_id, str(branch_id), ("sales",))
+        require_branch_permission(
+            session, actor_user_id, org_id, str(branch_id), permission, branch_context
+        )
         row = (
             session.execute(
                 sa.select(models.cfdi_invoices).where(
                     models.cfdi_invoices.c.organization_id == org_id,
                     models.cfdi_invoices.c.id == invoice_id,
+                    models.cfdi_invoices.c.branch_id == branch_id,
                 )
             )
             .mappings()
             .first()
         )
-        if not row:
-            require_permission(session, actor_user_id or "", permission, None)
-            return None
-        require_branch_permission(
-            session, actor_user_id, org_id, row["branch_id"], permission, branch_context
-        )
-        return dict(row)
+        return dict(row) if row else None
 
     def download_invoice(
         self,
@@ -570,6 +582,9 @@ class InvoicingService:
                 != invoice.get("emitter_configuration_version")
             ):
                 raise BusinessError("fiscal_document_not_available", "Fiscal document changed")
+            from restaurant_os.cash_views import active_revision
+
+            policy_version = active_revision(session, str(current["branch_id"]))
             _audit(
                 session,
                 action="invoicing.document.downloaded",
@@ -580,6 +595,21 @@ class InvoicingService:
                 payload={"format": format},
             )
             session.commit()
+            _authority_governance_lock(session)
+            if active_revision(session, str(current["branch_id"])) != policy_version:
+                raise BusinessError("cash_authorization_changed", "Fiscal policy changed")
+            delivered = self._authorized_invoice(
+                session, org_id, invoice_id, actor_user_id=actor_user_id,
+                branch_context=branch_context,
+            )
+            identity_fields = (
+                "facturapi_invoice_id", "branch_id", "uuid_sat",
+                "emitter_configuration_id", "emitter_configuration_version",
+            )
+            if delivered is None or not document_available(delivered) or any(
+                delivered.get(field) != current.get(field) for field in identity_fields
+            ):
+                raise BusinessError("fiscal_document_not_available", "Fiscal document changed")
         except Exception:
             session.rollback()
             raise

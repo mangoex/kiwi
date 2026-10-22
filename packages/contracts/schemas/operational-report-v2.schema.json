@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "RankedProductV2": {
+      "additionalProperties": false,
+      "properties": {
+        "position": {
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Position",
+          "type": "integer"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "position",
+        "name"
+      ],
+      "title": "RankedProductV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "branch_id": {
+      "title": "Branch Id",
+      "type": "string"
+    },
+    "period": {
+      "enum": [
+        "day",
+        "week",
+        "month"
+      ],
+      "title": "Period",
+      "type": "string"
+    },
+    "start": {
+      "format": "date-time",
+      "title": "Start",
+      "type": "string"
+    },
+    "end": {
+      "format": "date-time",
+      "title": "End",
+      "type": "string"
+    },
+    "timezone": {
+      "title": "Timezone",
+      "type": "string"
+    },
+    "ticket_count": {
+      "minimum": 0,
+      "title": "Ticket Count",
+      "type": "integer"
+    },
+    "top_products": {
+      "items": {
+        "$ref": "#/$defs/RankedProductV2"
+      },
+      "maxItems": 10,
+      "title": "Top Products",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "policy_version": {
+      "minimum": 1,
+      "title": "Policy Version",
+      "type": "integer"
+    },
+    "projection": {
+      "const": "operational",
+      "default": "operational",
+      "title": "Projection",
+      "type": "string"
+    }
+  },
+  "required": [
+    "branch_id",
+    "period",
+    "start",
+    "end",
+    "timezone",
+    "ticket_count",
+    "top_products",
+    "policy_version"
+  ],
+  "title": "OperationalReportV2",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -694,6 +694,7 @@ def amend_charge_only(
     after = {
         "version": version,
         "total_cents": total,
+        "command_hash": command_hash,
         "delivery_charge": charge,
         "delivery_command_hash": command_hash,
     }

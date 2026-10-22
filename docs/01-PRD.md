@@ -38,6 +38,8 @@ de negocio.
 
 ### PRD-ROLE-003 Cajero
 Abre turno, captura pedidos, cobra, imprime y ejecuta cortes autorizados.
+Para CORTE-CIEGO-001 captura/confirma el conteo propio; no finaliza ni consulta
+agregados financieros. Rigen PRD-FR-289..300 al activar la política.
 
 ### PRD-ROLE-004 Operador de cocina
 Consulta KDS, inicia preparación, marca componentes terminados y reporta incidencias.
@@ -85,6 +87,8 @@ persistidos correspondientes.
 Acumula capacidades operativas superiores a Cajero jefe dentro de una única sucursal asignada. No
 recibe `pos.branch.select` en este paquete; su eventual movilidad o reasignación requiere una decisión
 funcional separada.
+Es el equivalente funcional del encargado en CORTE-CIEGO-001; esa equivalencia no se
+extiende automáticamente a Cajero jefe, Supervisor o Administrador.
 
 ## 4. Alcance funcional
 
@@ -898,7 +902,10 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   operación dos veces. Una operación asociada a un corte `FINALIZED` nunca se reasigna a otro corte,
   aun si aquél recibe reapertura/compensación; ésta crea artefactos enlazados sin liberar la asociación.
   Periodo/día operativo se almacenan UTC y se presentan en zona local; la zona, tolerancia,
-  autorizador es Líder o superior dentro de sucursal asignada; sólo Dueño reabre por compensación.
+  autorizador del baseline PCO-006 es Líder o superior dentro de sucursal asignada;
+  CORTE-CIEGO-001 precisa captura, finalización y lectura mediante PRD-FR-289..295:
+  finalizan encargado (Líder) o Dueño, sin elevación automática por jerarquía de roles.
+  Sólo Dueño reabre por compensación.
   La tolerancia inicial es cero centavos; una excepción futura por sucursal requiere autorización de
   Dueño.
 - `PRD-FR-220`: Debe permitir a Supervisor y perfiles superiores consultar venta por insumos dentro
@@ -908,6 +915,9 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   movimientos con clasificación canónica por documento, sin sumar por separado una compra y su retiro
   enlazado; los impuestos se separan. El día operativo usa inicialmente la zona horaria de sucursal,
   de 00:00 a 23:59 local. React/TypeScript sólo presenta el resultado autoritativo.
+  Al activar CORTE-CIEGO-001, toda lectura que revele agregados financieros requiere
+  PRD-FR-289/300; ni estos perfiles ni el monitor de PRD-FR-218 ni asistentes o
+  exportaciones conceden acceso por nombre de rol o por un permiso operativo.
 - `PRD-FR-221`: Toda ruta operacional o de mantenimiento debe fallar cerrada. Sembrar catálogos o
   sucursales será una operación interna idempotente y auditada, no una ruta HTTP pública. KDS,
   sincronización y gestión de trabajos de impresión exigirán una identidad humana o de dispositivo,
@@ -1391,6 +1401,123 @@ PRD-FR-060..070, PRD-FR-240, PRD-FR-266 y PRD-FR-267; no sustituye sus invariant
   Sin umbrales de Sin existencia; usa controles compartidos accesibles, cantidades a dos decimales
   y fechas legibles en la zona de cada sucursal, preservando precisión interna y valores sin
   modificar según PRD-NFR-012. No cambia stock, auditoría ni historial al configurar umbrales.
+
+### 4.30 CORTE-CIEGO-001 — decisiones formalizadas, implementación pendiente
+
+Fuente de aprobación: [paquete CORTE-CIEGO-001](implementation-plans/CORTE-CIEGO-001.md),
+CC-D01..12 aprobadas por Miguel Gonzalez el 2026-10-21. Esta sección establece el
+contrato objetivo; no afirma que el runtime lo cumpla. PRD-FR-289..300 complementan
+PRD-FR-005/007/050..058/218/219 y, en su alcance, precisan las autorizaciones anteriores
+al activar la política según PRD-FR-299. Mantienen inmovilidad histórica, movimientos
+de inventario, reserva al aceptar/consumo al preparar y compensaciones canónicas.
+No autorizan código, cambios de cuentas, migraciones ejecutadas ni despliegue.
+
+- `PRD-FR-289`: CC-D01. Dueño accede por defecto al esperado, componentes agregados,
+  venta monetaria, diferencias y ticket promedio; un delegado financiero sólo consulta
+  bajo concesión explícita, limitada por información/sucursal y revocable. Cajero y
+  encargado no reciben esos datos antes ni después del conteo, tampoco indicador de
+  cuadratura o alerta financiera. Importe del pedido atendido y declaración propia
+  siguen visibles bajo alcance. Administrador/Supervisor no reciben acceso por su
+  etiqueta; la delegación no concede correcciones, pagos, permisos ni operación.
+- `PRD-FR-290`: CC-D02. Conservar roles existentes, con Líder equivalente a encargado;
+  Cajero jefe no hereda esa autoridad. Revisar individualmente permisos efectivos,
+  roles combinados, especialidades, compatibilidad legacy y grants generales antes
+  de aplicar la política. No retirar facultades indiscriminadamente ni dejar un
+  grant general que evada las restricciones. Las excepciones financieras deben ser
+  explícitas; ninguna aprobación del paquete asigna personas o sucursales concretas.
+- `PRD-FR-291`: CC-D03. Cajero cierra operativamente su turno y captura/confirma el
+  conteo. Encargado puede sustituir al ausente con identidad y motivo sin cambiar
+  responsable del turno. Sólo encargado o Dueño finaliza; si no están disponibles,
+  queda contado, pendiente e ineditable. No se exige distinta persona si el encargado
+  capturó por sustitución. Acuse operativo sin esperado/diferencia/cuadratura;
+  finalizar no aprueba un faltante. No concede captura inicial al Dueño por inferencia.
+- `PRD-FR-292`: CC-D04. Captura MXN por denominaciones configurables sólo por Dueño,
+  conservadas en cada conteo; piezas enteras no negativas, total exacto calculado en
+  servidor, incluido fondo que permanezca. Débito, crédito, transferencias y plataformas
+  habilitadas se declaran por separado con importe y comprobantes/referencias cuando
+  corresponda. Vacío no equivale a cero explícito. Borrador editable trazable, revisión
+  y confirmación única ineditable; mostrar total propio sin precargar esperado.
+  Conteo y custodia son hechos distintos: entrega posterior registra receptor y hora.
+- `PRD-FR-293`: CC-D05. Conciliar cada medio sin duplicar efectos. Efectivo esperado
+  deriva de fondo más entradas confirmadas menos salidas confirmadas; tarjetas y
+  transferencias contra pagos confirmados, sin tratar comprobante no verificado como
+  cobro. Separar cobrador real de plataforma/canal y conciliación de depósitos,
+  comisiones y liquidaciones posteriores. En pagos mixtos cada parte pertenece a
+  su medio. Dinero pendiente del repartidor no entra al cajón: al recibirlo se vincula
+  una vez al turno receptor sin reabrir el previo ni duplicar venta/cobro. Cancelar
+  no prueba devolución; sólo devolución/compensación confirmada afecta su medio.
+  Propinas separadas y sin manejo integrado hasta existir entradas/entregas trazables.
+  Fuente insuficiente conserva declaración y pendiente motivado, nunca esperado cero
+  supuesto. Puede finalizarse con conciliaciones externas explícitas pendientes;
+  resultados posteriores se vinculan sin sobrescribir historia. Operaciones locales
+  desconocidas bloquean finalización conforme a PRD-FR-298.
+- `PRD-FR-294`: CC-D06. Tolerancia inicial $0.00 MXN por medio, diferencias exactas
+  positivas/negativas sin compensarlas entre medios. Cualquier diferencia confirmada
+  no cero genera aviso al Dueño; delegado necesita autorización y designación como
+  destinatario. La diferencia no bloquea finalizar ni implica aprobarla. Datos
+  insuficientes no generan faltante inventado. Cajero/encargado no ven existencia de
+  alerta financiera. En fase 3, fallo de canal conserva aviso/reintento sin bloquear
+  corte. El umbral no altera diferencias; futuros umbrales/resúmenes necesitan decisión.
+- `PRD-FR-295`: CC-D07. Operador reporta error con motivo/evidencia en su alcance;
+  sólo Dueño solicita formalmente, decide y aplica corrección, sin segundo aprobador.
+  Conservar original, corrección, delta y asociaciones; nunca editar declaración
+  confirmada ni duplicar pagos. Si aún está COUNTED se finaliza primero con todas
+  sus guardas y después se compensa. Corregir conteo no cambia ledger, venta, pago
+  ni retiro; errores de operaciones usan sus flujos canónicos. Lectura delegada
+  no concede estas acciones.
+- `PRD-FR-296`: CC-D08. Cajero edita/descarta borrador propio con precios y reglas
+  del servidor; toda modificación/cancelación tras aceptar, incluso sin pago,
+  exige autorización de encargado o Dueño y motivo. Descuentos/cortesías requieren
+  esa autorización incluso en borrador. Autorización individual sobre acción y
+  contenido exactos, credenciales propias, solicitante/autorizador y antes/después
+  auditados; cambio de pedido/contenido requiere nueva autorización, replay idéntico
+  no duplica. Sin autorizador queda pendiente. No evade estados ni guardas productivas:
+  cancelación permitida tras producir exige merma/recuperación, sin reposición automática.
+  Pagos originales inmutables y correcciones/devoluciones por flujos canónicos;
+  esta decisión no modifica autoridad de retiros ni amplía comandos offline.
+- `PRD-FR-297`: CC-D09. Encargado recibe cantidades contra compra autorizada, parciales
+  y diferencias justificadas, sin costos por defecto; precios sólo por concesión
+  explícita y limitada. Recepción no concede editar precios, presentaciones,
+  conversiones ni catálogo. Cajero/encargado autorizado captura inventario ciego;
+  enviar conteo no mueve existencias. Dueño o responsable administrativo expresamente
+  autorizado revisa/aprueba ajustes con capacidades separadas; no exige dos aprobadores
+  ni personas distintas. Ser encargado o delegado financiero no concede aprobación.
+  Ajustes trazables preservan movimientos concurrentes e historia.
+- `PRD-FR-298`: CC-D10. Con identidad y autorización offline válidas, gateway permite
+  cierre operativo/conteo durable en SQLite y confirmación única con acuse provisional,
+  nunca corte definitivo local. Central verifica cierre y todas las operaciones de
+  fuentes autorizadas antes de finalización por encargado/Dueño con autoridad vigente;
+  cola vacía no basta. Vencimiento bloquea nuevos comandos sensibles sin borrar
+  evidencia; no renovar permisos localmente ni prometer revocación instantánea offline.
+  Conflictos quedan pendientes sin sobrescribir ni compensar automáticamente. Reinicio,
+  reenvío y acuse perdido no duplican efectos. Caída prolongada/gateway caído no amplían
+  permisos ni convierten contingencia en corte confirmado. Habilitación sólo con
+  recuperación y autoridad verificadas; recorrido no comprobado queda fuera del piloto.
+- `PRD-FR-299`: CC-D11. Transición por sucursal entre turnos, primero piloto con fecha
+  y versión de política; revisar usuarios y delegaciones individualmente. Concluir y
+  sincronizar turnos anteriores y finalizar conteos confirmados por flujo compatible,
+  sin segunda captura ni denominaciones inventadas. Pendientes incompatibles posponen
+  activación; resolver/agotar concesiones offline anteriores y bloquear clientes
+  incompatibles con revalidación de autoridad. Historia inmutable, identificada como
+  legacy sin desglose cuando corresponda; nuevas restricciones rigen consulta/exportación
+  histórica desde activar. Reversión conserva historia y confidencialidad; fallo del
+  piloto detiene ampliación. Sucursal/fecha/activación productiva requieren autorización
+  posterior; no se fuerza cierre ni se habilita un turno nuevo por inferencia.
+- `PRD-FR-300`: CC-D12. Encargado consulta número de tickets y top 10 por sucursal,
+  día, semana y mes; ranking sólo nombres/posiciones, sin cantidades, precios,
+  ingresos, costos ni márgenes. Cajero no recibe ese reporte. Conservar definición
+  canónica de tickets sin contar reimpresión como venta. Consulta individual:
+  Cajero en pedidos que atiende y encargado en su sucursal para seguimiento/autorización;
+  sin historial/listados/exportaciones monetarias masivas para sumar ventas. Agregados
+  financieros sólo Dueño/delegado según PRD-FR-289. La misma restricción rige API,
+  asistentes y descargas. Evitar reconstrucción directa por reportes; no se promete
+  impedir estimaciones humanas a partir de importes individuales conocidos.
+
+El envío de alertas pertenece a fase 3; compras sugeridas, márgenes, fidelización y
+fiscal no se implementan dentro de fases 0..2. La recepción/inventario/pedidos aquí
+precisan permisos colaterales, sin sustituir sus reglas de dominio. El conjunto
+de decisiones está cerrado; parámetros técnicos y asignaciones pendientes no son
+facultades concedidas (incluida captura inicial por Dueño).
 
 ## 5. Requisitos no funcionales
 

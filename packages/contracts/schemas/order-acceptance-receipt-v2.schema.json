@@ -1,0 +1,80 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "projection": {
+      "const": "operational",
+      "default": "operational",
+      "title": "Projection",
+      "type": "string"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "integer"
+    },
+    "action": {
+      "enum": [
+        "order.accept",
+        "delivery.assign"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "source_kind": {
+      "enum": [
+        "public_intent",
+        "pending_order",
+        "delivery_assignment"
+      ],
+      "title": "Source Kind",
+      "type": "string"
+    },
+    "command_id": {
+      "title": "Command Id",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "order_id": {
+      "title": "Order Id",
+      "type": "string"
+    },
+    "branch_id": {
+      "title": "Branch Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ACCEPTED",
+        "ASSIGNED"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "accepted_at": {
+      "format": "date-time",
+      "title": "Accepted At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "policy_version",
+    "action",
+    "source_kind",
+    "command_id",
+    "id",
+    "order_id",
+    "branch_id",
+    "status",
+    "accepted_at"
+  ],
+  "title": "OrderAcceptanceReceiptV2",
+  "type": "object"
+}

@@ -1,0 +1,73 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "projection": {
+      "const": "operational",
+      "default": "operational",
+      "title": "Projection",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "integer"
+    },
+    "command_id": {
+      "title": "Command Id",
+      "type": "string"
+    },
+    "resource_id": {
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "cash.movement.create",
+        "cash.movement.compensate"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "status": {
+      "const": "confirmed",
+      "default": "confirmed",
+      "title": "Status",
+      "type": "string"
+    },
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "accepted_at": {
+      "format": "date-time",
+      "title": "Accepted At",
+      "type": "string"
+    },
+    "replay": {
+      "title": "Replay",
+      "type": "boolean"
+    },
+    "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "policy_version",
+    "command_id",
+    "resource_id",
+    "action",
+    "accepted_at",
+    "replay",
+    "correlation_id"
+  ],
+  "title": "CashMovementReceiptV2",
+  "type": "object"
+}

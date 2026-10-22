@@ -105,7 +105,11 @@ def cash_context(
     require_permission(session, actor, "cash.movement.withdraw", branch)
     shifts = (
         session.execute(
-            sa.select(models.cash_shifts)
+            sa.select(
+                models.cash_shifts.c.id,
+                models.cash_shifts.c.register_code,
+                models.cash_shifts.c.opened_at,
+            )
             .where(
                 models.cash_shifts.c.organization_id == ORGANIZATION_ID,
                 models.cash_shifts.c.branch_id == branch,
@@ -127,7 +131,8 @@ def cash_context(
                     "cash_shift_id": s["id"],
                     "opened_at": (
                         s["opened_at"].replace(tzinfo=timezone.utc)
-                        if s["opened_at"].tzinfo is None else s["opened_at"]
+                        if s["opened_at"].tzinfo is None
+                        else s["opened_at"]
                     ),
                 }
                 for s in shifts
@@ -188,6 +193,16 @@ def document_values(
     }
 
 
+def command_digest(actor: str, kind: str, target: str | None, body: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {"actor": actor, "kind": kind, "target": target, "body": body},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+
 def command(
     session: Session,
     actor: str,
@@ -195,6 +210,31 @@ def command(
     target: str | None,
     body: dict[str, Any],
     key: str | None,
+) -> dict[str, Any]:
+    from restaurant_os import expense_views
+
+    if kind.startswith("concept."):
+        return _command(session, actor, kind, target, body, key)
+    return expense_views.command(
+        session,
+        actor,
+        kind,
+        target,
+        body,
+        key,
+        lambda commit: _command(session, actor, kind, target, body, key, commit=commit),
+    )
+
+
+def _command(
+    session: Session,
+    actor: str,
+    kind: str,
+    target: str | None,
+    body: dict[str, Any],
+    key: str | None,
+    *,
+    commit: bool = True,
 ) -> dict[str, Any]:
     """Lock command then document then concept then shift; all effects share one commit."""
     try:
@@ -219,13 +259,7 @@ def command(
                 require_permission(session, actor, "cash.movement.withdraw", branch)
             if kind == "document.cancel" and current["confirmed_at"] is not None:
                 require_permission(session, actor, "cash.movement.compensate", branch)
-        digest = hashlib.sha256(
-            json.dumps(
-                {"actor": actor, "kind": kind, "target": target, "body": body},
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode()
-        ).hexdigest()
+        digest = command_digest(actor, kind, target, body)
         previous = (
             session.execute(
                 sa.select(models.expense_commands).where(
@@ -240,7 +274,8 @@ def command(
             if previous["request_hash"] != digest:
                 invalid("La clave pertenece a otra operación.", "idempotency_key_conflict")
             result = dict(previous["result"])
-            session.commit()
+            if commit:
+                session.commit()
             return result
         now = _now()
         identifier = target or _id()
@@ -405,7 +440,8 @@ def command(
                 created_at=now,
             )
         )
-        session.commit()
+        if commit:
+            session.commit()
         return result
     except IntegrityError as exc:
         session.rollback()
@@ -462,12 +498,16 @@ def guard_manual_compensation(session: Session, actor: str, identifier: str) -> 
         if current_id in seen:
             continue
         seen.add(current_id)
-        current = session.execute(
-            sa.select(models.cash_movements).where(
-                models.cash_movements.c.id == current_id,
-                models.cash_movements.c.organization_id == ORGANIZATION_ID,
+        current = (
+            session.execute(
+                sa.select(models.cash_movements).where(
+                    models.cash_movements.c.id == current_id,
+                    models.cash_movements.c.organization_id == ORGANIZATION_ID,
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if current is None:
             # The cash domain owns missing movements and incomplete legacy reversals.
             continue
@@ -492,13 +532,31 @@ def guard_manual_compensation(session: Session, actor: str, identifier: str) -> 
                 pending.append(str(current[field]))
 
 
-def get_document(session: Session, actor: str, identifier: str) -> dict[str, Any]:
+def get_document(
+    session: Session,
+    actor: str,
+    identifier: str,
+    *,
+    expected_version: int | None = None,
+) -> dict[str, Any]:
+    from restaurant_os.expense_views import document
+
+    return document(session, actor, identifier, expected_version)
+
+
+def _get_document(session: Session, actor: str, identifier: str) -> dict[str, Any]:
     doc = row(session, models.expense_documents, identifier)
     authorize_branch_scope(session, actor, "expenses.read", doc["branch_id"])
     return view(doc)
 
 
 def recover_command(session: Session, actor: str, key: str) -> dict[str, Any]:
+    from restaurant_os.expense_views import recover
+
+    return recover(session, actor, key)
+
+
+def _recover_command(session: Session, actor: str, key: str) -> dict[str, Any]:
     record = (
         session.execute(
             sa.select(models.expense_commands).where(
@@ -540,6 +598,19 @@ def recover_command(session: Session, actor: str, key: str) -> dict[str, Any]:
 
 
 def resolve_command(session: Session, actor: str, key: str, body: dict[str, Any]) -> dict[str, Any]:
+    from restaurant_os.expense_views import resolve
+
+    return resolve(session, actor, key, body)
+
+
+def _resolve_command(
+    session: Session,
+    actor: str,
+    key: str,
+    body: dict[str, Any],
+    *,
+    commit: bool = True,
+) -> dict[str, Any]:
     """A terminal tombstone fences a late HTTP request; absence alone cannot prove failure."""
     try:
         _begin_cash_shift_serialization(session)
@@ -606,7 +677,8 @@ def resolve_command(session: Session, actor: str, key: str, body: dict[str, Any]
                 branch,
                 actor_user_id=actor,
             )
-        session.commit()
+        if commit:
+            session.commit()
         return result
     except Exception:
         session.rollback()
@@ -641,7 +713,22 @@ def documents(
     status: str | None = None,
     concept: str | None = None,
     method: str | None = None,
+    *,
+    operational: bool = False,
 ) -> dict[str, Any]:
+    from restaurant_os.expense_views import (
+        ExpenseOperationalPageV2,
+        ExpenseOperationalRecord,
+        require_read,
+    )
+    from restaurant_os.financial_reads import require_financial_read
+
+    revision = require_read(session, actor, branch)
+    if operational:
+        if revision is None:
+            invalid("Operational projection is not active", "cash_projection_not_available")
+    else:
+        require_financial_read(session, actor, branch, ("expenses",))
     authorize_branch_scope(session, actor, "expenses.read", branch)
     if not 1 <= limit <= 100:
         invalid("Paginación inválida.")
@@ -649,7 +736,12 @@ def documents(
         json.dumps([actor, branch, status, concept, method, limit]).encode()
     ).hexdigest()
     table = models.expense_documents
-    query = sa.select(table).where(
+    columns = (
+        [table.c[name] for name in ExpenseOperationalRecord.model_fields]
+        if operational
+        else list(table.c)
+    )
+    query = sa.select(*columns).where(
         table.c.organization_id == ORGANIZATION_ID, table.c.branch_id == branch
     )
     for column, value in (
@@ -683,7 +775,7 @@ def documents(
         .mappings()
         .all()
     )
-    return {
+    result = {
         "items": [view(dict(r)) for r in found[:limit]],
         "next_cursor": base64.urlsafe_b64encode(
             json.dumps(
@@ -697,6 +789,11 @@ def documents(
         if len(found) > limit
         else None,
     }
+    if operational:
+        return ExpenseOperationalPageV2.model_validate(
+            {**result, "policy_version": revision}
+        ).model_dump(mode="json")
+    return result
 
 
 def report_events(
@@ -745,6 +842,9 @@ def report_events(
 
 
 def summary(session: Session, actor: str, raw: dict[str, Any]) -> dict[str, Any]:
+    from restaurant_os.financial_reads import require_financial_read
+
+    require_financial_read(session, actor, raw.get("branch_id"), ("expenses",))
     start, end, branch, _ = ReportingProjectionService(session, actor)._pco007_period(
         raw, "reports.expenses.read"
     )

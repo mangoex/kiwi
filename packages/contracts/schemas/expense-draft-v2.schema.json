@@ -1,0 +1,161 @@
+{
+  "$defs": {
+    "ExpenseConceptSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "name"
+      ],
+      "title": "ExpenseConceptSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "branch_id": {
+      "title": "Branch Id",
+      "type": "string"
+    },
+    "concept_id": {
+      "title": "Concept Id",
+      "type": "string"
+    },
+    "document_date": {
+      "format": "date",
+      "title": "Document Date",
+      "type": "string"
+    },
+    "payment_method": {
+      "enum": [
+        "cash",
+        "transfer",
+        "card",
+        "other"
+      ],
+      "title": "Payment Method",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "confirmed",
+        "cancelled"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "integer"
+    },
+    "created_by": {
+      "title": "Created By",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "projection": {
+      "const": "own_operation",
+      "default": "own_operation",
+      "title": "Projection",
+      "type": "string"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "integer"
+    },
+    "folio": {
+      "title": "Folio",
+      "type": "string"
+    },
+    "total_cents": {
+      "title": "Total Cents",
+      "type": "integer"
+    },
+    "tax_cents": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Tax Cents"
+    },
+    "currency": {
+      "const": "MXN",
+      "title": "Currency",
+      "type": "string"
+    },
+    "concept_snapshot": {
+      "$ref": "#/$defs/ExpenseConceptSnapshot"
+    },
+    "reference": {
+      "title": "Reference",
+      "type": "string"
+    },
+    "notes": {
+      "title": "Notes",
+      "type": "string"
+    },
+    "evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "branch_id",
+    "concept_id",
+    "document_date",
+    "payment_method",
+    "status",
+    "version",
+    "created_by",
+    "created_at",
+    "updated_at",
+    "policy_version",
+    "folio",
+    "total_cents",
+    "tax_cents",
+    "currency",
+    "concept_snapshot",
+    "reference",
+    "notes",
+    "evidence_refs"
+  ],
+  "title": "ExpenseDraftV2",
+  "type": "object"
+}

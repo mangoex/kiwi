@@ -56,7 +56,7 @@ def routed_workspace(workspace, monkeypatch):
         session.commit()
     calls = []
 
-    def read_branch(session, branch):
+    def read_branch(session, branch, **_kwargs):
         calls.append(branch)
         return [{"scope": branch}]
 

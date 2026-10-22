@@ -123,9 +123,11 @@ Permisos operativos mínimos para fase POS/caja:
 - `catalog.manage`: administrar sucursales, almacenes, productos, categorías y recetas.
 - `inventory.adjust`: registrar ajustes administrativos de inventario.
 - `orders.cancel`: cancelar pedidos y clasificar cancelaciones producidas.
-- `cash.shift.read`: consultar turnos y resumen de caja.
+- `cash.shift.read`: consultar turnos y resumen de caja en el baseline; para la
+  política CORTE-CIEGO-001 la lectura operativa no concede el resumen financiero (§71.1).
 - `cash.shift.open`: abrir turno de caja.
-- `cash.shift.close`: cerrar turno de caja y generar corte.
+- `cash.shift.close`: cierre operativo; no concede finalizar UserCashCut ni leer
+  resultados financieros. La separación de §38.2.7 se precisa en §71.3.
 - `orders.read`: consultar pedidos.
 - `orders.create`: crear pedidos desde POS.
 - `payments.read`: consultar pagos.
@@ -2593,6 +2595,12 @@ sólo funciona sin correcciones ni ajustes; con historia falla cerrado. PostgreS
 concurrencia.
 
 #### 38.2.7 PCO-006 — corte final por usuario y reapertura compensatoria
+
+Baseline implementado PCO-006. Para CORTE-CIEGO-001, §71/SDD-ADR-048 formaliza el
+contrato objetivo aprobado: separa captura, finalización y proyecciones de lectura.
+La expresión histórica «Líder o superior», captura sólo por importe y respuesta de
+snapshot no conceden esas mismas facultades en la nueva política. Su activación
+requiere §71.11; la evidencia PCO-006 no acredita la extensión todavía no implementada.
 
 `UserCashCut` materializa un corte final sin reutilizar `cash_shift_cuts`. La tupla canónica es
 organización, sucursal, caja, turno, cajero responsable y periodo UTC semiabierto. El cajero
@@ -7314,3 +7322,241 @@ conservan la semántica legacy sin cargo. Revisión actual/desconocida o presenc
 falta la tabla solicitada produce delivery_schema_incomplete; una tabla existente usa su consulta
 normal (no es una validación global del esquema). Las escrituras de catálogo siguen requiriendo
 la migración0100. No se permite habilitar una política mediante este fallback.
+
+## 71. CORTE-CIEGO-001 — contrato aprobado de corte ciego
+
+Estado: **diseñado, sin implementación ni activación**. Fuente: decisiones CC-D01..12
+del [paquete](implementation-plans/CORTE-CIEGO-001.md), PRD-FR-289..300. Conserva §38.2.7,
+autoridad scoped de §58, ledger inmutable, snapshots y compensación. Lo siguiente
+precisa el contrato objetivo; no declara disponibles endpoints, tablas ni permisos nuevos.
+La formalización es R3 por autoridad/dinero/offline, con alcance exclusivamente documental.
+
+### SDD-ADR-048 Aceptada como especificación — separar declaración, conciliación y lectura
+
+Extender UserCashCut en lugar de crear una segunda máquina de corte. Conservar
+`DRAFT -> COUNTED -> FINALIZED`; separar estado de declaración, completitud operativa,
+conciliación por medio y entrega de custodia. Un corte FINALIZED puede conservar
+conciliaciones externas pendientes, pero nunca operaciones locales desconocidas.
+La autoridad de finalizar no incluye leer resultados financieros. La corrección es
+compensación enlazada exclusiva de Dueño; no hay segundo aprobador obligatorio.
+
+Alternativas descartadas: ocultar importes sólo en UI (fuga en API/replay/exportación);
+finalizar localmente y centralmente (doble autoridad); sustituir declaración al corregir
+(destruye evidencia); bloquear por cualquier diferencia (confunde cierre con aprobación);
+heredar autoridad por jerarquía nominal (evade revisión individual). No agrega dependencias.
+Consecuencia: separar contratos de lectura y comandos, migración futura aditiva y
+preflight por sucursal; runtime existente no certifica este diseño.
+
+### 71.1 Autoridad financiera y proyecciones — CC-D01 / PRD-FR-289
+
+Resolver en servidor actor activo, organización, sucursal y concesión vigente en cada
+lectura, descarga, mutación y replay. Dueño tiene lectura financiera por defecto bajo
+autoridad persistida; delegado financiero necesita alcance explícito y revocable de
+datos/sucursales. No es un rol nuevo con autoridad de Dueño. Cajero/encargado reciben
+proyección operativa antes/después de confirmar/finalizar: identidad del turno, estado,
+declaración propia y acuse, nunca esperado, diferencia, componentes agregados, ventas,
+ticket promedio, indicador de cuadratura o existencia de alerta financiera.
+
+La proyección financiera incluye snapshot y conciliaciones para lectores autorizados;
+no compartir DTO financiero para ocultarlo con CSS. Respuestas idempotentes se proyectan
+con autoridad actual, sin devolver un cuerpo financiero almacenado bajo autoridad previa.
+Cubrir summary, aliases, listas, detalle, pagos/movimientos, asistentes, exportación,
+impresión, eventos, caché del navegador y logs/errores. Logs generales sólo identificadores,
+acción/resultado/código y correlación, sin importes, evidencia, motivos libres o PII.
+
+### 71.2 Composición de roles — CC-D02 / PRD-FR-290
+
+Líder equivale a encargado dentro de alcance; Cajero jefe conserva perfil operativo y
+Administrador/Supervisor no ganan lectura financiera por nombre. Revisar usuario por
+usuario roles acumulados, especialidades, grants generales y compatibilidad legacy,
+incluidos `organization_all_permissions` y `inventory.count`. Un grant que permita
+evadir corte ciego debe resolverse antes de activar; no basta negar en una pantalla.
+Conservar roles y registrar concesión/revocación y alcance. La [matriz CC-P01..18](implementation-plans/CORTE-CIEGO-001.md)
+es la distribución funcional aprobada; los códigos y diseño de asignación están fijados
+en el [SDD de fase 1](02-SDD-corte-ciego-fase-1.md), sin dar por aplicados grants.
+
+### 71.3 Estados, captura y finalización — CC-D03 / PRD-FR-291
+
+Turno operativo conserva `OPEN -> CLOSING -> OPERATIVELY_CLOSED`. Fuente canónica de
+actor responsable, caja, sucursal y periodo `[opened_at, closed_at)` no viene del cliente.
+Cajero captura/confirma turno propio cerrado; encargado sustituye al ausente registrando
+capturista y motivo sin cambiar responsable. No se concede captura inicial a Dueño por
+inferencia. COUNTED es ineditable y puede esperar finalizador. Encargado o Dueño finaliza
+centralmente con autoridad vigente, completitud §71.10 y demás guardas; el mismo encargado
+puede haber capturado por sustitución. Delegado de lectura y dispositivo no finalizan.
+
+Revalidar bajo transacción versión, estado, alcance y operaciones elegibles; concurrencia
+entre cierre y pago/retiro/entrega determina inclusión anterior al cierre o rechazo posterior.
+Una asociación por operación no se libera nunca. Atomicidad de corte, detalles, command log,
+asociaciones y auditoría; fallo antes del commit no deja éxito ni datos parciales. Mismo
+comando reautoriza/reproduce un acuse permitido; payload distinto o versión vieja no reemplaza.
+Ausencia de encargado/Dueño deja pendiente, no abre otro turno ni rebaja autoridad.
+
+### 71.4 Declaración y custodia — CC-D04 / PRD-FR-292
+
+MXN; valores monetarios en centavos enteros. Catálogo de denominaciones configurable sólo
+por Dueño, piezas enteras no negativas y snapshot de denominación utilizado en cada línea.
+Python calcula `counted_cash_cents = sum(denomination_cents * pieces)`; no acepta total
+calculado por navegador como autoridad. Incluye fondo que permanece físicamente presente.
+Medios habilitados: efectivo, débito, crédito, transferencia y plataformas, con importe,
+cantidad de comprobantes/referencias cuando corresponda. Captura decimal manual respeta
+PRD-NFR-012/ADR-010; conteos de piezas/comprobantes siguen enteros. Ningún vacío se rellena
+con cero o esperado. Total propio y desglose visibles; borrador modificable con trazabilidad,
+revisión explícita antes de única confirmación. Histórico de denominaciones no cambia al
+editar catálogo. Identidad de conteo y entrega son distintas; entrega posterior añade
+receptor y fecha/hora UTC sin alterar declaración ni inferir custodia por confirmar.
+
+### 71.5 Conciliación por medio — CC-D05 / PRD-FR-293
+
+Conservar importe declarado y fuente autoritativa/referencias por medio. Conciliación
+con resultado conocido o pendiente motivado es una dimensión separada de FINALIZED.
+`expected_cash_cents = opening_fund_cents + confirmed_inflows_cents - confirmed_outflows_cents`;
+cada efecto se contabiliza una vez, sin sumar venta, pago y movimiento de una misma recepción.
+`difference_cents[medio] = declared_cents[medio] - expected_cents[medio]` sólo si existe
+fuente suficiente; desconocido no es cero. Snapshot de cálculo y componentes conservados.
+
+| Medio/hecho | Fuente y tratamiento |
+|---|---|
+| Débito/crédito | Comparar con pagos confirmados por tipo; liquidación bancaria posterior separada del cajón. |
+| Transferencia | Sólo confirmada/referenciada; comprobante no verificado no confirma cobro. |
+| Plataforma | Cobrador real separado del canal; liquidación, comisiones y ajustes externos aparte. |
+| Mixto | $500 con $200 efectivo/$300 tarjeta afecta efectivo por $200, sin duplicación. |
+| Repartidor | Custodia pendiente no es efectivo recibido; recepción vinculada una vez al turno receptor, no reabre anterior ni duplica venta/pago. |
+| Devolución | Sólo devolución/compensación confirmada afecta su medio; cancelación no es evidencia de devolución. |
+| Propina | Separada de venta, entrada/entrega trazable si pasa por caja; no habilitar manejo integrado sin ese flujo. |
+
+Finalización puede conservar pendientes externos explícitos; su resolución se enlaza
+posteriormente sin sobrescribir declaración/snapshot originales. Acuse operativo no
+filtra resultado ni alerta; detalle financiero exige §71.1. No cerrar definitivamente
+con operaciones offline desconocidas aunque exista una excepción bancaria documentada.
+
+### 71.6 Diferencias y evento para fase 3 — CC-D06 / PRD-FR-294
+
+Tolerancia inicial cero, diferencia exacta por medio sin netear sobrantes/faltantes.
+Una diferencia confirmada de ±1 centavo genera evento durable para aviso a Dueño; cero
+no genera aviso y fuente incompleta queda pendiente sin inventar diferencia. Finalizar
+no aprueba el faltante y la diferencia sola no bloquea. Guardar identidad del resultado,
+actor, sucursal, corte y referencias de antes/después protegidas para consumo de fase 3.
+La entrega de alertas no forma parte de fases 0..2: destinatarios concretos/canal quedan
+sin configurar. Delegado sólo destinatario con alcance y designación. Fallo de canal
+conserva pendiente/reintento sin bloquear cierre; reintento no representa nueva diferencia.
+Cambiar umbral/resumen futuro requiere decisión y no modifica diferencias históricas.
+
+### 71.7 Corrección compensatoria — CC-D07 / PRD-FR-295
+
+Operador reporta error con motivo/evidencia bajo alcance, sin ver esperado ni crear
+solicitud formal. Dueño solicita, aprueba/rechaza y aplica, pudiendo ser el mismo actor.
+Conservar flujo `REQUESTED -> APPROVED|REJECTED` y `APPROVED -> COMPENSATED` de §38.2.7.
+En COUNTED primero finalizar original con todas las guardas y luego compensar. Ajuste
+enlazado guarda propuesta, motivo/evidencia protegidos, autor, original y delta por medio;
+no edita captura ni libera asociaciones. Reautorizar replay y aplicar exactamente la
+imagen aprobada. No crea dinero ni corrige ledger: errores de pago/retiro/venta van a
+su flujo canónico. Lectura delegada no habilita solicitar, decidir ni compensar.
+
+### 71.8 Autorizaciones de pedidos — CC-D08 / PRD-FR-296
+
+Borrador propio permite edición/descarte bajo precios y reglas Python. Tras ACCEPTED,
+cambio/cancelación incluso impago requiere encargado/Dueño con motivo; descuento/cortesía
+también en borrador. Autorizar contenido exacto ligado a pedido, versión, acción y alcance,
+con identidad propia y auditoría solicitante/autorizador/antes/después. Si cambia pedido
+o contenido autorizado, obtener nueva autorización. Sin autorizador no aplicar. Nunca
+compartir credenciales o dejar al cajero una sesión permanente de supervisor.
+
+Esta autorización es necesaria, no suficiente: mantiene guardas productivas y del flujo
+de correcciones pagadas, incluidos requisitos adicionales canónicos de Dueño cuando
+apliquen. Estado incompatible bloquea; producción terminada exige merma/recuperación
+autorizada, no restock automático. Pagos no se editan, se corrigen/compensan canónicamente.
+No cambia autoridad de retiros ni habilita nuevos comandos offline de pedidos. Replay
+idéntico no duplica descuento, cancelación, stock ni devolución.
+
+### 71.9 Recepción e inventario — CC-D09 / PRD-FR-297
+
+Proyección de recepción muestra cantidades/presentaciones contra compra autorizada,
+parciales y diferencias con motivo; no costos/precios por defecto. Lectura de precio
+necesita concesión explícita/limitada, independiente de administrar catálogo. No otorgar
+`catalog.manage` para resolver acceso a recepción ni facultades de modificar conversiones.
+Mantener captura/revisión/aprobación de inventario separadas: captura ciega no revela
+teórico, costo o diferencias; enviar no mueve inventario. Dueño o responsable administrativo
+autorizado revisa/aprueba; no obliga a dos personas ni dos aprobadores. Ser encargado o
+delegado financiero no basta. Mantener movimientos trazables, cálculo canónico del ajuste
+y protección de movimientos concurrentes; no sustituye el modelo existente de conteos.
+
+### 71.10 Durabilidad y autoridad offline — CC-D10 / PRD-FR-298
+
+SQLite de gateway almacena cierre, borrador/confirmación y comando de sincronización
+durablemente con identidad y concesión válida; navegador no es fuente única. Reutilizar
+outbox/inbox y leases de §58, sin nueva fuente central de verdad ni renovación local.
+La confirmación local no es FINALIZED central: acuse provisional explícito sin esperado/
+diferencia. Misma identidad de declaración/comando durante reinicios y reenvíos; no
+recapturar al perder acuse ni desechar evidencia ante conflicto.
+
+Completitud central requiere evidencia del cierre y recepción de operaciones de todas
+las fuentes autorizadas del turno, sin huecos/conflictos pendientes. Cola vacía local
+no es prueba suficiente. El diseño técnico deberá fijar inventario de fuentes, frontera
+de cierre y evidencia de completitud del protocolo antes de habilitar el recorrido;
+no asumir que protocolos cash/pedidos existentes ya la acreditan. Finalización únicamente
+central por encargado/Dueño con autoridad vigente. Pendientes bancarios conocidos son
+distintos de operaciones locales desconocidas y no sustituyen evidencia de completitud.
+
+Lease vencida bloquea nuevos comandos sensibles; revocación no puede garantizarse
+instantáneamente sin conexión. Al volver, revalidar autoridad/versión: conflicto conserva
+declaración/evidencia pendiente, no aplicación automática ni compensación inventada.
+Caída prolongada o gateway caído conserva lo recuperable y contingencia pendiente; no
+amplía permisos ni acredita corte confirmado. Recuperación, expiración, revocación,
+replay y carrera central/local se prueban antes de incluir este recorrido en piloto.
+
+### 71.11 Transición e historia — CC-D11 / PRD-FR-299
+
+Migración futura aditiva conserva original, asociaciones y snapshots; no asignar número
+de migración ni ejecutar backfill en esta formalización. Legacy sin desglose queda marcado
+como tal, sin inventar denominaciones, comprobantes, cajero o periodo. Las lecturas de
+historia se autorizan con política actual sin alterar el hecho histórico.
+
+Piloto por sucursal y versión entre turnos: revisar usuarios/grants, concluir y sincronizar
+turnos previos, finalizar conteos confirmados mediante flujo compatible, resolver/agotar
+concesiones offline anteriores y bloquear clientes incompatibles. Un pendiente incompatible
+pospone activación, no fuerza cierre ni cambia declaración. Revalidar sesiones y descargas;
+una respuesta tardía/caché antigua no restaura información ya restringida. Reversión conserva
+historia y protección, nunca downgrade destructivo ni API que reexponga importes. Fallo
+detiene ampliación. Sucursal/fecha/activación productiva requieren autorización posterior.
+
+### 71.12 Reportes y consulta acotada — CC-D12 / PRD-FR-300
+
+Encargado: número de tickets y top 10 de su sucursal por día/semana/mes. Ranking restringido
+sólo nombre/posición, sin cantidades, precios, ingreso, costo o margen en DTO ni descarga.
+Cajero no recibe este reporte. Conservar definición canónica de tickets, sin contar
+reimpresiones como ventas nuevas; periodos presentados en zona de sucursal y límites UTC.
+El [SDD de fase 1](02-SDD-corte-ciego-fase-1.md) §6 fija día local, semana ISO y mes
+civil, preservando la fuente canónica de venta/ticket y sin usar últimos 30 días como mes.
+
+Cajero consulta pedidos atendidos y encargado los necesarios en su sucursal para seguimiento/
+autorizaciones, con importe individual. No habilitar listado/exportación monetaria masiva ni
+reconstrucción directa por agregados prohibidos. El diseño de búsquedas/paginación deberá
+probar esa restricción, no asumir que paginar un historial financiero completo la satisface.
+Dueño/delegado ven agregados bajo §71.1; agentes/asistentes y descargas comparten protección.
+El objetivo no es impedir que un humano estime ventas recordando importes individuales.
+
+### 71.13 Verificación y límites de formalización
+
+[BDD](03-BDD-corte-ciego.md) y [TDD](04-TDD-corte-ciego.md) definen los nuevos recorridos,
+incluyendo fallos y carreras. Son especificación sin evidencia runtime, migración, CI o
+piloto del nuevo contrato. La evidencia de PCO-006 permanece baseline, no se traslada a
+CORTE-CIEGO-001. F1-02 concreta permisos, rutas, proyecciones, registro de delegación
+y compatibilidad; límites de captura, persistencia del conteo, protocolo integral de
+completitud y parámetros productivos se concretarán antes del incremento que los use.
+Ningún pendiente técnico autoriza ampliar facultades, omitir guardas o declarar soporte.
+
+Señales futuras, redactadas y dentro del mismo contrato: (1) ¿quién intentó leer resultado
+financiero? actor/alcance/versión/resultado; (2) ¿una declaración tuvo más de un efecto?
+correlación de comando/replay/conflicto; (3) ¿qué impide completitud? fuente/estado/código,
+sin importes; (4) ¿la corrección preservó original? referencias original/compensación y
+resultado atómico. Auditoría protegida conserva detalle; logs generales no lo reproducen.
+
+### 71.14 Diseño técnico de permisos y lecturas — F1-01/02
+
+[Inventario de accesos](implementation-plans/CORTE-CIEGO-001-ACCESOS.md) y
+[SDD técnico de fase 1](02-SDD-corte-ciego-fase-1.md) completan el diseño de ADR-048:
+capacidad de acción distinta de lectura, concesiones explícitas por dataset/sucursal,
+DTO v2 con allowlist, replay reautorizado, reporte operativo y cierre de vías indirectas.
+Se especifica migración futura aditiva; no hay grants, esquemas ejecutables ni rutas
+nuevas instalados. Matriz conserva Disenado; evidencia baseline no prueba esta política.

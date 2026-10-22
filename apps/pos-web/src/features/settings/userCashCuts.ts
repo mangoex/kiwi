@@ -50,7 +50,13 @@ export function parseUserCashCut(value: unknown): UserCashCutView {
   return value as unknown as UserCashCutView;
 }
 
-export const userCashCutCapabilities = (permissions: readonly string[]) => ({
+export const userCashCutCapabilities = (permissions: readonly string[], access?: {
+  state: string; capabilities: Record<string, boolean>;
+} | null) => access && access.state !== 'legacy' ? ({
+  read: access.state === 'active' && access.capabilities['cash.user_cut.operational.read'] === true,
+  // Phase 1 delivers reads; new capture/correction commands remain gated in the server.
+  create: false, reopenRequest: false, reopenAuthorize: false,
+}) : ({
   create: permissions.includes('cash.user_cut.create'), read: permissions.includes('cash.user_cut.read'),
   reopenRequest: permissions.includes('cash.user_cut.reopen.request'), reopenAuthorize: permissions.includes('cash.user_cut.reopen.authorize'),
 });

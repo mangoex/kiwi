@@ -89,6 +89,10 @@ from restaurant_os.customer_ai import (
 )
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
+from restaurant_os.cash_legacy_guard import cash_legacy_guard
+from restaurant_os.financial_read_guard import financial_read_guard
+from restaurant_os.financial_reads import RECONCILIATION_DATASETS
+from restaurant_os.driver_settlement_views import DriverSettlementReceiptV2
 from restaurant_os.legacy_import import (
     complete_legacy_import_batch,
     create_legacy_import_batch,
@@ -640,11 +644,12 @@ def prepare_operational_intent(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _human_actor, _response
     from restaurant_os.operational_intents import prepare_intent
 
     response.headers["Cache-Control"] = "no-store"
-    actor = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
+    actor = _human_actor(actor_user_id, authorization)
+    return _response(
         lambda: prepare_intent(
             session,
             actor,
@@ -662,11 +667,12 @@ def pending_operational_intents(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
+    from restaurant_os.financial_access_api import _human_actor, _response
     from restaurant_os.operational_intents import list_pending
 
     response.headers["Cache-Control"] = "no-store"
-    actor = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: list_pending(session, actor))
+    actor = _human_actor(actor_user_id, authorization)
+    return _response(lambda: list_pending(session, actor))
 
 
 @router.post("/operational-intents/{intent_id}/resolve")
@@ -677,11 +683,12 @@ def resolve_operational_intent(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _human_actor, _response
     from restaurant_os.operational_intents import recover_intent
 
     response.headers["Cache-Control"] = "no-store"
-    actor = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: recover_intent(session, actor, intent_id))
+    actor = _human_actor(actor_user_id, authorization)
+    return _response(lambda: recover_intent(session, actor, intent_id))
 
 
 @router.get("/platform/bootstrap-status")
@@ -698,7 +705,7 @@ def get_bootstrap_status(
     return _business_response(operation)
 
 
-@router.get("/dashboard/overview")
+@router.get("/dashboard/overview", dependencies=[Depends(financial_read_guard("sales"))])
 def get_dashboard_overview_endpoint(
     session: SessionDep,
     branch_id: str | None = None,
@@ -711,7 +718,7 @@ def get_dashboard_overview_endpoint(
         authorized_branch_id = authorize_branch_scope(
             session, actor_id, "dashboard.read", branch_id
         )
-        return get_dashboard_overview(session, authorized_branch_id, month)
+        return get_dashboard_overview(session, authorized_branch_id, month, actor_user_id=actor_id)
 
     return _business_response(operation)
 
@@ -759,9 +766,14 @@ def supervisor_authorize_endpoint(
 @router.get("/auth/session")
 def get_authenticated_session_endpoint(
     session: SessionDep,
+    response: Response,
     branch_id: str | None = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
+
     def operation() -> dict[str, Any]:
         if branch_id is not None:
             raise BusinessError(
@@ -783,11 +795,11 @@ def get_authenticated_session_endpoint(
                 status_code=401,
                 detail={"code": "token_invalid", "message": "Token is invalid or expired"},
             )
-        actor_id = str(payload["sub"])
+        actor_id = _human_actor(None, authorization)
         return build_session_profile(session, actor_id, branch_id)
 
     try:
-        return _database_response(operation)
+        return _response(operation)
     except AuthorizationError as exc:
         raise HTTPException(
             status_code=403, detail={"code": exc.code, "message": exc.message}
@@ -983,11 +995,15 @@ def get_available_delivery_drivers(
 def get_driver_cash_settlement_candidates(
     branch_id: str,
     session: SessionDep,
+    response: Response,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
+    actor_id = _human_actor(actor_user_id, authorization)
+    return _response(
         lambda: list_driver_cash_settlement_candidates(session, branch_id, actor_id)
     )
 
@@ -995,12 +1011,19 @@ def get_driver_cash_settlement_candidates(
 @router.get("/drivers/{driver_id}/deliveries")
 def get_driver_deliveries(
     driver_id: str,
+    response: Response,
     session: SessionDep,
+    branch_id: str | None = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: list_driver_deliveries(session, driver_id, actor_id))
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
+        lambda: list_driver_deliveries(session, driver_id, actor_id, branch_id=branch_id)
+    )
 
 
 @router.post("/drivers")
@@ -1336,7 +1359,7 @@ def post_admin_ai_review(
     return _business_response(operation)
 
 
-@router.post("/admin-ai/executive-insights")
+@router.post("/admin-ai/executive-insights", dependencies=[Depends(financial_read_guard("sales", organization_scope=True))])
 def post_executive_ai_insights(
     payload: ExecutiveAiPromptRequest,
     session: SessionDep,
@@ -1361,6 +1384,7 @@ def post_executive_ai_insights(
             prompt=payload.prompt,
             branch_id=str(payload.branch_id) if payload.branch_id else None,
             provider_options=provider_options,
+            actor_user_id=actor_id,
         )
         logger.info(
             "executive_ai_insights result=success actor_id=%s branch_id=%s prompt_len=%d",
@@ -1516,7 +1540,7 @@ def post_customer_recommendations(
     return _business_response(operation)
 
 
-@router.get("/admin-ai/customer-crm-segments")
+@router.get("/admin-ai/customer-crm-segments", dependencies=[Depends(financial_read_guard("sales", organization_scope=True))])
 def get_customer_crm_segments(
     session: SessionDep,
     branch_id: UUID | None = None,
@@ -1528,7 +1552,7 @@ def get_customer_crm_segments(
 
     def operation() -> dict[str, Any]:
         branch_id_str = str(branch_id) if branch_id else None
-        segments = get_crm_segments_and_churn_risk(session, branch_id=branch_id_str)
+        segments = get_crm_segments_and_churn_risk(session, branch_id=branch_id_str, actor_user_id=actor_id)
         logger.info(
             "customer_crm_segments result=success actor_id=%s branch_id=%s total=%d",
             actor_id,
@@ -1890,7 +1914,7 @@ def get_recipes(
     return _business_response(operation)
 
 
-@router.get("/cash/shifts/current")
+@router.get("/cash/shifts/current", dependencies=[Depends(cash_legacy_guard)])
 def get_current_cash_shift(
     session: SessionDep,
     branch_id: str | None = None,
@@ -1945,7 +1969,7 @@ def get_current_cash_shift(
     return _business_response(operation)
 
 
-@router.get("/cash-shifts/current")
+@router.get("/cash-shifts/current", dependencies=[Depends(cash_legacy_guard)])
 def get_current_cash_shift_legacy(
     session: SessionDep,
     branch_id: str | None = None,
@@ -1970,8 +1994,8 @@ def get_current_cash_shift_legacy(
     return _business_response(operation)
 
 
-@router.post("/cash/shifts/open", operation_id="open_current_cash_shift_v1_post")
-@router.post("/cash-shifts/open", operation_id="open_current_cash_shift_alias_post")
+@router.post("/cash/shifts/open", operation_id="open_current_cash_shift_v1_post", dependencies=[Depends(cash_legacy_guard)])
+@router.post("/cash-shifts/open", operation_id="open_current_cash_shift_alias_post", dependencies=[Depends(cash_legacy_guard)])
 def open_current_cash_shift(
     payload: dict[str, Any],
     session: SessionDep,
@@ -2096,7 +2120,7 @@ def open_current_cash_shift(
     return _business_response(operation)
 
 
-@router.get("/cash-shifts/summary")
+@router.get("/cash-shifts/summary", dependencies=[Depends(cash_legacy_guard)])
 def get_current_cash_shift_summary(
     session: SessionDep,
     branch_id: str | None = None,
@@ -2118,7 +2142,7 @@ def get_current_cash_shift_summary(
     return _business_response(operation)
 
 
-@router.post("/cash-shifts/close")
+@router.post("/cash-shifts/close", dependencies=[Depends(cash_legacy_guard)])
 def close_current_cash_shift(
     session: SessionDep,
     request: Request,
@@ -2225,7 +2249,7 @@ def close_current_cash_shift(
     return _business_response(operation)
 
 
-@router.post("/cash/shifts/{cash_shift_id}/close-operationally")
+@router.post("/cash/shifts/{cash_shift_id}/close-operationally", dependencies=[Depends(cash_legacy_guard)])
 def close_cash_shift_operational_endpoint(
     cash_shift_id: str,
     payload: dict[str, Any],
@@ -2283,7 +2307,7 @@ def close_cash_shift_operational_endpoint(
     return _business_response(operation)
 
 
-@router.get("/cash/shifts")
+@router.get("/cash/shifts", dependencies=[Depends(cash_legacy_guard)])
 def list_cash_shifts_endpoint(
     branch_id: str,
     session: SessionDep,
@@ -2332,7 +2356,7 @@ def list_cash_shifts_endpoint(
     return _business_response(operation)
 
 
-@router.get("/cash/shifts/{cash_shift_id}")
+@router.get("/cash/shifts/{cash_shift_id}", dependencies=[Depends(cash_legacy_guard)])
 def get_cash_shift_endpoint(
     cash_shift_id: str,
     session: SessionDep,
@@ -2370,7 +2394,7 @@ def get_cash_shift_endpoint(
     return _business_response(operation)
 
 
-@router.post("/cash/user-cuts")
+@router.post("/cash/user-cuts", dependencies=[Depends(cash_legacy_guard)])
 def create_user_cash_cut_endpoint(
     payload: dict[str, Any],
     session: SessionDep,
@@ -2389,7 +2413,7 @@ def create_user_cash_cut_endpoint(
     )
 
 
-@router.get("/cash/user-cuts")
+@router.get("/cash/user-cuts", dependencies=[Depends(cash_legacy_guard)])
 def list_user_cash_cuts_endpoint(
     session: SessionDep,
     branch_id: str,
@@ -2425,7 +2449,7 @@ def list_user_cash_cuts_endpoint(
     )
 
 
-@router.get("/cash/user-cuts/{cash_cut_id}")
+@router.get("/cash/user-cuts/{cash_cut_id}", dependencies=[Depends(cash_legacy_guard)])
 def get_user_cash_cut_endpoint(
     cash_cut_id: str,
     session: SessionDep,
@@ -2441,7 +2465,7 @@ def get_user_cash_cut_endpoint(
     )
 
 
-@router.post("/cash/user-cuts/{cash_cut_id}/counted-cash")
+@router.post("/cash/user-cuts/{cash_cut_id}/counted-cash", dependencies=[Depends(cash_legacy_guard)])
 def count_user_cash_cut_endpoint(
     cash_cut_id: str,
     payload: dict[str, Any],
@@ -2462,7 +2486,7 @@ def count_user_cash_cut_endpoint(
     )
 
 
-@router.post("/cash/user-cuts/{cash_cut_id}/finalize")
+@router.post("/cash/user-cuts/{cash_cut_id}/finalize", dependencies=[Depends(cash_legacy_guard)])
 def finalize_user_cash_cut_endpoint(
     cash_cut_id: str,
     payload: dict[str, Any],
@@ -2483,7 +2507,7 @@ def finalize_user_cash_cut_endpoint(
     )
 
 
-@router.post("/cash/user-cuts/{cash_cut_id}/reopen-requests")
+@router.post("/cash/user-cuts/{cash_cut_id}/reopen-requests", dependencies=[Depends(cash_legacy_guard)])
 def request_user_cash_cut_reopen_endpoint(
     cash_cut_id: str,
     payload: dict[str, Any],
@@ -2504,7 +2528,7 @@ def request_user_cash_cut_reopen_endpoint(
     )
 
 
-@router.post("/cash/user-cuts/reopen-requests/{request_id}/approve")
+@router.post("/cash/user-cuts/reopen-requests/{request_id}/approve", dependencies=[Depends(cash_legacy_guard)])
 def approve_user_cash_cut_reopen_endpoint(
     request_id: str,
     session: SessionDep,
@@ -2528,7 +2552,7 @@ def approve_user_cash_cut_reopen_endpoint(
     return _business_response(operation)
 
 
-@router.post("/cash/user-cuts/reopen-requests/{request_id}/reject")
+@router.post("/cash/user-cuts/reopen-requests/{request_id}/reject", dependencies=[Depends(cash_legacy_guard)])
 def reject_user_cash_cut_reopen_endpoint(
     request_id: str,
     session: SessionDep,
@@ -2552,7 +2576,7 @@ def reject_user_cash_cut_reopen_endpoint(
     return _business_response(operation)
 
 
-@router.post("/cash/user-cuts/reopen-requests/{request_id}/compensate")
+@router.post("/cash/user-cuts/reopen-requests/{request_id}/compensate", dependencies=[Depends(cash_legacy_guard)])
 def compensate_user_cash_cut_reopen_endpoint(
     request_id: str,
     session: SessionDep,
@@ -2575,7 +2599,7 @@ def compensate_user_cash_cut_reopen_endpoint(
     return _business_response(operation)
 
 
-@router.get("/reports/sales-monitor")
+@router.get("/reports/sales-monitor", dependencies=[Depends(financial_read_guard("sales"))])
 def sales_monitor_endpoint(
     from_utc: datetime,
     to_utc: datetime,
@@ -2606,7 +2630,7 @@ def sales_monitor_endpoint(
     )
 
 
-@router.get("/reports/sales-monitor/drill-down")
+@router.get("/reports/sales-monitor/drill-down", dependencies=[Depends(financial_read_guard("sales"))])
 def sales_monitor_drill_down_endpoint(
     from_utc: datetime,
     to_utc: datetime,
@@ -2670,7 +2694,7 @@ def ingredient_sales_report_endpoint(
     )
 
 
-@router.get("/reports/expenses")
+@router.get("/reports/expenses", dependencies=[Depends(financial_read_guard("expenses"))])
 def expenses_report_endpoint(
     from_utc: datetime,
     to_utc: datetime,
@@ -2751,7 +2775,7 @@ def legacy_reconciliation_export_endpoint(
     return _business_response(lambda: _legacy_reconciliation_upgrade(session, actor_id, branch_id))
 
 
-@reconciliation_v2_router.get("/reports/branch-reconciliation/daily")
+@reconciliation_v2_router.get("/reports/branch-reconciliation/daily", dependencies=[Depends(financial_read_guard(*RECONCILIATION_DATASETS))])
 def branch_reconciliation_daily_endpoint(
     branch_id: str,
     date: str,
@@ -2772,7 +2796,7 @@ def branch_reconciliation_daily_endpoint(
     )
 
 
-@reconciliation_v2_router.get("/reports/branch-reconciliation/consolidated")
+@reconciliation_v2_router.get("/reports/branch-reconciliation/consolidated", dependencies=[Depends(financial_read_guard(*RECONCILIATION_DATASETS))])
 def branch_reconciliation_consolidated_endpoint(
     date_from: str,
     date_to: str,
@@ -2811,7 +2835,7 @@ def branch_reconciliation_audit_endpoint(
     )
 
 
-@reconciliation_v2_router.get("/reports/branch-reconciliation/export")
+@reconciliation_v2_router.get("/reports/branch-reconciliation/export", dependencies=[Depends(financial_read_guard(*RECONCILIATION_DATASETS))])
 def branch_reconciliation_export_endpoint(
     branch_id: str,
     month: int,
@@ -2830,12 +2854,13 @@ def branch_reconciliation_export_endpoint(
         content=excel_stream.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": f'attachment; filename="Corte_Kiwi_{branch_id}_{year}_{month:02d}.xlsx"'
+            "Content-Disposition": f'attachment; filename="Corte_Kiwi_{branch_id}_{year}_{month:02d}.xlsx"',
+            "Cache-Control": "no-store",
         },
     )
 
 
-@router.get("/orders")
+@router.get("/orders", dependencies=[Depends(financial_read_guard("sales"))])
 def get_recent_orders(
     session: SessionDep,
     branch_id: str | None = None,
@@ -2850,7 +2875,7 @@ def get_recent_orders(
     return _business_response(operation)
 
 
-@router.get("/orders/accounts")
+@router.get("/orders/accounts", dependencies=[Depends(financial_read_guard("sales"))])
 def get_order_accounts(
     session: SessionDep,
     branch_id: str | None = None,
@@ -2903,12 +2928,16 @@ def create_order_reopen_request_endpoint(
     order_id: str,
     payload: dict[str, Any],
     session: SessionDep,
+    response: Response,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
+    actor_id = _human_actor(actor_user_id, authorization)
+    return _response(
         lambda: create_order_reopen_request(session, order_id, payload, idempotency_key, actor_id)
     )
 
@@ -2916,6 +2945,7 @@ def create_order_reopen_request_endpoint(
 @router.get("/orders/reopen-requests")
 def get_order_reopen_requests(
     session: SessionDep,
+    response: Response,
     branch_id: str | None = None,
     status: str | None = None,
     limit: int = 50,
@@ -2923,8 +2953,11 @@ def get_order_reopen_requests(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
+    actor_id = _human_actor(actor_user_id, authorization)
+    return _response(
         lambda: list_order_reopen_requests(
             session,
             {"branch_id": branch_id, "status": status, "limit": limit, "cursor": cursor},
@@ -2938,12 +2971,16 @@ def approve_order_reopen_request_endpoint(
     request_id: str,
     payload: dict[str, Any],
     session: SessionDep,
+    response: Response,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
+    actor_id = _human_actor(actor_user_id, authorization)
+    return _response(
         lambda: decide_order_reopen_request(
             session, request_id, "APPROVED", payload, idempotency_key, actor_id
         )
@@ -2955,12 +2992,16 @@ def reject_order_reopen_request_endpoint(
     request_id: str,
     payload: dict[str, Any],
     session: SessionDep,
+    response: Response,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
+    actor_id = _human_actor(actor_user_id, authorization)
+    return _response(
         lambda: decide_order_reopen_request(
             session, request_id, "REJECTED", payload, idempotency_key, actor_id
         )
@@ -2972,12 +3013,16 @@ def apply_order_reopen_request_endpoint(
     request_id: str,
     payload: dict[str, Any],
     session: SessionDep,
+    response: Response,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
+    actor_id = _human_actor(actor_user_id, authorization)
+    return _response(
         lambda: apply_order_reopen_request(session, request_id, payload, idempotency_key, actor_id)
     )
 
@@ -2990,7 +3035,12 @@ def quote_order(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
-        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        if payload.get("order_id"):
+            from restaurant_os.financial_access_api import _human_actor
+
+            actor_id = _human_actor(actor_user_id, authorization)
+        else:
+            actor_id = _required_actor_from_request(actor_user_id, authorization)
         branch_id = authorize_branch_scope(
             session,
             actor_id,
@@ -2999,7 +3049,7 @@ def quote_order(
         )
         if not branch_id:
             raise BusinessError("branch_scope_required", "A branch scope is required")
-        return quote_local_order(
+        result = quote_local_order(
             session,
             list(payload.get("lines", [])),
             branch_id,
@@ -3010,25 +3060,33 @@ def quote_order(
             order_id=payload.get("order_id"),
             **({"received_cash": payload["received_cash"]} if "received_cash" in payload else {}),
         )
+        if payload.get("order_id"):
+            session.commit()  # The historical read has an audit; the quote creates no sale.
+        return result
 
     return _business_response(operation)
 
 
 @router.post(
     "/driver-cash-settlements",
-    response_model=DriverCashSettlementResponse,
+    response_model=DriverCashSettlementResponse | DriverSettlementReceiptV2,
 )
 def post_driver_cash_settlement(
     payload: DriverCashSettlementRequest,
     session: SessionDep,
     idempotency_key: RequiredIdempotencyKeyDep,
+    response: Response,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
     branch_id = str(payload.branch_id)
 
     def operation() -> dict[str, Any]:
+        actor_id = _human_actor(actor_user_id, authorization)
         if get_settings().branch_scope_v2_enabled:
             actor_id = operational_route_guard.require_human(
                 session,
@@ -3037,8 +3095,6 @@ def post_driver_cash_settlement(
                 branch_id,
                 branch_context=branch_context,
             ).user_id
-        else:
-            actor_id = _required_actor_from_request(actor_user_id, authorization)
         return settle_driver_cash_orders(
             session,
             branch_id=branch_id,
@@ -3049,7 +3105,35 @@ def post_driver_cash_settlement(
             actor_user_id=actor_id,
         )
 
-    return _business_response(operation)
+    return _response(operation)
+
+
+@router.post(
+    "/driver-cash-settlements/recover",
+    response_model=DriverCashSettlementResponse | DriverSettlementReceiptV2,
+)
+def recover_driver_cash_settlement(
+    payload: DriverCashSettlementRequest,
+    session: SessionDep,
+    idempotency_key: RequiredIdempotencyKeyDep,
+    response: Response,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
+    actor = _human_actor(actor_user_id, authorization)
+    return _response(lambda: settle_driver_cash_orders(
+        session,
+        branch_id=str(payload.branch_id),
+        driver_id=str(payload.driver_id),
+        order_ids=[str(order_id) for order_id in payload.order_ids],
+        register_id=payload.register_id,
+        idempotency_key=idempotency_key,
+        actor_user_id=actor,
+        recovery_only=True,
+    ))
 
 
 @router.post("/orders/adjustments/authorize")
@@ -3117,10 +3201,14 @@ def fulfill_order_endpoint(
 def create_order(
     payload: dict[str, Any],
     request: Request,
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
     idempotency_key = request.headers.get("Idempotency-Key")
     lines = payload.get("lines", [])
     owner_name = payload.get("owner_name")
@@ -3141,7 +3229,7 @@ def create_order(
                 "order_line_modifiers_required",
                 "Comments and ingredient extras must belong to a specific order line",
             )
-        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        actor_id = _human_actor(actor_user_id, authorization)
         settings = get_settings()
         is_test_actor_header = bool(
             actor_user_id
@@ -3188,7 +3276,7 @@ def create_order(
             )
         return execute()
 
-    return _business_response(operation)
+    return _response(operation)
 
 
 @router.post(
@@ -3207,21 +3295,25 @@ def create_order(
 def recover_order_creation(
     payload: dict[str, Any],
     request: Request,
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
     def operation() -> dict[str, Any]:
         if payload != {}:
             raise BusinessError(
                 "order_recovery_payload_invalid", "Recovery requires an empty object"
             )
-        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        actor_id = _human_actor(actor_user_id, authorization)
         return recover_local_order_creation(
             session, request.headers.get("Idempotency-Key"), actor_id
         )
 
-    return _business_response(operation)
+    return _response(operation)
 
 
 @router.get("/public/branches")
@@ -3590,8 +3682,11 @@ def accept_public_order_intent_endpoint(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    result, created = _business_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    result, created = _response(
         lambda: accept_public_order_intent(
             session,
             intent_id,
@@ -3635,7 +3730,7 @@ def public_create_order() -> None:
     raise _public_order_error("public_order_unavailable", 503)
 
 
-@router.get("/orders/{order_id}")
+@router.get("/orders/{order_id}", dependencies=[Depends(financial_read_guard("sales", order_resource=True))])
 def get_order_detail_endpoint(
     order_id: str,
     session: SessionDep,
@@ -3643,23 +3738,37 @@ def get_order_detail_endpoint(
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(lambda: get_order_detail(session, order_id, actor_id))
+    def operation() -> dict[str, Any]:
+        result = get_order_detail(session, order_id, actor_id)
+        session.commit()  # Persist the read audit after authorized materialization.
+        return result
+
+    return _business_response(operation)
 
 
 @router.post("/orders/{order_id}/accept")
 def accept_order_endpoint(
     order_id: str,
+    response: Response,
     session: SessionDep,
     payload: PosOrderAcceptance | None = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
 
     def operation() -> dict[str, Any]:
         intent = (
             session.execute(
-                sa.select(models.public_order_intents).where(
+                sa.select(
+                    models.public_order_intents.c.id, models.public_order_intents.c.version,
+                    models.public_order_intents.c.status,
+                    models.public_order_intents.c.accepted_order_id,
+                ).where(
+                    models.public_order_intents.c.organization_id == ORGANIZATION_ID,
                     models.public_order_intents.c.id == order_id
                 )
             )
@@ -3686,19 +3795,23 @@ def accept_order_endpoint(
             )
         return accept_pending_order(session, order_id, actor_id)
 
-    return _business_response(operation)
+    return _response(operation)
 
 
 @router.put("/orders/{order_id}/delivery-assignment")
 def put_order_delivery_assignment(
     order_id: str,
     payload: DeliveryAssignmentPayload,
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
         lambda: assign_delivery_driver(
             session,
             order_id,
@@ -3712,13 +3825,17 @@ def put_order_delivery_assignment(
 def amend_order_endpoint(
     order_id: str,
     payload: dict[str, Any],
+    response: Response,
     session: SessionDep,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
         lambda: amend_order(
             session,
             order_id,
@@ -3732,18 +3849,39 @@ def amend_order_endpoint(
     )
 
 
+@router.post("/orders/{order_id}/amendments/recover")
+def recover_order_amendment_endpoint(
+    order_id: str,
+    response: Response,
+    session: SessionDep,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _human_actor, _response
+    from restaurant_os.order_amendment_views import recover_amendment
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(lambda: recover_amendment(session, order_id, idempotency_key or "", actor))
+
+
 @router.post("/orders/{order_id}/cancel")
 def cancel_order_endpoint(
     order_id: str,
     payload: dict[str, Any] | None,
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _human_actor, _response
+
     reason = str((payload or {}).get("reason", "Cancelacion solicitada en POS"))
     classification = (payload or {}).get("classification")
-    actor_id = _actor_from_request(actor_user_id, authorization)
-    return _business_response(
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
         lambda: cancel_order_operation(session, order_id, reason, classification, actor_id)
     )
 
@@ -3752,20 +3890,28 @@ def cancel_order_endpoint(
 def preview_order_payment_endpoint(
     order_id: str,
     payload: dict[str, Any],
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    return _business_response(
-        lambda: preview_order_payment(
-            session,
-            order_id,
-            str(payload.get("method", "cash")),
-            actor_id,
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+
+    def operation() -> dict[str, Any]:
+        value = preview_order_payment(
+            session, order_id, str(payload.get("method", "cash")), actor_id,
             **({"received_cash": payload["received_cash"]} if "received_cash" in payload else {}),
         )
-    )
+        session.commit()
+        from restaurant_os.order_read_authority import authorize_order_detail
+
+        authorize_order_detail(session, actor_id, order_id, expected_version=int(value["version"]))
+        return value
+
+    return _response(operation)
 
 
 @router.post(
@@ -3785,10 +3931,14 @@ def create_order_payment(
     order_id: str,
     payload: dict[str, Any],
     request: Request,
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
     idempotency_key = (
         request.headers.get("Idempotency-Key")
         or request.headers.get("idempotency-key")
@@ -3800,7 +3950,7 @@ def create_order_payment(
     register_id = str(payload.get("register_id", "")).strip()
 
     def operation() -> dict[str, Any]:
-        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        actor_id = _human_actor(actor_user_id, authorization)
         settings = get_settings()
         is_test_actor_header = bool(
             actor_user_id
@@ -3843,7 +3993,7 @@ def create_order_payment(
             )
         return execute()
 
-    return _business_response(operation)
+    return _response(operation)
 
 
 @router.post("/orders/{order_id}/repeat")
@@ -3859,7 +4009,7 @@ def repeat_order_endpoint(
     return _business_response(lambda: repeat_order(session, order_id, register_id, actor_id))
 
 
-@router.get("/payments")
+@router.get("/payments", dependencies=[Depends(financial_read_guard("sales"))])
 def get_payments(
     session: SessionDep,
     branch_id: str | None = None,
@@ -3869,7 +4019,7 @@ def get_payments(
     def operation() -> list[dict[str, Any]]:
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         authorized_branch_id = authorize_branch_scope(session, actor_id, "payments.read", branch_id)
-        return list_payments(session, authorized_branch_id)
+        return list_payments(session, authorized_branch_id, actor_user_id=actor_id)
 
     return _business_response(operation)
 
@@ -3929,30 +4079,40 @@ def transition_kds_task(
 
 @router.get("/print-jobs")
 def get_print_jobs(
+    response: Response,
     session: SessionDep,
     branch_id: str | None = None,
     authorization: AuthorizationDep = None,
     branch_context: BranchContextDep = None,
 ) -> list[dict[str, Any]]:
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    _human_actor(None, authorization)
     actor = operational_route_guard.require_human(
         session, authorization, "print.jobs.read", branch_id, branch_context=branch_context
     )
-    return _database_response(lambda: list_print_jobs(session, actor.branch_id or ""))
+    response.headers["Cache-Control"] = "no-store"
+    return _response(lambda: list_print_jobs(session, actor.branch_id or "", actor_user_id=actor.user_id))
 
 
 @router.post("/print-jobs/{job_id}/retry")
 def retry_print_job_endpoint(
     job_id: str,
+    response: Response,
     session: SessionDep,
     branch_id: str | None = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
     branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    _human_actor(None, authorization)
     actor = operational_route_guard.require_human(
         session, authorization, "print.jobs.retry", branch_id, branch_context=branch_context
     )
-    return _business_response(
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
         lambda: retry_print_job(
             session,
             job_id,
@@ -3965,20 +4125,41 @@ def retry_print_job_endpoint(
 
 @router.get("/print-attempts/pull")
 def pull_print_attempts(
-    session: SessionDep, device_token: DeviceTokenDep = None
+    response: Response, session: SessionDep, device_token: DeviceTokenDep = None
 ) -> list[dict[str, Any]]:
+    from restaurant_os.financial_access_api import _response
+
     actor = operational_route_guard.require_device_for_capability(
         session, device_token, "print.agent"
     )
-    return _database_response(
-        lambda: list_queued_print_attempts(session, actor.organization_id, actor.branch_id or "")
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
+        lambda: list_queued_print_attempts(
+            session, actor.organization_id, actor.branch_id or "", device_id=actor.user_id,
+        )
     )
+
+
+@router.get("/print-attempts/{attempt_id}/payload")
+def print_attempt_payload_endpoint(
+    attempt_id: str, response: Response, session: SessionDep, device_token: DeviceTokenDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _response
+    from restaurant_os.print_device_views import assigned_payload
+
+    actor = operational_route_guard.require_device_for_capability(session, device_token, "print.agent")
+    response.headers["Cache-Control"] = "no-store"
+    return _response(lambda: assigned_payload(
+        session, attempt_id, actor.user_id, actor.organization_id, actor.branch_id or "",
+    ))
 
 
 @router.post("/print-attempts/{attempt_id}/claim")
 def claim_print_attempt_endpoint(
-    attempt_id: str, session: SessionDep, device_token: DeviceTokenDep = None
+    attempt_id: str, response: Response, session: SessionDep, device_token: DeviceTokenDep = None
 ) -> dict[str, Any]:
+    from restaurant_os.financial_access_api import _response
+
     attempt = (
         session.execute(
             models.print_attempts.select().where(models.print_attempts.c.id == attempt_id)
@@ -3991,7 +4172,8 @@ def claim_print_attempt_endpoint(
     actor = operational_route_guard.require_device(
         session, device_token, "print.agent", attempt["organization_id"], attempt["branch_id"]
     )
-    return _business_response(lambda: claim_print_attempt(session, attempt_id, actor.user_id))
+    response.headers["Cache-Control"] = "no-store"
+    return _response(lambda: claim_print_attempt(session, attempt_id, actor.user_id))
 
 
 @router.post("/print-attempts/{attempt_id}/ack")
@@ -4130,28 +4312,34 @@ def offline_cash_grant(
 @router.get("/sync/events")
 def get_sync_events(
     session: SessionDep,
+    response: Response,
     after_checkpoint: int = 0,
     branch_id: str | None = None,
     authorization: AuthorizationDep = None,
     device_token: DeviceTokenDep = None,
     branch_context: BranchContextDep = None,
 ) -> list[dict[str, Any]]:
+    from restaurant_os.financial_access_api import _human_actor, _response
+    from restaurant_os.sync_event_views import human_sync_events
+
+    response.headers["Cache-Control"] = "no-store"
     if device_token:
         actor = operational_route_guard.require_device_for_capability(
             session, device_token, "gateway.sync"
         )
-    else:
-        actor = operational_route_guard.require_human(
-            session, authorization, "sync.events.read", branch_id, branch_context=branch_context
-        )
-    return _database_response(
-        lambda: list_sync_events(
-            session,
-            actor.organization_id,
-            actor.branch_id or "",
-            after_checkpoint,
-        )
+        return _response(lambda: list_sync_events(
+            session, actor.organization_id, actor.branch_id or "", after_checkpoint
+        ))
+    _human_actor(None, authorization)
+    actor = operational_route_guard.require_human(
+        session, authorization, "sync.events.read", branch_id, branch_context=branch_context
     )
+    return _response(lambda: human_sync_events(
+        session, actor.organization_id, actor.branch_id or "", after_checkpoint, actor.user_id,
+        lambda: list_sync_events(
+            session, actor.organization_id, actor.branch_id or "", after_checkpoint
+        ),
+    ))
 
 
 @router.get("/sync/status")
@@ -6113,7 +6301,7 @@ def post_confirm_production_batch(
     )
 
 
-@router.get("/customers")
+@router.get("/customers", dependencies=[Depends(financial_read_guard("sales", organization_scope=True))])
 def get_customers(
     session: SessionDep,
     phone: str | None = None,
@@ -6128,8 +6316,10 @@ def get_customers(
         actor_id = _required_actor_from_request(actor_user_id, authorization)
         authorized_branch = authorize_branch_scope(session, actor_id, "orders.read", branch_id)
         if limit is not None or q is not None:
-            return list_customers_page(session, authorized_branch, q, phone, limit or 50, offset)
-        return list_customers(session, phone, authorized_branch)
+            return list_customers_page(
+                session, authorized_branch, q, phone, limit or 50, offset, actor_id=actor_id
+            )
+        return list_customers(session, phone, authorized_branch, actor_id=actor_id)
 
     return _business_response(operation)
 
@@ -6725,12 +6915,16 @@ def post_cash_concept_archive(
 def post_cash_movement(
     payload: dict[str, Any],
     request: Request,
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
+    actor_id = _human_actor(actor_user_id, authorization)
 
     def operation() -> dict[str, Any]:
         enabled = get_settings().branch_scope_v2_enabled
@@ -6756,7 +6950,7 @@ def post_cash_movement(
             )
         return execute()
 
-    return _business_response(operation)
+    return _response(operation)
 
 
 @router.post("/cash/movements/{movement_id}/compensations")
@@ -6765,11 +6959,15 @@ def post_cash_movement_compensation(
     payload: dict[str, Any],
     session: SessionDep,
     request: Request,
+    response: Response,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    response.headers["Cache-Control"] = "no-store"
+    actor_id = _human_actor(actor_user_id, authorization)
 
     def operation() -> dict[str, Any]:
         enabled = get_settings().branch_scope_v2_enabled
@@ -6795,10 +6993,10 @@ def post_cash_movement_compensation(
             )
         return execute()
 
-    return _business_response(operation)
+    return _response(operation)
 
 
-@router.get("/cash/movements")
+@router.get("/cash/movements", dependencies=[Depends(financial_read_guard("cash.movements"))])
 def get_cash_movement_ledger(
     branch_id: str,
     session: SessionDep,
@@ -6829,7 +7027,7 @@ def get_cash_movement_ledger(
     )
 
 
-@router.get("/cash-movements")
+@router.get("/cash-movements", dependencies=[Depends(financial_read_guard("cash.movements"))])
 def get_cash_movements(
     session: SessionDep,
     branch_id: str | None = None,
@@ -6838,7 +7036,7 @@ def get_cash_movements(
 ) -> list[dict[str, Any]]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     authorized_branch = authorize_branch_scope(session, actor_id, "cash.shift.read", branch_id)
-    return _database_response(lambda: list_cash_movements(session, authorized_branch))
+    return _business_response(lambda: list_cash_movements(session, authorized_branch, actor_user_id=actor_id))
 
 
 @router.get("/inventory/costs")
@@ -7683,14 +7881,19 @@ def delete_uber_eats_store_mapping(
 
 @router.get("/integrations/uber-eats/logs")
 def get_uber_eats_webhook_logs(
+    response: Response,
     session: SessionDep,
     limit: int = 50,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    require_permission(session, actor_id, "admin.manage")
-    return channel_service.list_webhook_logs(session, ORGANIZATION_ID, "UBER_EATS", limit)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(lambda: channel_service.list_webhook_logs(
+        session, ORGANIZATION_ID, "UBER_EATS", limit, actor_user_id=actor_id,
+    ))
 
 
 @router.post("/integrations/uber-eats/test-order")
@@ -7917,14 +8120,19 @@ def delete_didi_food_store_mapping(
 
 @router.get("/integrations/didi-food/logs")
 def get_didi_food_webhook_logs(
+    response: Response,
     session: SessionDep,
     limit: int = 50,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    require_permission(session, actor_id, "admin.manage")
-    return channel_service.list_webhook_logs(session, ORGANIZATION_ID, "DIDI_FOOD", limit)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(lambda: channel_service.list_webhook_logs(
+        session, ORGANIZATION_ID, "DIDI_FOOD", limit, actor_user_id=actor_id,
+    ))
 
 
 @router.post("/integrations/didi-food/simulate")
@@ -8215,14 +8423,19 @@ def delete_rappi_store_mapping(
 
 @router.get("/integrations/rappi/logs")
 def get_rappi_webhook_logs(
+    response: Response,
     session: SessionDep,
     limit: int = 50,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    require_permission(session, actor_id, "admin.manage")
-    return channel_service.list_webhook_logs(session, ORGANIZATION_ID, "RAPPI", limit)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(lambda: channel_service.list_webhook_logs(
+        session, ORGANIZATION_ID, "RAPPI", limit, actor_user_id=actor_id,
+    ))
 
 
 @router.post("/integrations/rappi/simulate")
@@ -8655,14 +8868,19 @@ def delete_whatsapp_store_mapping(
 
 @router.get("/integrations/whatsapp/logs")
 def get_whatsapp_webhook_logs(
+    response: Response,
     session: SessionDep,
     limit: int = 50,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    require_permission(session, actor_id, "admin.manage")
-    return channel_service.list_webhook_logs(session, ORGANIZATION_ID, "WHATSAPP", limit)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(lambda: channel_service.list_webhook_logs(
+        session, ORGANIZATION_ID, "WHATSAPP", limit, actor_user_id=actor_id,
+    ))
 
 
 @router.post("/integrations/whatsapp/simulate")
@@ -8790,13 +9008,20 @@ def post_whatsapp_test_order(
 def get_pos_uber_eats_orders(
     branch_id: str,
     session: SessionDep,
+    response: Response,
     status: str | None = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorize_branch_scope(session, actor_id, "orders.read", branch_id)
-    return channel_service.list_pos_orders(session, branch_id, "UBER_EATS", status)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
+        lambda: channel_service.list_pos_orders(
+            session, branch_id, "UBER_EATS", status, actor_user_id=actor_id
+        )
+    )
 
 
 @router.post("/pos/uber-eats/orders/{order_id}/status")
@@ -8818,13 +9043,20 @@ def post_pos_uber_eats_order_status(
 def get_pos_didi_food_orders(
     branch_id: str,
     session: SessionDep,
+    response: Response,
     status: str | None = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorize_branch_scope(session, actor_id, "orders.read", branch_id)
-    return channel_service.list_pos_orders(session, branch_id, "DIDI_FOOD", status)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
+        lambda: channel_service.list_pos_orders(
+            session, branch_id, "DIDI_FOOD", status, actor_user_id=actor_id
+        )
+    )
 
 
 @router.post("/pos/didi-food/orders/{order_id}/status")
@@ -8846,13 +9078,20 @@ def post_pos_didi_food_order_status(
 def get_pos_rappi_orders(
     branch_id: str,
     session: SessionDep,
+    response: Response,
     status: str | None = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorize_branch_scope(session, actor_id, "orders.read", branch_id)
-    return channel_service.list_pos_orders(session, branch_id, "RAPPI", status)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
+        lambda: channel_service.list_pos_orders(
+            session, branch_id, "RAPPI", status, actor_user_id=actor_id
+        )
+    )
 
 
 @router.post("/pos/rappi/orders/{order_id}/status")
@@ -8874,13 +9113,20 @@ def post_pos_rappi_order_status(
 def get_pos_whatsapp_orders(
     branch_id: str,
     session: SessionDep,
+    response: Response,
     status: str | None = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor_id = _required_actor_from_request(actor_user_id, authorization)
-    authorize_branch_scope(session, actor_id, "orders.read", branch_id)
-    return channel_service.list_pos_orders(session, branch_id, "WHATSAPP", status)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor_id = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
+        lambda: channel_service.list_pos_orders(
+            session, branch_id, "WHATSAPP", status, actor_user_id=actor_id
+        )
+    )
 
 
 @router.post("/pos/whatsapp/orders/{order_id}/status")
@@ -9008,7 +9254,7 @@ def test_facturapi_connection(
     ))
 
 
-@router.get("/invoicing/invoices")
+@router.get("/invoicing/invoices", dependencies=[Depends(financial_read_guard("sales"))])
 def list_cfdi_invoices(
     session: SessionDep,
     branch_id: str | None = None,
@@ -9026,7 +9272,7 @@ def list_cfdi_invoices(
     ))
 
 
-@router.get("/invoicing/invoices/{invoice_id}")
+@router.get("/invoicing/invoices/{invoice_id}", dependencies=[Depends(financial_read_guard("sales", invoice_resource=True))])
 def get_cfdi_invoice_detail(
     invoice_id: str,
     session: SessionDep,
@@ -9061,8 +9307,8 @@ def issue_cfdi_invoice(
     ))
 
 
-@router.get("/invoicing/invoices/{invoice_id}/pdf")
-@router.get("/invoicing/invoices/{invoice_id}/xml")
+@router.get("/invoicing/invoices/{invoice_id}/pdf", dependencies=[Depends(financial_read_guard("sales", invoice_resource=True))])
+@router.get("/invoicing/invoices/{invoice_id}/xml", dependencies=[Depends(financial_read_guard("sales", invoice_resource=True))])
 def download_cfdi_invoice(
     invoice_id: str,
     request: Request,
@@ -9441,14 +9687,18 @@ def acknowledge_classification_catalog(
 # EXP-001: online expense documents, deliberately independent of purchase endpoints.
 @router.get("/expense-concepts")
 def expense_concepts_read(
+    response: Response,
     session: SessionDep,
     branch_id: str,
     archived: bool = False,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> list[dict[str, Any]]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
         lambda: expense_service.concept_list(session, actor, branch_id, archived)
     )
 
@@ -9456,13 +9706,17 @@ def expense_concepts_read(
 @router.post("/expense-concepts")
 def expense_concept_create(
     payload: dict[str, Any],
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
         lambda: expense_service.command(
             session, actor, "concept.create", None, payload, idempotency_key
         )
@@ -9473,13 +9727,17 @@ def expense_concept_create(
 def expense_concept_edit(
     concept_id: str,
     payload: dict[str, Any],
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
         lambda: expense_service.command(
             session, actor, "concept.edit", concept_id, payload, idempotency_key
         )
@@ -9490,13 +9748,17 @@ def expense_concept_edit(
 def expense_concept_archive(
     concept_id: str,
     payload: dict[str, Any],
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
         lambda: expense_service.command(
             session, actor, "concept.archive", concept_id, payload, idempotency_key
         )
@@ -9505,17 +9767,22 @@ def expense_concept_archive(
 
 @router.get("/expenses/cash-context")
 def expense_cash_context(
+    response: Response,
     session: SessionDep,
     branch_id: str,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.cash_context(session, actor, branch_id))
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(lambda: expense_service.cash_context(session, actor, branch_id))
 
 
 @router.get("/expenses/summary")
 def expense_summary(
+    response: Response,
     session: SessionDep,
     from_utc: datetime | None = None,
     to_utc: datetime | None = None,
@@ -9527,7 +9794,10 @@ def expense_summary(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
 
     def operation() -> dict[str, Any]:
         start, end = from_utc, to_utc
@@ -9555,30 +9825,38 @@ def expense_summary(
             },
         )
 
-    return _workspace_response(operation)
+    return _response(operation)
 
 
 @router.get("/expense-commands/{command_key}")
 def expense_recover(
     command_key: str,
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.recover_command(session, actor, command_key))
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(lambda: expense_service.recover_command(session, actor, command_key))
 
 
 @router.post("/expense-commands/{command_key}/resolve")
 def expense_resolve(
     command_key: str,
     payload: dict[str, Any],
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     branch_context: BranchContextDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
 
     def operation() -> dict[str, Any]:
         from restaurant_os.workspace_fences import require_expense_resolution_context
@@ -9586,11 +9864,12 @@ def expense_resolve(
         require_expense_resolution_context(session, actor, branch_context, command_key, payload)
         return expense_service.resolve_command(session, actor, command_key, payload)
 
-    return _workspace_response(operation)
+    return _response(operation)
 
 
 @router.get("/expenses")
 def expenses_read(
+    response: Response,
     session: SessionDep,
     branch_id: str,
     cursor: str | None = None,
@@ -9601,8 +9880,11 @@ def expenses_read(
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(
         lambda: expense_service.documents(
             session, actor, branch_id, cursor, limit, status, concept_id, payment_method
         )
@@ -9612,24 +9894,33 @@ def expenses_read(
 @router.get("/expenses/{expense_id}")
 def expense_read(
     expense_id: str,
+    response: Response,
     session: SessionDep,
+    expected_version: int | None = None,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
-    return _workspace_response(lambda: expense_service.get_document(session, actor, expense_id))
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    return _response(lambda: expense_service.get_document(session, actor, expense_id, expected_version=expected_version))
 
 
 @router.post("/expenses")
 def expense_create(
     payload: dict[str, Any],
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     branch_context: BranchContextDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
 
     def operation() -> dict[str, Any]:
         from restaurant_os.workspace_fences import require_document_context
@@ -9641,20 +9932,24 @@ def expense_create(
             session, actor, "document.create", None, payload, idempotency_key
         )
 
-    return _workspace_response(operation)
+    return _response(operation)
 
 
 @router.patch("/expenses/{expense_id}")
 def expense_edit(
     expense_id: str,
     payload: dict[str, Any],
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     branch_context: BranchContextDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
 
     def operation() -> dict[str, Any]:
         from restaurant_os.workspace_fences import require_document_context
@@ -9664,20 +9959,24 @@ def expense_edit(
             session, actor, "document.edit", expense_id, payload, idempotency_key
         )
 
-    return _workspace_response(operation)
+    return _response(operation)
 
 
 @router.post("/expenses/{expense_id}/confirm")
 def expense_confirm(
     expense_id: str,
     payload: dict[str, Any],
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     branch_context: BranchContextDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
 
     def operation() -> dict[str, Any]:
         from restaurant_os.workspace_fences import require_document_context
@@ -9687,20 +9986,24 @@ def expense_confirm(
             session, actor, "document.confirm", expense_id, payload, idempotency_key
         )
 
-    return _workspace_response(operation)
+    return _response(operation)
 
 
 @router.post("/expenses/{expense_id}/cancel")
 def expense_cancel(
     expense_id: str,
     payload: dict[str, Any],
+    response: Response,
     session: SessionDep,
     actor_user_id: ActorUserDep = None,
     authorization: AuthorizationDep = None,
     branch_context: BranchContextDep = None,
     idempotency_key: IdempotencyKeyDep = None,
 ) -> dict[str, Any]:
-    actor = _required_actor_from_request(actor_user_id, authorization)
+    from restaurant_os.financial_access_api import _human_actor, _response
+
+    actor = _human_actor(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
 
     def operation() -> dict[str, Any]:
         from restaurant_os.workspace_fences import require_document_context
@@ -9710,4 +10013,4 @@ def expense_cancel(
             session, actor, "document.cancel", expense_id, payload, idempotency_key
         )
 
-    return _workspace_response(operation)
+    return _response(operation)

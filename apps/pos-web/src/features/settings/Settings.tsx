@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ApiError,
+  financialAccessForBranch,
   fetchApi,
   hasPendingOperationalIntent,
   loadOperationalOrderConfig,
@@ -26,6 +27,8 @@ import {
   parseExactCents,
 } from './shiftOperations';
 import { UserCashCutsPanel } from './UserCashCutsPanel';
+import { userCashCutCapabilities } from './userCashCuts';
+import { OperationalCutsPanel, OperationalShiftPanel } from './OperationalCashPanels';
 
 type ShiftViewState = 'loading' | 'open' | 'closed' | 'submitting' | 'error';
 
@@ -94,10 +97,12 @@ const Settings = () => {
   const [appearanceBusy, setAppearanceBusy] = useState(false);
 
   const canSelectBranch = Boolean(session?.scope.can_select_branch);
+  const financialAccess = session && activeBranchId ? financialAccessForBranch(session, activeBranchId) : null;
+  const protectedCash = financialAccess !== null && financialAccess.state !== 'legacy';
   const canRead = hasPermission('cash.shift.read');
   const canOpen = hasPermission('cash.shift.open');
   const canClose = hasPermission('cash.shift.close');
-  const canReadUserCuts = hasPermission('cash.user_cut.read');
+  const canReadUserCuts = userCashCutCapabilities(session?.permissions || [],financialAccess).read;
   const canManageAppearance = hasPermission('admin.manage');
   const selectedBranchIsValidated = branchId === activeBranchId;
   const configurationSaved = isPersistedCashConfiguration(
@@ -145,6 +150,9 @@ const Settings = () => {
 
   const loadShift = useCallback(async () => {
     requestController.current?.abort();
+    if (protectedCash) {
+      setCurrentShift(null); setLastClosure(null); return;
+    }
     if (!canRead) {
       setViewState('closed');
       setCurrentShift(null);
@@ -175,7 +183,7 @@ const Settings = () => {
       setViewState('error');
       announce(formatApiError(reason, 'No fue posible consultar el turno. La operación queda bloqueada.'), 'alert');
     }
-  }, [activeBranchId, canRead, persistedRegisterId]);
+  }, [activeBranchId, canRead, persistedRegisterId, protectedCash]);
 
   useEffect(() => {
     void loadShift();
@@ -373,7 +381,14 @@ const Settings = () => {
             </div>
           )}
 
-          {activeTab === 'shift' && (
+          {activeTab === 'shift' && protectedCash && financialAccess && <OperationalShiftPanel
+            key={`${activeBranchId}:${financialAccess.policy_version}`}
+            access={financialAccess} registerId={persistedRegisterId}
+            actorId={session?.user.id || ''} organizationId={session?.organization_id || ''}
+            permissions={session?.permissions || []} timezone={session?.active_branch?.timezone || 'UTC'}
+            onRegisterChange={value => {setPersistedRegisterId(value);setRegisterId(value);localStorage.setItem('pos_register_id',value);}}
+          />}
+          {activeTab === 'shift' && !protectedCash && (
             <>
               <h2>Gestión de Turno</h2>
               {!canRead && (
@@ -561,7 +576,11 @@ const Settings = () => {
             </div>
           )}
 
-          {activeTab === 'user-cuts' && canReadUserCuts && (
+          {activeTab === 'user-cuts' && protectedCash && financialAccess && <OperationalCutsPanel
+            key={`${activeBranchId}:${financialAccess.policy_version}`}
+            access={financialAccess} registerId={persistedRegisterId} timezone={session?.active_branch?.timezone || 'UTC'}
+          />}
+          {activeTab === 'user-cuts' && canReadUserCuts && !protectedCash && (
             <UserCashCutsPanel
               branchId={activeBranchId}
               registerId={persistedRegisterId}

@@ -1,0 +1,69 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "projection": {
+      "const": "operational",
+      "default": "operational",
+      "title": "Projection",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "provider": {
+      "enum": [
+        "UBER_EATS",
+        "DIDI_FOOD",
+        "RAPPI",
+        "WHATSAPP"
+      ],
+      "title": "Provider",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "received",
+        "processed",
+        "failed",
+        "error",
+        "rejected",
+        "unknown"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "processed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Processed At"
+    }
+  },
+  "required": [
+    "id",
+    "provider",
+    "status",
+    "created_at",
+    "processed_at"
+  ],
+  "title": "IntegrationLogMetadataV2",
+  "type": "object"
+}

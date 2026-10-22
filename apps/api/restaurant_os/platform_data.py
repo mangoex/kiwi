@@ -1034,8 +1034,12 @@ UTC = timezone.utc
 
 
 def get_dashboard_overview(
-    session: Session, branch_id: str | None = None, month: str | None = None
+    session: Session, branch_id: str | None = None, month: str | None = None,
+    *, actor_user_id: str | None = None,
 ) -> dict[str, Any]:
+    from restaurant_os.financial_reads import require_financial_read
+
+    protected = require_financial_read(session, actor_user_id, branch_id, ("sales",)) is not None
     now = datetime.now(UTC)
 
     if month:
@@ -1055,6 +1059,7 @@ def get_dashboard_overview(
         end_date = now
 
     snapshot_q = sa.select(models.sales_operation_snapshots).where(
+        models.sales_operation_snapshots.c.organization_id == ORGANIZATION_ID,
         models.sales_operation_snapshots.c.confirmed_at >= start_date,
         models.sales_operation_snapshots.c.confirmed_at < end_date,
     )
@@ -1086,6 +1091,7 @@ def get_dashboard_overview(
 
     # Total Products Active
     prod_q = sa.select(sa.func.count(models.products.c.id)).where(
+        models.products.c.organization_id == ORGANIZATION_ID,
         models.products.c.status == "active"
     )
     total_products = int(session.execute(prod_q).scalar() or 0)
@@ -1120,7 +1126,9 @@ def get_dashboard_overview(
             ae.c.id,
             ae.c.action,
             ae.c.created_at,
-            ae.c.payload,
+            # Sales authority never includes raw cash audit payloads. Keep the
+            # legacy notification envelope but load operational metadata only.
+            sa.literal(None).label("payload") if protected else ae.c.payload,
             ae.c.entity_id.label("cash_shift_id"),
             cs.c.register_code,
             us.c.display_name.label("actor_display_name"),
@@ -1128,7 +1136,10 @@ def get_dashboard_overview(
         .select_from(
             ae.outerjoin(cs, ae.c.entity_id == cs.c.id).outerjoin(us, ae.c.actor_user_id == us.c.id)
         )
-        .where(ae.c.action.in_(["cash_shift.opened", "cash_shift.closed"]))
+        .where(
+            ae.c.organization_id == ORGANIZATION_ID,
+            ae.c.action.in_(["cash_shift.opened", "cash_shift.closed"]),
+        )
     )
     if branch_id:
         notif_q = notif_q.where(ae.c.branch_id == branch_id)
@@ -1140,7 +1151,7 @@ def get_dashboard_overview(
             "id": n["id"],
             "action": n["action"],
             "created_at": n["created_at"].isoformat(),
-            "payload": n["payload"],
+            "payload": {"register_code": n["register_code"]} if protected else n["payload"],
             # Resolved fields for the frontend – prefer join result, fall back to payload
             "register_code": n["register_code"]
             or (n["payload"] or {}).get("register_code", "Caja"),

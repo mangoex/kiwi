@@ -260,18 +260,12 @@ class ChannelIntegrationService:
         return True
 
     def list_webhook_logs(
-        self, session: Session, organization_id: str, provider: str, limit: int = 50
+        self, session: Session, organization_id: str, provider: str, limit: int = 50,
+        *, actor_user_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        query = (
-            sa.select(models.integration_webhook_logs)
-            .where(
-                models.integration_webhook_logs.c.organization_id == organization_id,
-                models.integration_webhook_logs.c.provider == provider,
-            )
-            .order_by(models.integration_webhook_logs.c.created_at.desc())
-            .limit(limit)
-        )
-        return [dict(r) for r in session.execute(query).mappings().all()]
+        from restaurant_os.integration_log_views import list_logs
+
+        return list_logs(session, organization_id, provider, limit, actor_user_id)
 
     def log_webhook(
         self,
@@ -608,6 +602,22 @@ class ChannelIntegrationService:
         branch_id: str,
         provider: str = "UBER_EATS",
         status_filter: str | None = None,
+        *,
+        actor_user_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        from restaurant_os.channel_order_views import list_channel_orders
+
+        return list_channel_orders(
+            session, branch_id, provider, status_filter, actor_user_id,
+            lambda: self._list_pos_orders(session, branch_id, provider, status_filter),
+        )
+
+    def _list_pos_orders(
+        self,
+        session: Session,
+        branch_id: str,
+        provider: str,
+        status_filter: str | None,
     ) -> list[dict[str, Any]]:
         query = (
             sa.select(

@@ -1,0 +1,47 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "projection": {
+      "const": "operational",
+      "default": "operational",
+      "title": "Projection",
+      "type": "string"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "integer"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "eligible_order_count": {
+      "minimum": 0,
+      "title": "Eligible Order Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "policy_version",
+    "id",
+    "name",
+    "status",
+    "eligible_order_count"
+  ],
+  "title": "DriverSettlementCandidateV2",
+  "type": "object"
+}

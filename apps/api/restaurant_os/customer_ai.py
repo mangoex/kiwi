@@ -507,8 +507,13 @@ def _get_legacy_customer_upsell_recommendations(
 def get_crm_segments_and_churn_risk(
     session: Session,
     branch_id: str | None = None,
+    *, actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     """Segment customers into VIPs, churn risk, and new customers with metrics."""
+    from restaurant_os.financial_reads import require_financial_read
+
+    # Origin is a contact filter; each customer's history can span every branch.
+    require_financial_read(session, actor_user_id, None, ("sales",))
     criteria = [models.customers.c.organization_id == ORGANIZATION_ID]
     if branch_id:
         criteria.append(models.customers.c.origin_branch_id == branch_id)
@@ -531,6 +536,7 @@ def get_crm_segments_and_churn_risk(
                     models.orders.c.total_cents,
                     models.orders.c.created_at,
                 ).where(
+                    models.orders.c.organization_id == ORGANIZATION_ID,
                     models.orders.c.customer_id == cid,
                     models.orders.c.status != "cancelled",
                 )
@@ -545,6 +551,8 @@ def get_crm_segments_and_churn_risk(
             order_dates = [o["created_at"] for o in orders if o["created_at"]]
             if order_dates:
                 last_order_dt = max(order_dates)
+                if last_order_dt.tzinfo is None:
+                    last_order_dt = last_order_dt.replace(tzinfo=UTC)
 
         days_inactive = (now - last_order_dt).days if last_order_dt else 999
 

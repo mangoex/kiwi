@@ -1,0 +1,882 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "OrderChargeV2": {
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "title": "State",
+          "type": "string"
+        },
+        "list_cents": {
+          "title": "List Cents",
+          "type": "integer"
+        },
+        "charged_cents": {
+          "title": "Charged Cents",
+          "type": "integer"
+        },
+        "net_cents": {
+          "title": "Net Cents",
+          "type": "integer"
+        },
+        "tax_cents": {
+          "title": "Tax Cents",
+          "type": "integer"
+        },
+        "eligible_subtotal_cents": {
+          "title": "Eligible Subtotal Cents",
+          "type": "integer"
+        },
+        "free_threshold_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Free Threshold Cents"
+        },
+        "currency": {
+          "title": "Currency",
+          "type": "string"
+        },
+        "tariff_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tariff Name"
+        }
+      },
+      "required": [
+        "state",
+        "list_cents",
+        "charged_cents",
+        "net_cents",
+        "tax_cents",
+        "eligible_subtotal_cents",
+        "free_threshold_cents",
+        "currency",
+        "tariff_name"
+      ],
+      "title": "OrderChargeV2",
+      "type": "object"
+    },
+    "OrderContextV2": {
+      "additionalProperties": false,
+      "properties": {
+        "source_kind": {
+          "enum": [
+            "financial",
+            "order_acceptance",
+            "order_amendment",
+            "delivery_assignment",
+            "approved_reopen"
+          ],
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "order_version": {
+          "title": "Order Version",
+          "type": "integer"
+        },
+        "authorization_version": {
+          "title": "Authorization Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_kind",
+        "source_id",
+        "order_version",
+        "authorization_version"
+      ],
+      "title": "OrderContextV2",
+      "type": "object"
+    },
+    "OrderDeliveryV2": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "driver_id": {
+          "title": "Driver Id",
+          "type": "string"
+        },
+        "driver_name_snapshot": {
+          "title": "Driver Name Snapshot",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "assigned_at": {
+          "format": "date-time",
+          "title": "Assigned At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "driver_id",
+        "driver_name_snapshot",
+        "status",
+        "assigned_at"
+      ],
+      "title": "OrderDeliveryV2",
+      "type": "object"
+    },
+    "OrderLineV2": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "order_id": {
+          "title": "Order Id",
+          "type": "string"
+        },
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "product_name": {
+          "title": "Product Name",
+          "type": "string"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "unit_price_cents": {
+          "title": "Unit Price Cents",
+          "type": "integer"
+        },
+        "line_total_cents": {
+          "title": "Line Total Cents",
+          "type": "integer"
+        },
+        "modifier_total_cents": {
+          "title": "Modifier Total Cents",
+          "type": "integer"
+        },
+        "station": {
+          "title": "Station",
+          "type": "string"
+        },
+        "line_notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line Notes"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "revision": {
+          "default": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "family_id_snapshot": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family Id Snapshot"
+        },
+        "family_name_snapshot": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family Name Snapshot"
+        },
+        "selected_modifiers": {
+          "items": {
+            "$ref": "#/$defs/OrderModifierV2"
+          },
+          "title": "Selected Modifiers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "order_id",
+        "product_id",
+        "product_name",
+        "quantity",
+        "unit_price_cents",
+        "line_total_cents",
+        "modifier_total_cents",
+        "station",
+        "status",
+        "selected_modifiers"
+      ],
+      "title": "OrderLineV2",
+      "type": "object"
+    },
+    "OrderModifierV2": {
+      "additionalProperties": false,
+      "properties": {
+        "group_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Group Id"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Group Name"
+        },
+        "option_id": {
+          "title": "Option Id",
+          "type": "string"
+        },
+        "option_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Option Name"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "effect_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect Type"
+        },
+        "selection_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection Kind"
+        },
+        "portions": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portions"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "comment_preset_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comment Preset Id"
+        },
+        "extra_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extra Id"
+        },
+        "portion_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portion Count"
+        },
+        "portion_quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portion Quantity"
+        },
+        "sale_price_cents_per_portion": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sale Price Cents Per Portion"
+        },
+        "price_delta_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price Delta Cents"
+        },
+        "applied_price_delta_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Applied Price Delta Cents"
+        },
+        "catalog_price_delta_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Catalog Price Delta Cents"
+        },
+        "included": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Included"
+        },
+        "kitchen_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kitchen Text"
+        },
+        "station": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Station"
+        },
+        "component_product_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component Product Id"
+        },
+        "component_product_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component Product Name"
+        },
+        "component_quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component Quantity"
+        }
+      },
+      "required": [
+        "option_id"
+      ],
+      "title": "OrderModifierV2",
+      "type": "object"
+    },
+    "OrderPaymentV2": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "amount_cents": {
+          "title": "Amount Cents",
+          "type": "integer"
+        },
+        "currency": {
+          "title": "Currency",
+          "type": "string"
+        },
+        "confirmed_at": {
+          "format": "date-time",
+          "title": "Confirmed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "status",
+        "amount_cents",
+        "currency",
+        "confirmed_at"
+      ],
+      "title": "OrderPaymentV2",
+      "type": "object"
+    },
+    "OrderTaskV2": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "order_line_id": {
+          "title": "Order Line Id",
+          "type": "string"
+        },
+        "station": {
+          "title": "Station",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "product_name": {
+          "title": "Product Name",
+          "type": "string"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Started At"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        }
+      },
+      "required": [
+        "id",
+        "order_line_id",
+        "station",
+        "status",
+        "product_name",
+        "quantity",
+        "created_at",
+        "started_at",
+        "completed_at"
+      ],
+      "title": "OrderTaskV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "projection": {
+      "const": "order",
+      "default": "order",
+      "title": "Projection",
+      "type": "string"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "integer"
+    },
+    "read_context": {
+      "$ref": "#/$defs/OrderContextV2"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "branch_id": {
+      "title": "Branch Id",
+      "type": "string"
+    },
+    "cash_shift_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Cash Shift Id"
+    },
+    "folio": {
+      "title": "Folio",
+      "type": "string"
+    },
+    "channel": {
+      "title": "Channel",
+      "type": "string"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "order_type": {
+      "title": "Order Type",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "integer"
+    },
+    "total_cents": {
+      "title": "Total Cents",
+      "type": "integer"
+    },
+    "currency": {
+      "title": "Currency",
+      "type": "string"
+    },
+    "customer_label": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Customer Label"
+    },
+    "customer_phone": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Customer Phone"
+    },
+    "delivery_address": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Delivery Address"
+    },
+    "delivery_notes": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Delivery Notes"
+    },
+    "payment_method_intent": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Payment Method Intent"
+    },
+    "payment_status": {
+      "title": "Payment Status",
+      "type": "string"
+    },
+    "editable": {
+      "title": "Editable",
+      "type": "boolean"
+    },
+    "edit_block_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Edit Block Reason"
+    },
+    "reopen_eligible": {
+      "title": "Reopen Eligible",
+      "type": "boolean"
+    },
+    "active_reopen_request_status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Active Reopen Request Status"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "lines": {
+      "items": {
+        "$ref": "#/$defs/OrderLineV2"
+      },
+      "title": "Lines",
+      "type": "array"
+    },
+    "payments": {
+      "items": {
+        "$ref": "#/$defs/OrderPaymentV2"
+      },
+      "title": "Payments",
+      "type": "array"
+    },
+    "production_tasks": {
+      "items": {
+        "$ref": "#/$defs/OrderTaskV2"
+      },
+      "title": "Production Tasks",
+      "type": "array"
+    },
+    "delivery_assignment": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OrderDeliveryV2"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "delivery_charge": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OrderChargeV2"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "policy_version",
+    "read_context",
+    "id",
+    "branch_id",
+    "cash_shift_id",
+    "folio",
+    "channel",
+    "status",
+    "order_type",
+    "version",
+    "total_cents",
+    "currency",
+    "customer_label",
+    "payment_status",
+    "editable",
+    "edit_block_reason",
+    "reopen_eligible",
+    "active_reopen_request_status",
+    "created_at",
+    "delivery_assignment",
+    "delivery_charge"
+  ],
+  "title": "OrderDetailV2",
+  "type": "object"
+}

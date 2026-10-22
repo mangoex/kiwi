@@ -1,5 +1,10 @@
 # BDD — POS-CASH-OPS-001 caja, cuentas, corte y perfiles
 
+CORTE-CIEGO-001 precisa el contrato objetivo de autoridad/lectura mediante
+[BDD-SC-767..794](03-BDD-corte-ciego.md). Las ejecuciones PCO documentadas debajo
+acreditan sólo su versión baseline. Ajustes de SC-286/328/330/331 para la nueva
+política requieren nueva evidencia; no se hereda GREEN del contrato anterior.
+
 **Estado:** decisiones `OPEN-011..017` resueltas el 2026-08-10 y conservadas como trazabilidad.
 PCO-001 ejecuta la semilla/proyección de permisos de `BDD-SC-270`, la asignación y denegación de
 alcance de `BDD-SC-271`, la autoridad persistida/cross-org de `BDD-SC-277`, y la migración SQLite de
@@ -357,10 +362,11 @@ Feature: Separar cierre operativo de corte final y monitorear ventas
   @PRD-FR-219 @PRD-NFR-021
   @BDD-SC-286
   Scenario: Corte por usuario calcula contado, esperado y diferencia
-    Given un Líder con alcance explícito de cajero, caja, turno y periodo aprobado
+    Given un Líder que captura por sustitución identificada y motivada en un turno cerrado de su alcance
     When captura efectivo contado y confirma el corte con idempotency key
     Then el backend calcula esperado, diferencia y tolerancia en centavos
     And crea reporte inmutable con actor, autorizador y operaciones incluidas
+    And el acuse del Líder no revela resultado financiero según CORTE-CIEGO-001
 
   @PRD-FR-219 @PRD-NFR-021
   @BDD-SC-287
@@ -381,11 +387,12 @@ Feature: Separar cierre operativo de corte final y monitorear ventas
 
   @PRD-FR-219 @PRD-NFR-020
   @BDD-SC-328
-  Scenario: Sólo Líder o superior dentro de alcance finaliza
+  Scenario: Sólo encargado Líder o Dueño dentro de alcance finaliza
     Given un corte COUNTED de una sucursal asignada
-    When Cajero o Cajero jefe intenta finalizar, o un Líder cambia a una sucursal ajena
+    When Cajero, Cajero jefe o delegado sólo financiero intenta finalizar, o un Líder cambia a una sucursal ajena
     Then la autorización falla cerrado y genera auditoría de denegación
     And el corte, turno, operaciones y asociaciones permanecen iguales
+    And Supervisor o Administrador no recibe autoridad por su nombre de rol
 
   @PRD-FR-219 @PRD-NFR-021
   @BDD-SC-329
@@ -401,7 +408,7 @@ Feature: Separar cierre operativo de corte final y monitorear ventas
   Scenario: Replay conflicto de versión y fallo interno son atómicos
     Given un corte DRAFT o COUNTED y una Idempotency-Key
     When se repite el mismo comando, se cambia su payload o falla una escritura antes del commit
-    Then el replay idéntico devuelve la respuesta almacenada
+    Then el replay idéntico devuelve acuse equivalente proyectado bajo autoridad vigente
     And el payload distinto o versión obsoleta falla sin mutación
     And el fallo interno no deja corte, asociación, comando o auditoría parcial
 
@@ -409,10 +416,11 @@ Feature: Separar cierre operativo de corte final y monitorear ventas
   @BDD-SC-331
   Scenario: Historial y detalle conservan snapshot y redacción
     Given cortes de dos sucursales y estados distintos
-    When un actor autorizado filtra por sucursal, caja, cajero, turno, estado y periodo
+    When Dueño o delegado con lectura financiera vigente filtra dentro de su concesión
     Then recibe cursor estable, snapshot financiero y operaciones sólo dentro de su alcance
     And no recibe Idempotency-Key, hash, evidencia ni motivo libre completo
     And cambiar pagos, movimientos, usuarios o zona después no reescribe un corte finalizado
+    And actor sólo operativo no recibe el snapshot financiero por tener permiso de finalizar
 
   @PRD-FR-219 @PRD-NFR-020 @PRD-NFR-021
   @BDD-SC-332

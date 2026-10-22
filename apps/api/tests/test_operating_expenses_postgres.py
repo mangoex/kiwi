@@ -39,6 +39,7 @@ def database():
             models.role_permissions,
             models.user_roles,
             models.role_authority_grants,
+            models.blind_cash_policy_revisions,
         }
         pending = list(needed)
         while pending:

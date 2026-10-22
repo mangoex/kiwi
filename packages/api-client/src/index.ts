@@ -1,7 +1,7 @@
 export const API_BASE_URL = "/api/v1";
 import { clearCashierLocalCapture } from './cashierDrafts';
 import { subscribeToOperationalUnauthorized } from './operationalOrders';
-import { branchWorkspaceSecret, clearBranchWorkspace } from './branchWorkspace';
+import { branchWorkspaceSecret, clearBranchWorkspace, parseSessionFinancialAccess } from './branchWorkspace';
 
 subscribeToOperationalUnauthorized(clearCashierLocalCapture);
 
@@ -32,6 +32,35 @@ function uncertainOperationalError(error: unknown): ApiError {
 
 const unauthorizedListeners = new Set<() => void>();
 let sessionGeneration = 0;
+let readAuthorityGeneration = 0;
+let readAuthorityIdentity: string | null = null;
+const readAuthorityListeners = new Set<() => void>();
+export function subscribeToApiReadAuthorityChange(listener: () => void): () => void {
+  readAuthorityListeners.add(listener);
+  return () => { readAuthorityListeners.delete(listener); };
+}
+/** Confirmed server scope only; never inferred from a role label or cached money. */
+export function setApiReadAuthority(profile: {
+  organization_id?: string;
+  user: {id: string};
+  active_branch: {id: string} | null;
+  scope: {authorization_version?: number};
+  financial_access?: unknown;
+} | null): void {
+  const access = profile?.financial_access === undefined ? undefined : parseSessionFinancialAccess(profile.financial_access);
+  if (access && access.authorization_version !== profile?.scope.authorization_version) {
+    throw new Error('financial_session_authority_changed');
+  }
+  const identity = profile ? JSON.stringify([
+    profile.organization_id, profile.user.id, profile.active_branch?.id,
+    profile.scope.authorization_version, access,
+  ]) : null;
+  if (identity === readAuthorityIdentity) return;
+  readAuthorityIdentity = identity;
+  readAuthorityGeneration++;
+  for (const listener of readAuthorityListeners) listener();
+}
+
 const operationalIntentListeners = new Set<() => void>();
 export function subscribeToOperationalIntentChange(listener: () => void): () => void {
   operationalIntentListeners.add(listener);
@@ -76,6 +105,7 @@ async function requestApi(endpoint: string, options: RequestInit, version: 'v1' 
     const currentToken = localStorage.getItem("auth_token") || sessionStorage.getItem("auth_token");
     if (notifyUnauthorized && response.status === 401 && endpoint !== '/auth/login' && token && token === currentToken && requestGeneration === sessionGeneration) {
       sessionGeneration++;
+      setApiReadAuthority(null);
       clearBranchWorkspace();
       clearCashierLocalCapture();
       localStorage.removeItem("auth_token");
@@ -103,7 +133,19 @@ async function requestApi(endpoint: string, options: RequestInit, version: 'v1' 
 export async function fetchApi<T>(endpoint: string, options: RequestInit = {}, version: 'v1' | 'v2' = 'v1'): Promise<T> {
   const credential = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
   const workspace = branchWorkspaceSecret(credential);
-  const command = workspace && version === 'v1' && options.method?.toUpperCase() === 'POST'
+  const readGeneration = readAuthorityGeneration;
+  const requestSessionGeneration = sessionGeneration;
+  const readOnly = ['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase());
+  const assertReadContext = () => {
+    const current = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+    if (readOnly && (current !== credential || branchWorkspaceSecret(current) !== workspace
+      || readGeneration !== readAuthorityGeneration || requestSessionGeneration !== sessionGeneration)) {
+      throw new ApiError(409, 'api_read_context_changed', 'La sesión o los permisos cambiaron. Vuelve a consultar.');
+    }
+  };
+  const durableVersion = version === 'v1' || (version === 'v2'
+    && (/^\/cash\/shifts\/open$/.test(endpoint) || /^\/cash\/shifts\/[^/]+\/close-operationally$/.test(endpoint)));
+  const command = workspace && durableVersion && options.method?.toUpperCase() === 'POST'
     ? operationalCommandIdentity(endpoint) : null;
   let intent: OperationalIntentReceipt | null = null;
   const assertOriginalContext = () => {
@@ -139,6 +181,7 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}, v
     throw error;
   });
   if (response.status === 204) {
+    assertReadContext();
     return {} as T;
   }
 
@@ -157,8 +200,9 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}, v
     assertOriginalContext();
     notifyOperationalIntents();
   }
+  assertReadContext();
   if (/^\/operational-intents\/[^/]+\/resolve$/.test(endpoint)) notifyOperationalIntents();
-  if (endpoint === '/auth/login') { sessionGeneration++; clearBranchWorkspace(); }
+  if (endpoint === '/auth/login') { sessionGeneration++; setApiReadAuthority(null); clearBranchWorkspace(); }
   return data;
 }
 

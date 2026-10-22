@@ -129,3 +129,17 @@ install(); transport((_, number) => {
 await assert.rejects(api.fetchApi('/orders', options), error => error.code === 'operational_command_context_changed');
 assert.equal(requests.length, 1, 'Do not send a prepared command under another account');
 console.log('Durable intent transport order, lost replies and account fence verified.');
+// V2 cash commands use the same durable preparation and recovery as v1.
+for (const [endpoint,kind] of [['/cash/shifts/open','cash.shift.open'],[`/cash/shifts/${uuid(6)}/close-operationally`,'cash.shift.close']]) {
+  install(); const cashReceipt = {...receipt,kind};
+  transport((_,number) => new Response(JSON.stringify(number === 1 ? cashReceipt :
+    number === 2 ? {resource_id:uuid(6)} : {...cashReceipt,state:'acknowledged',resource_id:uuid(6)})));
+  await api.fetchApi(endpoint,{...options,headers:{'Idempotency-Key':'v2-shift'}},'v2');
+  assert.equal(requests[0].url,'/api/v1/operational-intents','V2 must prepare a durable intent');
+  assert.equal(requests[1].url,`/api/v2${endpoint}`);
+  assert.equal(requests[1].headers.get('X-Operational-Intent'),uuid(5));
+  install(); transport((_,number) => number === 1 ? new Response(JSON.stringify(cashReceipt)) :
+    new Response(JSON.stringify({detail:{code:'cash_authorization_changed'}}),{status:409}));
+  await assert.rejects(api.fetchApi(endpoint,{...options,headers:{'Idempotency-Key':'v2-shift'}},'v2'),
+    error => error.code === 'cash_authorization_changed' && api.hasPendingOperationalIntent(error));
+}

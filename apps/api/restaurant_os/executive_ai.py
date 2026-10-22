@@ -208,8 +208,32 @@ def generate_executive_insights(
     prompt: str,
     branch_id: str | None = None,
     provider_options: ExecutiveAiProviderOptions | None = None,
+    *,
+    actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     """Synthesize analytical business questions into structured insights."""
+    from restaurant_os.cash_views import active_revision
+    from restaurant_os.financial_authority import FinancialAuthority
+    from restaurant_os.financial_reads import read_branches, require_financial_read
+    from restaurant_os.operations import BusinessError
+
+    def authorize() -> tuple[int | None, tuple[tuple[str, int | None], ...]]:
+        # This engine always compares branches, even when the prompt names just one.
+        version = require_financial_read(session, actor_user_id, None, ("sales",))
+        branches = read_branches(session, None)
+        if version is not None:
+            assert actor_user_id is not None
+            authority = FinancialAuthority(session, actor_user_id, ORGANIZATION_ID)
+            for branch in branches:
+                authority.require_capability("inventory.costs.read", branch)
+        return version, tuple((branch, active_revision(session, branch)) for branch in branches)
+
+    authorized = authorize()
+
+    def revalidate() -> None:
+        if authorize() != authorized:
+            raise BusinessError("cash_authorization_changed", "Refresh current authority")
+
     sales_overview = query_sales_overview(session, branch_id=branch_id)
     top_products = query_top_products_profitability(session, branch_id=branch_id, limit=5)
     branches = query_branches_comparison(session)
@@ -218,8 +242,14 @@ def generate_executive_insights(
 
     # If external provider is configured, call provider with tool data
     if provider_options and provider_options.api_key:
+        # Materialization and authorization were in one transaction. Network never
+        # holds governance locks. Revalidation cannot retract bytes already sent.
+        session.rollback()
+        revalidate()
+        session.rollback()
+        provider_result = None
         try:
-            return _call_external_provider(
+            provider_result = _call_external_provider(
                 provider_options,
                 prompt,
                 sales_overview,
@@ -228,6 +258,9 @@ def generate_executive_insights(
             )
         except Exception:
             pass  # Fallback to deterministic local synthesizer
+        revalidate()
+        if provider_result is not None:
+            return provider_result
 
     # Deterministic local synthesis in Python
     if (

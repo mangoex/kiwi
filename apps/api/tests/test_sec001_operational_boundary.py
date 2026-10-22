@@ -337,7 +337,7 @@ def test_human_operational_routes_reauthorize_explicit_branch_scope(
     )
     monkeypatch.setattr(
         "restaurant_os.api.list_print_jobs",
-        lambda _session, branch_id: observed.append(("print", branch_id)) or [],
+        lambda _session, branch_id, **_kwargs: observed.append(("print", branch_id)) or [],
     )
     monkeypatch.setattr(
         "restaurant_os.api.list_sync_events",
@@ -1247,12 +1247,14 @@ def test_tc144_concurrent_retries_create_one_active_attempt(
     def retry(key: str) -> None:
         with Session(engine) as concurrent_session:
             try:
+                # Authority now reserves the SQLite writer at entry. Start both commands
+                # together; waiting inside that reservation would deadlock the test itself.
+                barrier.wait(timeout=10)
                 retry_print_job(
                     concurrent_session,
                     "job-retry-race",
                     key,
                     "branch-a",
-                    _before_transition=lambda: barrier.wait(timeout=10),
                 )
                 outcomes.append("queued")
             except BusinessError as exc:

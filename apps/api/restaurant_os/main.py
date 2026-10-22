@@ -20,9 +20,12 @@ from restaurant_os.agent_tools import router as agent_tools_router
 from restaurant_os.api import get_whatsapp_webhook, post_whatsapp_webhook, reconciliation_v2_router
 from restaurant_os.api import router as platform_router
 from restaurant_os.auth import verify_session_token
+from restaurant_os.cash_views_api import router as cash_views_router
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.delivery_fee_api import router as delivery_fee_router
+from restaurant_os.financial_access_api import router as financial_access_router
+from restaurant_os.financial_reads_api import router as financial_reads_router
 from restaurant_os.health import readiness_payload
 from restaurant_os.mobile_customer_api import router as mobile_customer_router
 from restaurant_os.phone_verification import TwilioPhoneVerifier
@@ -154,6 +157,9 @@ def create_app() -> FastAPI:
     app.include_router(delivery_fee_router)
     app.include_router(mobile_customer_router)
     app.include_router(reconciliation_v2_router)
+    app.include_router(financial_access_router)
+    app.include_router(cash_views_router)
+    app.include_router(financial_reads_router)
 
     # WhatsApp compatibility alias for webhooks routed to /v1 without /api prefix
     @app.get("/v1/integrations/whatsapp/webhook", include_in_schema=False)

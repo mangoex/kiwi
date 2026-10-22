@@ -1,0 +1,535 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ContactAddressV2": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "customer_id": {
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "alias": {
+          "title": "Alias",
+          "type": "string"
+        },
+        "street": {
+          "title": "Street",
+          "type": "string"
+        },
+        "exterior_number": {
+          "title": "Exterior Number",
+          "type": "string"
+        },
+        "interior_number": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Interior Number"
+        },
+        "neighborhood": {
+          "title": "Neighborhood",
+          "type": "string"
+        },
+        "postal_code": {
+          "title": "Postal Code",
+          "type": "string"
+        },
+        "city": {
+          "title": "City",
+          "type": "string"
+        },
+        "municipality": {
+          "title": "Municipality",
+          "type": "string"
+        },
+        "state": {
+          "title": "State",
+          "type": "string"
+        },
+        "country": {
+          "title": "Country",
+          "type": "string"
+        },
+        "cross_streets": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cross Streets"
+        },
+        "references": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "References"
+        },
+        "delivery_instructions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Instructions"
+        },
+        "latitude": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latitude"
+        },
+        "longitude": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Longitude"
+        },
+        "delivery_zone_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Zone Id"
+        },
+        "is_default": {
+          "title": "Is Default",
+          "type": "boolean"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "last_used_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Used At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "customer_id",
+        "alias",
+        "street",
+        "exterior_number",
+        "interior_number",
+        "neighborhood",
+        "postal_code",
+        "city",
+        "municipality",
+        "state",
+        "country",
+        "cross_streets",
+        "references",
+        "delivery_instructions",
+        "latitude",
+        "longitude",
+        "delivery_zone_id",
+        "is_default",
+        "status",
+        "last_used_at",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "ContactAddressV2",
+      "type": "object"
+    },
+    "ContactPhoneV2": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "customer_id": {
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "captured_number": {
+          "title": "Captured Number",
+          "type": "string"
+        },
+        "normalized_number": {
+          "title": "Normalized Number",
+          "type": "string"
+        },
+        "phone_type": {
+          "title": "Phone Type",
+          "type": "string"
+        },
+        "is_primary": {
+          "title": "Is Primary",
+          "type": "boolean"
+        },
+        "whatsapp_enabled": {
+          "title": "Whatsapp Enabled",
+          "type": "boolean"
+        },
+        "is_verified": {
+          "title": "Is Verified",
+          "type": "boolean"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "customer_id",
+        "captured_number",
+        "normalized_number",
+        "phone_type",
+        "is_primary",
+        "whatsapp_enabled",
+        "is_verified",
+        "status",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "ContactPhoneV2",
+      "type": "object"
+    },
+    "ContactTaxProfileV2": {
+      "additionalProperties": false,
+      "properties": {
+        "customer_id": {
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "legal_name": {
+          "title": "Legal Name",
+          "type": "string"
+        },
+        "tax_id": {
+          "title": "Tax Id",
+          "type": "string"
+        },
+        "tax_regime": {
+          "title": "Tax Regime",
+          "type": "string"
+        },
+        "fiscal_postal_code": {
+          "title": "Fiscal Postal Code",
+          "type": "string"
+        },
+        "cfdi_use": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cfdi Use"
+        },
+        "billing_email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Billing Email"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "customer_id",
+        "legal_name",
+        "tax_id",
+        "tax_regime",
+        "fiscal_postal_code",
+        "cfdi_use",
+        "billing_email",
+        "updated_at"
+      ],
+      "title": "ContactTaxProfileV2",
+      "type": "object"
+    },
+    "CustomerOperationalV2": {
+      "additionalProperties": false,
+      "properties": {
+        "projection": {
+          "const": "operational",
+          "default": "operational",
+          "title": "Projection",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 2,
+          "default": 2,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "policy_version": {
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "organization_id": {
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email"
+        },
+        "birthday_day": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Birthday Day"
+        },
+        "birthday_month": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Birthday Month"
+        },
+        "birthday_year": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Birthday Year"
+        },
+        "customer_type": {
+          "title": "Customer Type",
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Notes"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "origin_branch_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Origin Branch Id"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "phones": {
+          "items": {
+            "$ref": "#/$defs/ContactPhoneV2"
+          },
+          "title": "Phones",
+          "type": "array"
+        },
+        "addresses": {
+          "items": {
+            "$ref": "#/$defs/ContactAddressV2"
+          },
+          "title": "Addresses",
+          "type": "array"
+        },
+        "tax_profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContactTaxProfileV2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "legacy_address_reference": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Legacy Address Reference"
+        }
+      },
+      "required": [
+        "policy_version",
+        "id",
+        "organization_id",
+        "name",
+        "email",
+        "birthday_day",
+        "birthday_month",
+        "birthday_year",
+        "customer_type",
+        "notes",
+        "status",
+        "origin_branch_id",
+        "created_at",
+        "updated_at",
+        "phones",
+        "addresses",
+        "tax_profile",
+        "legacy_address_reference"
+      ],
+      "title": "CustomerOperationalV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/CustomerOperationalV2"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "total": {
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    },
+    "limit": {
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    },
+    "offset": {
+      "minimum": 0,
+      "title": "Offset",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "items",
+    "total",
+    "limit",
+    "offset"
+  ],
+  "title": "CustomerOperationalPageV2",
+  "type": "object"
+}

@@ -1,5 +1,8 @@
 # TDD — Test-Driven Development Strategy
 
+CORTE-CIEGO-001: [estrategia de verificación](04-TDD-corte-ciego.md),
+TDD-TS-157..160 y TDD-TC-450..465. Definida, no ejecutada como comportamiento.
+
 ## 1. Objetivo
 
 Definir cómo se construirá cada comportamiento mediante pruebas primero, con cobertura de dominio, infraestructura, sincronización e interfaces.

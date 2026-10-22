@@ -12,6 +12,7 @@ from openpyxl.styles import Border, Font, PatternFill, Side
 from sqlalchemy.orm import Session
 
 from . import models
+from .financial_reads import RECONCILIATION_DATASETS, require_financial_read
 from .operations import (
     ORGANIZATION_ID,
     AuthorizationError,
@@ -749,6 +750,7 @@ def get_branch_daily_reconciliation(
     actor_id: str | None = None,
 ) -> dict[str, Any]:
     """Version 2: whole-shift balances and calendar event activity are distinct."""
+    require_financial_read(session, actor_id, branch_id, RECONCILIATION_DATASETS)
     if actor_id:
         authorize_branch_scope(session, actor_id, "dashboard.read", branch_id)
     branch = (
@@ -885,6 +887,7 @@ def get_multi_branch_consolidated_report(
     actor_id: str | None = None,
 ) -> dict[str, Any]:
     """Aggregates daily reconciliations across all or selected branches."""
+    require_financial_read(session, actor_id, branch_id, RECONCILIATION_DATASETS)
     if actor_id:
         branch_id = authorize_branch_scope(session, actor_id, "dashboard.read", branch_id)
 
@@ -1095,6 +1098,7 @@ def export_reconciliation_workbook(
     actor_id: str | None = None,
 ) -> io.BytesIO:
     """Generates standard Excel (.xlsx) matching the structure of Kiwi Multi-Branch Cuts."""
+    require_financial_read(session, actor_id, branch_id, RECONCILIATION_DATASETS)
     if actor_id:
         authorize_branch_scope(session, actor_id, "dashboard.read", branch_id)
     if not 1 <= month <= 12 or not 1 <= year <= 9998:

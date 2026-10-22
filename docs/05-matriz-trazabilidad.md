@@ -2,6 +2,24 @@
 
 Estado permitido: `Propuesto`, `Disenado`, `Scaffold`, `Probado`, `Implementado`.
 
+CORTE-CIEGO-001: PRD-FR-289..300 están `Disenado`, con CC-D01..12 aprobadas y
+formalización documental. F1-04 aporta implementación/pruebas parciales de autoridad;
+F1-06 añade cobertura parcial de lectores/reportes, sin cierre de fase:
+[casos](../apps/api/tests/test_corte_ciego_f106.py),
+[agentes](../apps/api/tests/test_corte_ciego_f106_agents.py),
+[listados operativos](../apps/api/tests/test_corte_ciego_f106_operational.py),
+[detalle por contexto](../apps/api/tests/test_corte_ciego_f106_orders.py),
+[concurrencia del detalle](../apps/api/tests/test_corte_ciego_f106_order_postgres.py),
+[descargas](../apps/api/tests/test_corte_ciego_f106_fiscal.py) y
+[PostgreSQL](../apps/api/tests/test_corte_ciego_f106_postgres.py), vinculados a
+TC-450/451/461/462/463 y PRD-FR-289/290/299/300 según TDD y [plan §12](implementation-plans/CORTE-CIEGO-001-FASE-1.md#12-f1-06--avance-de-lectores-y-reportes);
+ningún requisito integral de corte ciego se acredita todavía. Proyecciones de caja F1-05 verificadas localmente: [plan F1 §11](implementation-plans/CORTE-CIEGO-001-FASE-1.md#11-f1-05--proyecciones-de-turnos-y-cortes). Evidencia de autoridad: [plan F1 §10](implementation-plans/CORTE-CIEGO-001-FASE-1.md#10-f1-04--capacidades-delegación-y-alcance). Los estados y
+resultados históricos de PCO-006/PRD-FR-219 y contratos relacionados se conservan como
+baseline, sin acreditar el nuevo contrato. Las precisiones en BDD-SC-286/328/330/331
+y TDD-TC-114/118 requieren nueva evidencia. Autoridad/lecturas financieras de filas
+anteriores, incluidos PRD-FR-005/218/220/271, se subordinan a SDD §71 al activar la
+política; una capacidad operativa o nombre de rol no sustituye la concesión financiera.
+
 Evidencia AUD-CORE-001: CI #343 sobre f2a0afa y PR #67, según plan §12.1.
 Los estados baseline de requisitos más amplios se conservan; este cierre acredita las correcciones
 y regresiones del paquete, sin certificar despliegue o datos productivos.
@@ -10,6 +28,18 @@ y regresiones del paquete, sin certificar despliegue o datos productivos.
 
 | Requisito | Diseno | Escenario BDD | Suite TDD | Estado |
 |---|---|---|---|---|
+| PRD-FR-289 | CORTE-CIEGO-001 CC-D01; SDD §71.1/ADR-048; proyecciones operativa/financiera y delegación revocable; [F1-02](02-SDD-corte-ciego-fase-1.md), [accesos F1-01](implementation-plans/CORTE-CIEGO-001-ACCESOS.md) | BDD-SC-767, BDD-SC-768 | TDD-TS-157, TDD-TC-450, TDD-TC-465; [RED F1-03](../apps/api/tests/test_corte_ciego_f1_red.py); [autoridad F1-04 parcial](../apps/api/tests/test_corte_ciego_f104.py); [proyecciones/acuses F1-05 parcial](../apps/api/tests/test_corte_ciego_f105.py) | Disenado |
+| PRD-FR-290 | CORTE-CIEGO-001 CC-D02; SDD §71.2; roles y revisión individual de grants efectivos; [F1-02](02-SDD-corte-ciego-fase-1.md), [accesos F1-01](implementation-plans/CORTE-CIEGO-001-ACCESOS.md) | BDD-SC-769, BDD-SC-770 | TDD-TS-157, TDD-TC-451, TDD-TC-465; [RED F1-03](../apps/api/tests/test_corte_ciego_f1_red.py); [autoridad F1-04 parcial](../apps/api/tests/test_corte_ciego_f104.py); [proyecciones/acuses F1-05 parcial](../apps/api/tests/test_corte_ciego_f105.py) | Disenado |
+| PRD-FR-291 | CORTE-CIEGO-001 CC-D03; SDD §71.3; captura propia/sustituta y finalización central autorizada; [F1-02](02-SDD-corte-ciego-fase-1.md), [accesos F1-01](implementation-plans/CORTE-CIEGO-001-ACCESOS.md) | BDD-SC-771, BDD-SC-772, BDD-SC-793, BDD-SC-794 | TDD-TS-158, TDD-TC-452, TDD-TC-463, TDD-TC-465; [RED F1-03](../apps/api/tests/test_corte_ciego_f1_red.py); [autoridad F1-04 parcial](../apps/api/tests/test_corte_ciego_f104.py); [proyecciones/acuses F1-05 parcial](../apps/api/tests/test_corte_ciego_f105.py) | Disenado |
+| PRD-FR-292 | CORTE-CIEGO-001 CC-D04; SDD §71.4; denominaciones MXN, borrador, confirmación única y custodia | BDD-SC-773, BDD-SC-774, BDD-SC-793, BDD-SC-794 | TDD-TS-158, TDD-TC-453, TDD-TC-454, TDD-TC-463, TDD-TC-465 | Disenado |
+| PRD-FR-293 | CORTE-CIEGO-001 CC-D05; SDD §71.5; conciliación por medio y pendientes externos explícitos | BDD-SC-775, BDD-SC-776, BDD-SC-777 | TDD-TS-158, TDD-TC-455, TDD-TC-465 | Disenado |
+| PRD-FR-294 | CORTE-CIEGO-001 CC-D06; SDD §71.6; tolerancia cero y evidencia de aviso; entrega/reintentos en fase 3 sin canal elegido | BDD-SC-778, BDD-SC-779 | TDD-TS-158, TDD-TC-456, TDD-TC-465 | Disenado |
+| PRD-FR-295 | CORTE-CIEGO-001 CC-D07; SDD §71.7; reporte operativo y compensación exclusiva Dueño sin segundo aprobador | BDD-SC-780, BDD-SC-781 | TDD-TS-158, TDD-TC-457, TDD-TC-465; [proyecciones/acuses F1-05 parcial](../apps/api/tests/test_corte_ciego_f105.py) | Disenado |
+| PRD-FR-296 | CORTE-CIEGO-001 CC-D08; SDD §71.8; autorización exacta sin evadir guardas de pago/producción; [F1-02](02-SDD-corte-ciego-fase-1.md), [accesos F1-01](implementation-plans/CORTE-CIEGO-001-ACCESOS.md) | BDD-SC-782, BDD-SC-783 | TDD-TS-159, TDD-TC-458, TDD-TC-465 | Disenado |
+| PRD-FR-297 | CORTE-CIEGO-001 CC-D09; SDD §71.9; recepción sin costos y ajuste administrativo separado; [F1-02](02-SDD-corte-ciego-fase-1.md), [accesos F1-01](implementation-plans/CORTE-CIEGO-001-ACCESOS.md) | BDD-SC-784, BDD-SC-785 | TDD-TS-159, TDD-TC-459, TDD-TC-465 | Disenado |
+| PRD-FR-298 | CORTE-CIEGO-001 CC-D10; SDD §71.10; SQLite durable, acuse provisional y completitud central; [F1-02](02-SDD-corte-ciego-fase-1.md), [accesos F1-01](implementation-plans/CORTE-CIEGO-001-ACCESOS.md) | BDD-SC-786, BDD-SC-787, BDD-SC-788, BDD-SC-793, BDD-SC-794 | TDD-TS-160, TDD-TC-460, TDD-TC-463, TDD-TC-465 | Disenado |
+| PRD-FR-299 | CORTE-CIEGO-001 CC-D11; SDD §71.11; transición entre turnos y reversión sin pérdida de historia/confidencialidad; [F1-02](02-SDD-corte-ciego-fase-1.md), [accesos F1-01](implementation-plans/CORTE-CIEGO-001-ACCESOS.md) | BDD-SC-789, BDD-SC-790 | TDD-TS-160, TDD-TC-461, TDD-TC-464, TDD-TC-465; [concurrencia de DTO F1-05 parcial](../apps/api/tests/test_corte_ciego_f105_postgres.py) | Disenado |
+| PRD-FR-300 | CORTE-CIEGO-001 CC-D12; SDD §71.12; tickets/ranking restringidos y consulta individual acotada; [F1-02](02-SDD-corte-ciego-fase-1.md), [accesos F1-01](implementation-plans/CORTE-CIEGO-001-ACCESOS.md) | BDD-SC-791, BDD-SC-792 | TDD-TS-157, TDD-TC-462, TDD-TC-465; [RED F1-03](../apps/api/tests/test_corte_ciego_f1_red.py); [autoridad F1-04 parcial](../apps/api/tests/test_corte_ciego_f104.py) | Disenado |
 | PRD-FR-283 | DELIVERY-FEE-001 SDD §70.1 / ADR-047; catálogo separado, revisiones y política scoped; alta/edición en diálogo, encabezado corporativo y reglas por sucursal con vista previa (TC438/439 browser); evidencia local y límites en plan §7; CI/release pendientes | BDD-SC-745, BDD-SC-746, BDD-SC-747 | TDD-TS-154, TDD-TC-438, TDD-TC-439, TDD-TS-156, TDD-TC-445 | Probado |
 | PRD-FR-284 | DELIVERY-FEE-001 SDD §70.2/70.3/70.4; selección única, retiro persistente, permisos y comanda; panel compacto con envío desplegable y QA de área de productos/confirmación (TC440 browser); núcleo online local; límites/pendientes en plan §7 | BDD-SC-748, BDD-SC-749, BDD-SC-750, BDD-SC-751 | TDD-TS-155, TDD-TC-440, TDD-TC-441, TDD-TS-156, TDD-TC-445 | Probado |
 | PRD-FR-285 | DELIVERY-FEE-001 SDD §70.2; base tras descuentos sin envío/propina, umbral inclusivo y precedencia del retiro; comanda exenta muestra Gratis sin precio de lista ni desglose cero (TC442 browser); núcleo online local; límites/pendientes en plan §7 | BDD-SC-752, BDD-SC-753, BDD-SC-754 | TDD-TS-155, TDD-TC-442 | Probado |
@@ -331,3 +361,102 @@ No se acepta una nueva historia sin:
 - escenario BDD,
 - suite y caso TDD,
 - estado de implementacion.
+
+
+Evidencia parcial adicional CORTE-CIEGO-001, TDD-TC-450/462 y BDD-SC-792:
+`apps/api/tests/test_corte_ciego_f106_print.py` y
+`apps/api/tests/test_corte_ciego_f106_print_postgres.py` cubren metadata humana,
+retry contextual y conservación de payload. No cambian el estado global de los
+requisitos ni acreditan la entrega técnica a dispositivos o el cierre de fase 1.
+
+
+Impresión técnica, evidencia parcial BDD-SC-792 / TDD-TC-450/462:
+`test_corte_ciego_f106_print_devices.py`, `test_corte_ciego_f106_device_postgres.py`
+y schemas `print-ticket-payload-v2` / `print-kitchen-payload-v2`. No acredita hardware,
+compatibilidad de consumidores externos ni cierre de fase 1.
+
+
+Evidencia parcial BDD-SC-768/792 y TDD-TC-450/462: `test_corte_ciego_f106_command_receipts.py`,
+`test_corte_ciego_f106_receipt_postgres.py` y schema `order-command-receipt-v2`.
+Cubre acuses propios de alta/pago y preview contextual; no cambia el estado global
+ni acredita todavía todas las liquidaciones o consumidores de fase 1.
+
+Solicitudes operativas, evidencia parcial BDD-SC-768/792 y TDD-TC-450/461/462:
+`test_corte_ciego_f106_intents.py` y `test_corte_ciego_f106_intent_postgres.py`:
+lectura vigente del acuse propio, audiencia humana, metadata SQL/JSON, integridad de
+compensación y recuperación concurrente. No cambia el estado global ni acredita
+las respuestas monetarias de otros comandos o la transición de F1-09.
+
+Movimientos humanos, evidencia parcial BDD-SC-767/768 y TDD-TC-450/451/461:
+`test_corte_ciego_f106_movements.py`, `test_corte_ciego_f106_movement_postgres.py`
+y contrato `cash-movement-command-receipt-v2.schema.json` cubren acuses, permisos
+vigentes, snapshots conservados, duplicados y transacciones reales. La prueba de
+sync activo conserva el acuse técnico existente y no acredita el rollout de F1-09.
+Los estados globales permanecen pendientes de completar integración y auditoría.
+
+Liquidaciones de repartidores: `test_corte_ciego_f106_settlements.py` vincula
+BDD-SC-767/768/792 con TDD-TC-450/451/461/462 (cobertura parcial F1-06).
+El selector y los acuses preservan la operación sin conceder lectura financiera;
+el estado global sigue pendiente de integración, transición y auditoría.
+
+Reapertura de pedidos: `test_corte_ciego_f106_reopen.py` enlaza BDD-SC-767/768/792
+con TDD-TC-450/451/461/462 de F1-06, sin dar por concluida la separación integral
+de permisos ni el workflow de corrección de conteos de fase 2.
+
+La evidencia de reapertura se complementa con `test_corte_ciego_f106_reopen_postgres.py`
+y `order-reopen-receipt-v2.schema.json`: atomicidad, duplicados, revocación y paridad
+de contrato. Mantiene el estado parcial del paquete hasta F1-10/11.
+
+Modificaciones de pedido: `test_corte_ciego_f106_amendments.py`,
+`test_corte_ciego_f106_amendment_postgres.py` y contrato
+`order-amendment-receipt-v2.schema.json` enlazan BDD-SC-768/792 con
+TDD-TC-450/451/461/462 parcial: recuperación propia sin dinero ni reejecución,
+historia sin hash, revocación, atomicidad y concurrencia. F1-06 sigue en curso.
+
+Logs de integraciones: `test_corte_ciego_f106_integration_logs.py` y contrato
+`integration-log-metadata-v2.schema.json` enlazan BDD-SC-767/768 con
+TDD-TC-450/451/461 parcial: listas humanas sin originales, permisos actuales,
+auditoría, revalidación y suspensión sin retorno al payload. Conserva el estado
+parcial de fase 1; adaptación de Admin y auditoría integral aún pendientes.
+`test_corte_ciego_f106_integration_logs_postgres.py` complementa el mismo enlace con
+evidencia del dialecto PostgreSQL y atomicidad de auditoría, sin sustituir F1-10/11.
+
+Gastos: `test_corte_ciego_f106_expenses.py` y
+`test_corte_ciego_f106_expense_postgres.py` enlazan BDD-SC-767/768/792 con
+TDD-TC-450/451/461/462 parcial. Contratos `expense-command-receipt-v2`,
+`expense-operational-page-v2` y `expense-draft-v2`: acuses propios, metadata,
+borrador acreditado por versión y lecturas financieras separadas. Preservan
+confirmación/compensación y abandono terminal; no completan la UI ni transición.
+Evidencia parcial F1-06 (PRD-FR-289/290/300; BDD-767/768/792; TC-450/451/462):
+`apps/api/tests/test_corte_ciego_f106_cancellations.py` y
+`apps/api/tests/test_corte_ciego_f106_cancellation_postgres.py`, contrato
+`packages/contracts/schemas/order-cancellation-receipt-v2.schema.json`.
+No cierra la fase ni acredita la autorización exacta de acciones pendiente de F1-08.
+
+Evidencia parcial F1-06 (PRD-FR-289/290/300; BDD-767/768/792; TC-450/451/462):
+`apps/api/tests/test_corte_ciego_f106_acceptance.py`,
+`apps/api/tests/test_corte_ciego_f106_acceptance_postgres.py` y contrato
+`packages/contracts/schemas/order-acceptance-receipt-v2.schema.json`.
+
+Evidencia parcial F1-06 / PRD-FR-289/290/300, BDD-767/768/792, TC-450/451/462:
+`apps/api/tests/test_corte_ciego_f106_driver_history.py` y
+`apps/api/tests/test_corte_ciego_f106_driver_history_postgres.py`.
+
+Evidencia parcial F1-06 / PRD-FR-289/290/300, BDD-767/768/792, TC-450/451/462:
+`apps/api/tests/test_corte_ciego_f106_channel_orders.py`,
+`apps/api/tests/test_corte_ciego_f106_channel_orders_postgres.py` y contrato
+`packages/contracts/schemas/channel-order-operational-v2.schema.json`.
+
+Evidencia parcial adicional F1-06 para BDD-767/792 y TDD-TC-450/462: diagnóstico humano
+de sync en `apps/api/tests/test_corte_ciego_f106_sync_events.py` y
+`apps/api/tests/test_corte_ciego_f106_sync_events_postgres.py`. No cierra fase 1.
+
+Evidencia parcial F1-09: `apps/api/tests/test_corte_ciego_f109_suspension.py` relaciona
+TDD-TC-461/464 y el criterio de reversión sin reapertura de información de CC-D11.
+Preflight, clientes y leases todavía no se declaran completos.
+
+Evidencia F1-07 TDD-TC-450/461/462: `tests/frontend/test_corte_ciego_f107_read_context.mjs`
+verifica invalidación de respuesta tardía en la frontera compartida del cliente.
+
+F1-07 sesión efectiva: `apps/api/tests/test_corte_ciego_f107_session.py` para
+TDD-TC-450/451/461; consumidores aún requieren integración completa.

@@ -2,6 +2,7 @@ import { confirmWorkspaceNavigation } from '@restaurantos/ui';
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import {
   fetchApi,
+  setApiReadAuthority,
   fetchOptionalCentralSession,
   ApiError,
   clearOfflineOrderGrant,
@@ -126,6 +127,7 @@ export function setPosBranchId(branchId: string) {
  * Clear all POS session artifacts. Called on logout or 401.
  */
 export function clearPosSession() {
+  setApiReadAuthority(null);
   clearBranchWorkspace();
   clearCashierLocalCapture();
   clearOfflineOrderGrant();
@@ -211,6 +213,7 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
       localStorage.removeItem('pos_branch_id');
       localStorage.removeItem('admin_branch_id');
     }
+    setApiReadAuthority(session);
     setState({ status: 'ok', session });
   }, []);
 
@@ -416,7 +419,10 @@ export function PosSessionProvider({ children }: { children: React.ReactNode }) 
     applyCatalogAppearance,
     selectBranch,
   };
-  return React.createElement(SessionContext.Provider, { value }, children);
+  const readContextKey = session ? [session.user.id, session.active_branch?.id,
+    session.scope.authorization_version, JSON.stringify(session.financial_access)].join(':') : 'unconfirmed';
+  return React.createElement(SessionContext.Provider, { value },
+    React.createElement(React.Fragment, {key: readContextKey}, children));
 }
 
 export function usePosSession(): SessionContextValue {

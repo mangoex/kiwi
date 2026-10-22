@@ -1,0 +1,115 @@
+{
+  "$defs": {
+    "PaymentFinancialV2": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "organization_id": {
+          "title": "Organization Id",
+          "type": "string"
+        },
+        "branch_id": {
+          "title": "Branch Id",
+          "type": "string"
+        },
+        "cash_shift_id": {
+          "title": "Cash Shift Id",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "amount_cents": {
+          "title": "Amount Cents",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "projection": {
+          "const": "financial",
+          "default": "financial",
+          "title": "Projection",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 2,
+          "default": 2,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "policy_version": {
+          "title": "Policy Version",
+          "type": "integer"
+        },
+        "order_id": {
+          "title": "Order Id",
+          "type": "string"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "currency": {
+          "title": "Currency",
+          "type": "string"
+        },
+        "confirmed_at": {
+          "format": "date-time",
+          "title": "Confirmed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "organization_id",
+        "branch_id",
+        "cash_shift_id",
+        "status",
+        "amount_cents",
+        "created_at",
+        "policy_version",
+        "order_id",
+        "method",
+        "currency",
+        "confirmed_at"
+      ],
+      "title": "PaymentFinancialV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/PaymentFinancialV2"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor"
+  ],
+  "title": "CashPageV2[PaymentFinancialV2]",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

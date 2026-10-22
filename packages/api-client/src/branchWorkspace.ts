@@ -1,5 +1,6 @@
 /** Central workspace secrets live only in this document's memory (SDD 58.2). */
 export interface BranchWorkspaceProfile {
+  financial_access?: SessionFinancialAccess;
   organization_id?: string;
   user: { id: string };
   scope: { authorization_version?: number; allowed_branch_ids: string[] };
@@ -208,4 +209,59 @@ export function branchSelectionIntent(
 
 export function clearBranchSelectionIntent(profile: BranchWorkspaceProfile): void {
   sessionStorage.removeItem(selectionKey(profile));
+}
+
+
+export type FinancialDataset = 'cash.shifts' | 'cash.cuts' | 'cash.movements' | 'sales' | 'reconciliation' | 'expenses';
+export interface BranchFinancialAccess {
+  branch_id: string;
+  policy_version: number | null;
+  state: 'legacy' | 'active' | 'suspended';
+  capabilities: Record<string, boolean>;
+  datasets: FinancialDataset[];
+}
+export interface SessionFinancialAccess {
+  schema_version: 2;
+  authorization_version: number;
+  branches: BranchFinancialAccess[];
+}
+const financialDatasets: readonly string[] = ['cash.shifts', 'cash.cuts', 'cash.movements', 'sales', 'reconciliation', 'expenses'];
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+function exactKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  return Object.keys(value).sort().join(',') === [...keys].sort().join(',');
+}
+export function parseSessionFinancialAccess(value: unknown): SessionFinancialAccess {
+  const fail = (): never => { throw new Error('financial_session_contract_invalid'); };
+  if (!record(value) || !exactKeys(value, ['schema_version', 'authorization_version', 'branches'])
+    || value.schema_version !== 2 || !Number.isSafeInteger(value.authorization_version)
+    || (value.authorization_version as number) < 1 || !Array.isArray(value.branches)) return fail();
+  const seen = new Set<string>();
+  for (const branch of value.branches) {
+    if (!record(branch) || !exactKeys(branch, ['branch_id', 'policy_version', 'state', 'capabilities', 'datasets'])
+      || typeof branch.branch_id !== 'string' || !branch.branch_id || seen.has(branch.branch_id)
+      || !['legacy', 'active', 'suspended'].includes(String(branch.state))
+      || (branch.policy_version !== null && (!Number.isSafeInteger(branch.policy_version) || (branch.policy_version as number) < 1))
+      || (branch.state !== 'legacy' && branch.policy_version === null)
+      || !record(branch.capabilities) || Object.values(branch.capabilities).some(flag => typeof flag !== 'boolean')
+      || !Array.isArray(branch.datasets) || branch.datasets.some(dataset => !financialDatasets.includes(dataset))
+      || new Set(branch.datasets).size !== branch.datasets.length
+      || (branch.state !== 'active' && (branch.datasets.length !== 0 || Object.keys(branch.capabilities).length !== 0))) return fail();
+    seen.add(branch.branch_id);
+  }
+  return value as unknown as SessionFinancialAccess;
+}
+export function financialAccessForBranch(
+  profile: {scope: {authorization_version?: number}; financial_access?: SessionFinancialAccess},
+  branchId: string,
+): BranchFinancialAccess | null {
+  if (profile.financial_access === undefined) return null;
+  const access = parseSessionFinancialAccess(profile.financial_access);
+  if (access.authorization_version !== profile.scope.authorization_version) {
+    throw new Error('financial_session_authority_changed');
+  }
+  const branch = access.branches.find(item => item.branch_id === branchId);
+  if (!branch) throw new Error('financial_session_scope_denied');
+  return branch;
 }

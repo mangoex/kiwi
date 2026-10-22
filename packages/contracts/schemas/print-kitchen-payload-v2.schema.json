@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "KitchenLine": {
+      "additionalProperties": false,
+      "properties": {
+        "product_name": {
+          "title": "Product Name",
+          "type": "string"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "station": {
+          "title": "Station",
+          "type": "string"
+        },
+        "line_notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line Notes"
+        },
+        "selected_modifiers": {
+          "items": {
+            "$ref": "#/$defs/KitchenModifier"
+          },
+          "title": "Selected Modifiers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "product_name",
+        "quantity",
+        "station",
+        "selected_modifiers"
+      ],
+      "title": "KitchenLine",
+      "type": "object"
+    },
+    "KitchenModifier": {
+      "additionalProperties": false,
+      "properties": {
+        "option_id": {
+          "title": "Option Id",
+          "type": "string"
+        },
+        "option_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Option Name"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Group Name"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "effect_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect Type"
+        },
+        "selection_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection Kind"
+        },
+        "portions": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portions"
+        },
+        "portion_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portion Count"
+        },
+        "portion_quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portion Quantity"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "kitchen_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kitchen Text"
+        },
+        "station": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Station"
+        },
+        "component_product_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component Product Name"
+        },
+        "component_quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component Quantity"
+        }
+      },
+      "required": [
+        "option_id"
+      ],
+      "title": "KitchenModifier",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "copy": {
+      "const": "kitchen",
+      "title": "Copy",
+      "type": "string"
+    },
+    "folio": {
+      "title": "Folio",
+      "type": "string"
+    },
+    "lines": {
+      "items": {
+        "$ref": "#/$defs/KitchenLine"
+      },
+      "title": "Lines",
+      "type": "array"
+    }
+  },
+  "required": [
+    "copy",
+    "folio",
+    "lines"
+  ],
+  "title": "KitchenPayload",
+  "type": "object"
+}

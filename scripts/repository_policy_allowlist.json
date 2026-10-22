@@ -2,7 +2,7 @@
   "synthetic_allowlist": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "57aecc6cedd440c85809c7f02ddc7bed5250575770d930315ce32d6e0ab456f7",
+      "sha256": "612e37b8b83f63f1eb2162fb43915e41bc5385404e6d8aa95b872026f093c801",
       "provenance": "restaurantos-ci-test-services-v1"
     },
     {
@@ -37,12 +37,12 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "40d8a58c2944d3cc0bd7d4e03e9ca5f7aa746331233a63fae85c96e270bd98f0",
+      "sha256": "08f2bd913dd25900d912807c05d57623233f053e181900daeba1e9b8bee41cb1",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
       "path": "apps/api/tests/test_sec001_operational_boundary.py",
-      "sha256": "9c268e7956ccf1f141f921c66e246929b3e39c8e24b5f121b1b160c9ed24f25a",
+      "sha256": "cebb0f7db5898823282d2468769d5990bd829ffa96b36df0656cfd8a14631dfc",
       "provenance": "restaurantos-sec001-tests-v1"
     },
     {
@@ -152,7 +152,7 @@
     },
     {
       "path": "apps/api/tests/test_branch_workspace_route_guard.py",
-      "sha256": "c17898baf25babb0f8e985dc93f7eff3d30572d8917f684afad6c33d12e73eef",
+      "sha256": "7842a405497c372b888fb0429954338a8912a11798f4138c4dafd998e39aced7",
       "provenance": "restaurantos-audit-test-branch-workspace-route-guard-v1"
     },
     {

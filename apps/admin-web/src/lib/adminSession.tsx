@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, Navigate } from 'react-router-dom';
-import { ApiError, fetchApi, hasAdminCapability, canAccessAdminRoute, type AdministrativeSession } from '@restaurantos/api-client';
+import { ApiError, fetchApi, setApiReadAuthority, hasAdminCapability, canAccessAdminRoute, type AdministrativeSession } from '@restaurantos/api-client';
 import { beginBranchWorkspaceRequest, ensureBranchWorkspace, clearBranchWorkspace, type BranchWorkspaceProfile } from '@restaurantos/api-client';
 import { quarantineWorkspaceSnapshots } from '@restaurantos/ui';
 import { useResetSessionQueries } from '../components/AdminQueryProvider';
@@ -49,6 +49,7 @@ export function sameAdministrativeAuthority(previous:AdminSession, next:AdminSes
     && previous.active_branch.id === next.active_branch.id
     && previous.branch_workspace_context_id === next.branch_workspace_context_id
     && JSON.stringify(previous.inventory_query_capabilities) === JSON.stringify(next.inventory_query_capabilities)
+    && JSON.stringify(previous.financial_access) === JSON.stringify(next.financial_access)
     && JSON.stringify(previous.scope) === JSON.stringify(next.scope)
     && JSON.stringify(Object.entries(previous.admin_capabilities).sort())
       === JSON.stringify(Object.entries(next.admin_capabilities).sort());
@@ -81,7 +82,7 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
       && routeKey === confirmedRoute.current
       && (!requested || requested === previous.active_branch.id);
     const discardContext = () => {
-      publishAdminSession(null); quarantineWorkspaceSnapshots(); resetQueries(); revision.current++;
+      publishAdminSession(null); setApiReadAuthority(null); quarantineWorkspaceSnapshots(); resetQueries(); revision.current++;
     };
     if (preserve) setState(current=>({...current,validating:true}));
     else {discardContext();setState({});}
@@ -106,7 +107,7 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
       if (preserve && !sameAdministrativeAuthority(previous,session)) discardContext();
       confirmed.current = session;
       confirmedCredential.current = credential; confirmedRoute.current = routeKey;
-      setCanonicalBranchId(session.active_branch.id); publishAdminSession(session);
+      setCanonicalBranchId(session.active_branch.id); publishAdminSession(session); setApiReadAuthority(session);
       setInventoryQueryScope(current => previous?.user.id === session.user.id
         && previous.organization_id === session.organization_id && current
         && inventoryScopeAllowed(session.inventory_query_capabilities, current)
@@ -138,7 +139,7 @@ export function AdminSessionProvider({children}:{children:ReactNode}) {
   }, [resetQueries, location.pathname]);
   useEffect(() => {
     void load();
-    return () => { request.current?.abort(); clearBranchWorkspace(); publishAdminSession(null); };
+    return () => { request.current?.abort(); clearBranchWorkspace(); publishAdminSession(null); setApiReadAuthority(null); };
   }, [load, location.key]);
   useEffect(() => {
     const revalidate = () => { void load(true); };

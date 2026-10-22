@@ -464,3 +464,22 @@ workspace operativo. La historia de una sucursal inactiva requiere `invoicing.re
 una asignación directa a esa sucursal con el permiso; la movilidad del workspace sólo se extiende
 a sucursales activas. Estas excepciones de lectura no conceden emisión, preparación ni cancelación.
 SDD §62.1 conserva la autoridad del contrato; el ingreso y la UI sin sucursal activa siguen pendientes.
+
+## SDD-ADR-048 Aceptada como especificación — corte ciego sin autoridad financiera implícita
+
+Decisión canónica en [SDD §71](02-SDD.md#71-corte-ciego-001--contrato-aprobado-de-corte-ciego),
+derivada de CC-D01..12 aprobadas y PRD-FR-289..300. Extiende UserCashCut preservando
+estados, snapshots, exclusividad de operaciones y compensaciones. Separa declaración,
+conciliación por medio, completitud offline y custodia; permite finalizar con pendientes
+externos explícitos, pero nunca con operaciones locales desconocidas. Proyección operativa
+ciega separada de lectura financiera Dueño/delegado y corrección exclusiva Dueño.
+
+Se descartan herencia nominal de autoridad, ocultamiento sólo visual, edición del original
+y finalización simultánea local/central. No introduce dependencias. Requiere diseño técnico
+aditivo, pruebas de autorización/concurrencia/recuperación y transición entre turnos por
+sucursal antes de habilitar. Aceptar la especificación no autoriza implementar ni desplegar.
+
+Detalle técnico de ADR-048 cerrado en F1-02: [permisos y lecturas financieras](02-SDD-corte-ciego-fase-1.md).
+Concesión humana separada de roles/capabilities técnicas, registro aditivo, proyecciones
+v2 y revocación revalidada. Inventario y pruebas previstas vinculados en §71.14; no
+implica código, migración ejecutada ni activación.

@@ -15,13 +15,16 @@ from sqlalchemy.orm import Session
 from restaurant_os import models
 from restaurant_os import operations as ops
 from restaurant_os.branch_workspaces import _lock_actor, _uuid, validate_branch_context
+from restaurant_os.cash_views import active_revision
 from restaurant_os.config import get_settings
+from restaurant_os.financial_authority import FinancialAuthority
 from restaurant_os.offline_authorization import authority_now, rollback_reconciliation
 from restaurant_os.operational_intent_schema import (
     CASH_LIFECYCLE_KINDS,
     LEGACY_KINDS,
     command_namespace,
 )
+from restaurant_os.order_command_receipts import require_receipt_access
 from restaurant_os.order_execution import defer_authorization_audit, without_order_execution_context
 
 KINDS = (*LEGACY_KINDS, *CASH_LIFECYCLE_KINDS)
@@ -178,6 +181,30 @@ def _receipt(row: Mapping[str, Any]) -> dict[str, Any]:
     return {name: row[name] for name in ("id", "kind", "branch_id", "state", "resource_id")}
 
 
+def _read_authority(session: Session, actor: str, kind: str, branch: str) -> int | None:
+    # Caller holds governance/actor fences. Reading an own receipt is not execution.
+    if kind in ("order.create", "payment.confirm"):
+        return require_receipt_access(session, actor, branch)
+    if active_revision(session, branch) is None:
+        return None
+    authority = FinancialAuthority(session, actor, ops.ORGANIZATION_ID)
+    revision = authority.policy_revision(branch)
+    authority.require_capability("cash.shift.read", branch)
+    return revision
+
+
+def _revalidate_read(
+    session: Session, actor: str, row: Mapping[str, Any], revision: int | None
+) -> None:
+    # The outer commit released locks; reacquire them even for a legacy-to-new transition.
+    ops._authority_governance_lock(session)
+    _lock_actor(session, actor)
+    if _read_authority(session, actor, str(row["kind"]), str(row["branch_id"])) != revision:
+        raise ops.BusinessError(
+            "cash_authorization_changed", "Policy changed during receipt delivery"
+        )
+
+
 def _command(session: Session, row: Mapping[str, Any]) -> Mapping[str, Any] | None:
     source = {
         "order.create": models.order_create_commands,
@@ -188,9 +215,31 @@ def _command(session: Session, row: Mapping[str, Any]) -> Mapping[str, Any] | No
         "cash.shift.close": models.cash_shift_commands,
         "cash.shift.close.register": models.cash_shift_commands,
     }[row["kind"]]
+    fields = [source.c.id, source.c.actor_user_id, source.c.request_hash]
+    if row["kind"] in ("order.create", "payment.confirm"):
+        fields.extend([source.c.branch_id, source.c.order_id])
+        if row["kind"] == "payment.confirm":
+            fields.append(source.c.payment_id)
+    else:
+        fields.extend([source.c.command_type, source.c.status])
+        if row["kind"].startswith("cash.shift."):
+            fields.extend(
+                [
+                    source.c.cash_shift_id,
+                    source.c.result["cash_shift_id"].as_string().label("result_shift_id"),
+                    source.c.result["closure_id"].as_string().label("result_closure_id"),
+                ]
+            )
+        else:
+            fields.extend(
+                [
+                    source.c.target_movement_id,
+                    source.c.result["movement"]["id"].as_string().label("result_movement_id"),
+                ]
+            )
     command = (
         session.execute(
-            sa.select(source).where(
+            sa.select(*fields).where(
                 source.c.organization_id == row["organization_id"],
                 source.c.idempotency_key == row["idempotency_key"],
             )
@@ -211,9 +260,7 @@ def _proof(session: Session, row: Mapping[str, Any]) -> dict[str, Any]:
             resource = models.cash_movements
             valid = command["command_type"] == "create" and command["status"] == "completed"
         elif row["kind"] == "cash.movement.compensate":
-            result = command.get("result")
-            movement = result.get("movement") if isinstance(result, dict) else None
-            resource_id = movement.get("id") if isinstance(movement, dict) else None
+            resource_id = command["result_movement_id"]
             resource = models.cash_movements
             valid = (
                 command["command_type"] == "compensate"
@@ -221,16 +268,14 @@ def _proof(session: Session, row: Mapping[str, Any]) -> dict[str, Any]:
                 and command["target_movement_id"] == row["target_id"]
             )
         elif row["kind"].startswith("cash.shift."):
-            result = command.get("result")
-            result = result if isinstance(result, dict) else {}
             if row["kind"] == "cash.shift.open":
                 resource_id = command["cash_shift_id"]
                 resource = models.cash_shifts
                 valid = (
-                    command["command_type"] == "open" and result.get("cash_shift_id") == resource_id
+                    command["command_type"] == "open" and command["result_shift_id"] == resource_id
                 )
             else:
-                resource_id = result.get("closure_id")
+                resource_id = command["result_closure_id"]
                 resource = models.cash_shift_closures
                 valid = command["command_type"] == "close" and (
                     row["target_id"] is None or command["cash_shift_id"] == row["target_id"]
@@ -249,9 +294,16 @@ def _proof(session: Session, row: Mapping[str, Any]) -> dict[str, Any]:
             raise ops.BusinessError(
                 "operational_command_evidence_conflict", "Command resource evidence requires review"
             ) from None
+        fields = [resource.c.id]
+        if row["kind"] == "payment.confirm":
+            fields.append(resource.c.order_id)
+        elif row["kind"] == "cash.shift.open":
+            fields.append(resource.c.cashier_user_id)
+        elif row["kind"] in ("cash.shift.close", "cash.shift.close.register"):
+            fields.extend([resource.c.cash_shift_id, resource.c.closed_by_user_id])
         binding = (
             session.execute(
-                sa.select(resource).where(
+                sa.select(*fields).where(
                     resource.c.id == resource_id,
                     resource.c.organization_id == row["organization_id"],
                     resource.c.branch_id == row["branch_id"],
@@ -275,7 +327,7 @@ def _proof(session: Session, row: Mapping[str, Any]) -> dict[str, Any]:
             )
             shift = (
                 session.execute(
-                    sa.select(models.cash_shifts).where(
+                    sa.select(models.cash_shifts.c.id).where(
                         models.cash_shifts.c.id == command["cash_shift_id"],
                         models.cash_shifts.c.organization_id == row["organization_id"],
                         models.cash_shifts.c.branch_id == row["branch_id"],
@@ -286,28 +338,7 @@ def _proof(session: Session, row: Mapping[str, Any]) -> dict[str, Any]:
             )
             valid = valid and shift is not None
         if row["kind"] == "cash.movement.compensate" and binding:
-            original = (
-                session.execute(
-                    sa.select(models.cash_movements).where(
-                        models.cash_movements.c.id == row["target_id"],
-                        models.cash_movements.c.organization_id == row["organization_id"],
-                        models.cash_movements.c.branch_id == row["branch_id"],
-                    )
-                )
-                .mappings()
-                .first()
-            )
-            valid = valid and bool(
-                original
-                and binding["compensates_movement_id"] == original["id"]
-                and binding["reversal_of_id"] == original["id"]
-                and binding["amount_cents"] == original["amount_cents"]
-                and (original["movement_type"], binding["movement_type"])
-                in (("deposit", "withdrawal"), ("withdrawal", "deposit"))
-                and original["status"] == binding["status"] == "confirmed"
-                and binding["actor_user_id"] == row["actor_user_id"]
-                and binding["cash_shift_id"] == original["cash_shift_id"]
-            )
+            valid = valid and _compensation_matches(session, row, resource_id)
         if row["state"] in ("applied", "acknowledged"):
             valid = valid and (
                 command["id"] == row["domain_command_id"]
@@ -323,6 +354,47 @@ def _proof(session: Session, row: Mapping[str, Any]) -> dict[str, Any]:
         "domain_request_hash": command["request_hash"],
         "resource_id": resource_id,
     }
+
+
+def _compensation_matches(session: Session, row: Mapping[str, Any], resource_id: str) -> bool:
+    original, reversal = (
+        models.cash_movements.alias("original"),
+        models.cash_movements.alias("reversal"),
+    )
+    # Verify exact monetary equality inside SQL, returning only a boolean, not amounts.
+    return bool(
+        session.scalar(
+            sa.select(
+                sa.exists(
+                    sa.select(reversal.c.id).where(
+                        original.c.id == row["target_id"],
+                        original.c.organization_id == row["organization_id"],
+                        original.c.branch_id == row["branch_id"],
+                        reversal.c.id == resource_id,
+                        reversal.c.organization_id == original.c.organization_id,
+                        reversal.c.branch_id == original.c.branch_id,
+                        reversal.c.compensates_movement_id == original.c.id,
+                        reversal.c.reversal_of_id == original.c.id,
+                        reversal.c.amount_cents == original.c.amount_cents,
+                        sa.or_(
+                            sa.and_(
+                                original.c.movement_type == "deposit",
+                                reversal.c.movement_type == "withdrawal",
+                            ),
+                            sa.and_(
+                                original.c.movement_type == "withdrawal",
+                                reversal.c.movement_type == "deposit",
+                            ),
+                        ),
+                        original.c.status == "confirmed",
+                        reversal.c.status == "confirmed",
+                        reversal.c.actor_user_id == row["actor_user_id"],
+                        reversal.c.cash_shift_id == original.c.cash_shift_id,
+                    )
+                )
+            )
+        )
+    )
 
 
 def _audit(session: Session, actor: str, row: Mapping[str, Any], state: str) -> None:
@@ -349,6 +421,7 @@ def prepare_intent(
         key, digest = _identity(kind, target, body, key)
         _lock(session, actor)
         context = _authority(session, actor, kind, target, body, secret)
+        revision = _read_authority(session, actor, kind, str(context["branch_id"]))
         table = models.operational_command_intents
         old_mapping = (
             session.execute(
@@ -373,6 +446,7 @@ def prepare_intent(
             if old["state"] in ("applied", "acknowledged"):
                 _proof(session, old)
             session.commit()
+            _revalidate_read(session, actor, old, revision)
             return _receipt(old)
         now = authority_now()
         row = {
@@ -402,6 +476,7 @@ def prepare_intent(
         session.execute(table.insert().values(**row))
         _audit(session, actor, row, "prepared")
         session.commit()
+        _revalidate_read(session, actor, row, revision)
         return _receipt(row)
 
 
@@ -504,6 +579,7 @@ def _execute_intent(
         key, digest = _identity(kind, target, body, key)
         _lock(session, actor)
         row = _owned(session, actor, intent_id)
+        revision = _read_authority(session, actor, str(row["kind"]), str(row["branch_id"]))
         if row["state"] == "no_effect":
             raise ops.BusinessError(
                 "operational_command_terminal", "Command was resolved without effect"
@@ -533,6 +609,7 @@ def _execute_intent(
             )
             _audit(session, actor, row, "applied")
         session.commit()
+        _revalidate_read(session, actor, row, revision)
         if kind.startswith("cash.shift."):
             ops._record_pco004_metric(
                 "cash_shift_open_total"
@@ -548,6 +625,7 @@ def recover_intent(session: Session, actor: str, intent_id: str) -> dict[str, An
     with _unit(session):
         _lock(session, actor)
         row = _owned(session, actor, intent_id)
+        revision = _read_authority(session, actor, str(row["kind"]), str(row["branch_id"]))
         if row["state"] in ("applied", "acknowledged"):
             _proof(session, row)
             next_state = "acknowledged"
@@ -569,6 +647,7 @@ def recover_intent(session: Session, actor: str, intent_id: str) -> dict[str, An
             _audit(session, actor, row, next_state)
             row["state"] = next_state
         session.commit()
+        _revalidate_read(session, actor, row, revision)
         return _receipt(row)
 
 
@@ -592,6 +671,10 @@ def list_pending(session: Session, actor: str) -> list[dict[str, Any]]:
             .mappings()
             .all()
         )
+        scopes = {(str(row["kind"]), str(row["branch_id"])): None for row in rows}
+        revisions = {scope: _read_authority(session, actor, *scope) for scope in scopes}
         receipts = [_receipt(dict(row)) for row in rows]
         session.commit()
+        for (kind, branch), revision in revisions.items():
+            _revalidate_read(session, actor, {"kind": kind, "branch_id": branch}, revision)
         return receipts

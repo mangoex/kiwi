@@ -1,5 +1,8 @@
 # BDD — Behavior-Driven Development
 
+CORTE-CIEGO-001: [contrato aprobado de corte ciego](03-BDD-corte-ciego.md),
+BDD-SC-767..794. Especificado sin evidencia runtime; amplía y precisa PCO-006 según SDD §71.
+
 ## Convenciones
 
 - Lenguaje Gherkin.

@@ -1,0 +1,91 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "projection": {
+      "const": "operational",
+      "default": "operational",
+      "title": "Projection",
+      "type": "string"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "integer"
+    },
+    "action": {
+      "enum": [
+        "order.reopen.request",
+        "order.reopen.approve",
+        "order.reopen.reject",
+        "order.reopen.apply"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "command_id": {
+      "title": "Command Id",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "order_id": {
+      "title": "Order Id",
+      "type": "string"
+    },
+    "branch_id": {
+      "title": "Branch Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "REQUESTED",
+        "APPROVED",
+        "REJECTED",
+        "APPLIED"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "accepted_at": {
+      "format": "date-time",
+      "title": "Accepted At",
+      "type": "string"
+    },
+    "correction_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Correction Id"
+    }
+  },
+  "required": [
+    "policy_version",
+    "action",
+    "command_id",
+    "id",
+    "request_id",
+    "order_id",
+    "branch_id",
+    "status",
+    "accepted_at"
+  ],
+  "title": "OrderReopenReceiptV2",
+  "type": "object"
+}

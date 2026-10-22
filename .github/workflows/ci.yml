@@ -99,6 +99,7 @@ jobs:
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE inv_view_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE delivery_assignment_ci"
           psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE delivery_fee_ci"
+          psql --host 127.0.0.1 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE corte_ciego_ci"
       - name: Preprovision mandatory PCO-003 PostgreSQL schema
         working-directory: apps/api
         env:
@@ -124,6 +125,7 @@ jobs:
         run: python -m ruff check apps/edge-gateway/edge_gateway
       - name: Run tests
         env:
+          CORTE_CIEGO_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/corte_ciego_ci
           PCO003_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/pco003_ci
           AUDCORE_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/audcore_ci
           EXP001_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/exp001_ci

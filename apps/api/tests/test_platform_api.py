@@ -1115,7 +1115,10 @@ def test_driver_cash_settlement_filters_sums_and_confirms_atomically(
     }
     assert settlement_operation["responses"]["200"]["content"]["application/json"][
         "schema"
-    ] == {"$ref": "#/components/schemas/DriverCashSettlementResponse"}
+    ]["anyOf"] == [
+        {"$ref": "#/components/schemas/DriverCashSettlementResponse"},
+        {"$ref": "#/components/schemas/DriverSettlementReceiptV2"},
+    ]
     assert contract["components"]["schemas"]["DriverCashSettlementRequest"][
         "additionalProperties"
     ] is False

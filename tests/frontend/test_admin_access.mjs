@@ -43,3 +43,8 @@ assert.equal(sameAdministrativeAuthority(session('purchases.read'),{...session('
 assert.equal(sameAdministrativeAuthority(session('purchases.read'),{...session('purchases.read'),active_branch:{id:'other'}}),false);
 assert.equal(sameAdministrativeAuthority({...session('purchases.read'),organization_id:'org-a'},{...session('purchases.read'),organization_id:'org-b'}),false,'Organization changes must invalidate cached administrative authority');
 assert.equal(sameAdministrativeAuthority({...session(),inventory_query_capabilities:{organization_read:true,branches:[{id:'a'}]}},{...session(),inventory_query_capabilities:{organization_read:false,branches:[]}}),false,'Revoked inventory query scope must invalidate cached administrative authority');
+
+assert.equal(sameAdministrativeAuthority(
+  {...session('purchases.read'),financial_access:{schema_version:2,authorization_version:1,branches:[{branch_id:'a',policy_version:1,state:'active',capabilities:{},datasets:['expenses']}]}},
+  {...session('purchases.read'),financial_access:{schema_version:2,authorization_version:1,branches:[{branch_id:'a',policy_version:2,state:'suspended',capabilities:{},datasets:[]}]}}
+),false,'Financial policy changes must discard mounted administrative data');

@@ -1314,6 +1314,18 @@ def list_agent_catalog(
     return _page(rows, limit)
 
 
+def _require_financial_audience(session: Session, branch_id: str) -> None:
+    from restaurant_os.financial_reads import require_financial_read
+    from restaurant_os.operations import AuthorizationError
+
+    # No approved human-audience protocol exists in F1. A technical capability
+    # cannot act as a financial grant, even when issued by a reviewed Owner.
+    try:
+        require_financial_read(session, None, branch_id, ("sales",))
+    except AuthorizationError:
+        _fail(403, "financial_access_denied", "An authorized human audience is required")
+
+
 @router.get("/agent-tools/sales/summary")
 def get_agent_sales_summary(
     branch_id: str,
@@ -1328,6 +1340,7 @@ def get_agent_sales_summary(
     principal = _agent(session, authorization, actor_header)
     _capability(principal, "agent.sales.read")
     authorized_branch = _branch(session, principal, branch_id)
+    _require_financial_audience(session, authorized_branch)
     if from_utc.tzinfo is None or to_utc.tzinfo is None:
         _fail(400, "agent_schema_invalid", "from_utc and to_utc must include a timezone")
     start = from_utc.astimezone(timezone.utc)
@@ -1531,6 +1544,7 @@ def list_agent_cash_cuts(
     if principal.profile != "administrator":
         _fail(403, "agent_capability_denied", "Cash cuts require the administrator profile")
     authorized_branch = _branch(session, principal, branch_id)
+    _require_financial_audience(session, authorized_branch)
     if from_utc.tzinfo is None or to_utc.tzinfo is None:
         _fail(400, "agent_schema_invalid", "from_utc and to_utc must include a timezone")
     start = from_utc.astimezone(timezone.utc)
