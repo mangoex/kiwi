@@ -429,7 +429,7 @@ class CashViews:
             query = query.where(column == register_id)
         if cursor:
             query = query.where(table.c.id > cursor)
-        ids = list(self.session.scalars(query.order_by(table.c.id).limit(limit + 1)))
+        ids: list[str] = list(self.session.scalars(query.order_by(table.c.id).limit(limit + 1)))
         page_schema: type[BaseModel]
         if financial:
             page_schema = (

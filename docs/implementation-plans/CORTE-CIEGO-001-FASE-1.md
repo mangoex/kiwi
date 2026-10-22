@@ -15,6 +15,12 @@
 **Fase 1 abierta. No se ha desplegado, migrado ni cambiado configuración o datos de producción.**
 Esta tabla resume el estado vigente; los apartados cronológicos inferiores conservan evidencia.
 
+CI de continuación: PR #90, ejecución `39820467528` sobre `44c103e9`.
+Docker, dependencias y políticas verdes; Python detenido por seis anotaciones SQLAlchemy
+y frontend detenido por un import del cargador de conciliación. Corregidos sin silenciamientos:
+mypy completo (139 módulos) y prueba de conciliación verdes localmente. Las suites saltadas
+por esos fallos todavía no constituyen evidencia. Reejecutar CI tras publicar la corrección.
+
 
 Fecha: 2026-10-21. Base inspeccionada: `abc4e7f`, con formalización documental local
 de CC-D01..12. **F1-04/05 implementadas localmente; F1-06 en revisión de cobertura, F1-07 en implementación y F1-09 parcial.

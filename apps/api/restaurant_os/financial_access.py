@@ -178,7 +178,7 @@ class FinancialAccessService:
         if not grant_id:
             assert isinstance(request, GrantInput)
             branches = sorted({str(item.branch_id) for item in request.scopes})
-            actual = session.scalars(
+            actual: list[str] = list(session.scalars(
                 sa.select(models.branches.c.id)
                 .where(
                     models.branches.c.organization_id == org,
@@ -186,7 +186,7 @@ class FinancialAccessService:
                 )
                 .order_by(models.branches.c.id)
                 .with_for_update()
-            ).all()
+            ))
             if set(actual) != set(branches):
                 raise ops.AuthorizationError(
                     "financial_access_denied", "Requested access is not authorized"

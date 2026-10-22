@@ -6,7 +6,7 @@ No roles by name, permission aliases, cached grants, or organizational wildcard.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import TypeVar
 
 import sqlalchemy as sa
@@ -68,7 +68,7 @@ def authorize_role_assignment(session: Session, actor: str, role_id: str) -> Non
             models.roles.c.id == role_id,
         )
     )
-    permissions = session.scalars(
+    permissions: Sequence[str] = session.scalars(
         sa.select(models.role_permissions.c.permission_id).where(
             models.role_permissions.c.role_id == role_id,
         )
@@ -194,7 +194,7 @@ class FinancialAuthority:
 
     def _branches(self, branches: Iterable[str]) -> None:
         requested = sorted(set(branches))
-        rows = self.session.scalars(
+        rows: Sequence[str] = self.session.scalars(
             sa.select(models.branches.c.id)
             .where(
                 models.branches.c.organization_id == self.organization_id,

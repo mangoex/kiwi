@@ -29,7 +29,8 @@ def read_branches(session: Session, branch_id: str | None) -> list[str]:
     )
     if branch_id is not None:
         query = query.where(models.branches.c.id == branch_id)
-    branches = [str(value) for value in session.scalars(query.order_by(models.branches.c.id))]
+    result: sa.ScalarResult[str] = session.scalars(query.order_by(models.branches.c.id))
+    branches = list(result)
     if branch_id is not None and branches != [branch_id]:
         deny()
     return branches
