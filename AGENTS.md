@@ -206,3 +206,14 @@ es una lista universal de artefactos.
   los requiere; en R3 deben quedar explícitos o justificarse como no aplicables.
 - Evidencia: distinguir local, CI, Git, despliegue, migración y comportamiento productivo.
 - Alcance: trabajo ajeno preservado y riesgos/gates omitidos declarados sin presentarlos como aprobados.
+
+## Cursor Cloud
+
+Estas notas describen el entorno local del Cloud Agent. No cambian reglas de negocio ni contratos.
+
+- Python 3.12 de desarrollo queda en `/opt/restaurantos-venv`. Tras la instalación, `python`, `pytest`, `ruff`, `mypy`, `alembic` y `uvicorn` en `/usr/local/bin` apuntan a ese entorno.
+- Node.js 22 y `pnpm` 10.0.0 quedan en `/usr/local/bin`. Dependencias de frontend: `pnpm install --frozen-lockfile`.
+- PostgreSQL 16 y Redis 7 arrancan en cada boot. Base local: `postgresql+psycopg://restaurantos:restaurantos@127.0.0.1:5432/restaurantos`. Redis: `redis://127.0.0.1:6379/0`. La contraseña del rol `postgres` es `postgres`, la misma de CI.
+- Migraciones desde `apps/api`: `alembic -c alembic.ini upgrade head`. `python -m alembic` en ese directorio resuelve el paquete local de migraciones, no la herramienta.
+- Puertos: API `8000`, admin `3002` en `/admin/`, POS `3001` en `/pos/`, KDS `3003` en `/kds/` y móvil `3004`. El arranque del Cloud Agent proxifica `/api` de admin, POS y KDS hacia la API.
+- `GET /health/ready` debe reportar postgres y redis en `ok`.
