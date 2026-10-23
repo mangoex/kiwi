@@ -40,8 +40,7 @@ export const CategoryCircles: React.FC<CategoryCirclesProps> = ({
         aria-label="Categorías circulares"
       >
         {categories.map((cat) => {
-          const isAll = cat.id === 'all' || cat.name === 'Todos';
-          const isActive = activeCategoryId === cat.id || (activeCategoryId === '' && isAll);
+          const isActive = activeCategoryId === cat.id;
           const icon = getCategoryIcon(cat.name);
           const theme = getCategoryTheme(cat.name);
 

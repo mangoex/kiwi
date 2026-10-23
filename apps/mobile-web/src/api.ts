@@ -22,7 +22,6 @@ export async function fetchPublicBranches(lat?: number, lng?: number): Promise<B
 }
 
 const DEFAULT_CATEGORIES: Category[] = [
-  { id: 'all', name: 'Todos' },
   { id: 'c1', name: 'Jugos y Extractos' },
   { id: 'c2', name: 'Smoothies y Licuados' },
   { id: 'c3', name: 'Café y Matcha' },
@@ -64,12 +63,13 @@ export async function fetchMobileMenu(publicKey?: string | null, authenticated =
         && Number.isInteger((item as { price_cents: number }).price_cents)
       ))
       : [];
-    const categories: Category[] = [{ id: 'all', name: 'Todos' }];
-    const seenCatNames = new Set<string>(['Todos']);
+    const categories: Category[] = [];
+    const seenCatNames = new Set<string>();
 
     if (Array.isArray(data.categories) && data.categories.length > 0) {
       data.categories.forEach((c: any) => {
-        if (c.name && !seenCatNames.has(c.name)) {
+        const nameLower = (c.name || '').toLowerCase().trim();
+        if (c.name && !seenCatNames.has(c.name) && nameLower !== 'todos' && nameLower !== 'all') {
           seenCatNames.add(c.name);
           categories.push({ id: c.id, name: c.name, display_order: c.display_order });
         }
@@ -78,7 +78,8 @@ export async function fetchMobileMenu(publicKey?: string | null, authenticated =
 
     const products: Product[] = rawProducts.map((p: any) => {
       const catName = p.category_name || 'General';
-      if (!seenCatNames.has(catName)) {
+      const catLower = catName.toLowerCase().trim();
+      if (!seenCatNames.has(catName) && catLower !== 'todos' && catLower !== 'all') {
         seenCatNames.add(catName);
         categories.push({ id: `cat-${catName.toLowerCase().replace(/\s+/g, '-')}`, name: catName });
       }
@@ -121,6 +122,10 @@ export async function fetchMobileMenu(publicKey?: string | null, authenticated =
           : [],
       };
     });
+
+    if (categories.length === 0 && rawProducts.length === 0) {
+      DEFAULT_CATEGORIES.forEach((c) => categories.push(c));
+    }
 
     return { products, categories };
   } catch (err) {

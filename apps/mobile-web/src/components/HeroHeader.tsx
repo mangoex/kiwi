@@ -150,11 +150,10 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
         onScroll={handleScroll}
       >
         {categories.map((cat, idx) => {
-          const isAll = cat.id === 'all' || cat.name === 'Todos';
-          const isActive = activeCategoryId === cat.id || (activeCategoryId === '' && isAll);
+          const isActive = activeCategoryId === cat.id;
           const cover = getCategoryCover(cat.name);
           const icon = getCategoryIcon(cat.name);
-          const count = productsCountByCategory[cat.id] || (isAll ? 'Todo el menú' : '');
+          const count = productsCountByCategory[cat.id];
 
           return (
             <div

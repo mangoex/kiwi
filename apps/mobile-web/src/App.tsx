@@ -44,7 +44,7 @@ export const App: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeCategoryId, setActiveCategoryId] = useState<string>('all');
+  const [activeCategoryId, setActiveCategoryId] = useState<string>('');
   const [activeSize, setActiveSize] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [orderType, setOrderType] = useState<OrderType>('takeaway');
@@ -362,13 +362,12 @@ export const App: React.FC = () => {
     }
   };
 
-  // Filter visible categories: exclude empty categories and operational items (delivery fee, extras)
+  // Filter visible categories: exclude empty categories, operational items, and the synthetic 'Todos' category
   const visibleCategories = useMemo(() => {
     return categories.filter((cat) => {
-      const isAll = cat.id === 'all' || cat.name === 'Todos';
-      if (isAll) return products.length > 0;
-
       const nameLower = (cat.name || '').toLowerCase().trim();
+      if (cat.id === 'all' || nameLower === 'todos') return false;
+
       const isExcluded = EXCLUDED_CATEGORY_KEYWORDS.some((kw) => nameLower === kw || nameLower.includes(kw));
       if (isExcluded) return false;
 
@@ -377,13 +376,15 @@ export const App: React.FC = () => {
     });
   }, [categories, products]);
 
-  // Ensure activeCategoryId stays valid among visible categories
+  // Ensure activeCategoryId stays valid among visible categories, defaulting to the first real category
   useEffect(() => {
-    if (activeCategoryId !== 'all' && visibleCategories.length > 0) {
+    if (visibleCategories.length > 0) {
       const exists = visibleCategories.some((c) => c.id === activeCategoryId);
       if (!exists) {
-        setActiveCategoryId('all');
+        setActiveCategoryId(visibleCategories[0].id);
       }
+    } else {
+      setActiveCategoryId('');
     }
   }, [visibleCategories, activeCategoryId]);
 
@@ -391,9 +392,9 @@ export const App: React.FC = () => {
   const availableSizes = useMemo(() => {
     const sizeSet = new Set<string>();
     products.forEach((p) => {
-      if (activeCategoryId !== 'all' && activeCategoryId !== '') {
+      if (activeCategoryId) {
         const selectedCat = visibleCategories.find((c) => c.id === activeCategoryId);
-        if (selectedCat && p.category_name !== selectedCat.name) {
+        if (selectedCat && p.category_name !== selectedCat.name && p.category_id !== selectedCat.id) {
           return;
         }
       }
@@ -414,11 +415,7 @@ export const App: React.FC = () => {
   const productsCountByCategory = useMemo(() => {
     const map: Record<string, number> = {};
     visibleCategories.forEach((cat) => {
-      if (cat.id === 'all') {
-        map[cat.id] = products.length;
-      } else {
-        map[cat.id] = products.filter((p) => p.category_name === cat.name || p.category_id === cat.id).length;
-      }
+      map[cat.id] = products.filter((p) => p.category_name === cat.name || p.category_id === cat.id).length;
     });
     return map;
   }, [visibleCategories, products]);
@@ -433,10 +430,10 @@ export const App: React.FC = () => {
   // Filtered Products
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
-      // Category filter
-      if (activeCategoryId !== 'all' && activeCategoryId !== '') {
+      // Category filter: always filter by active category
+      if (activeCategoryId) {
         const selectedCat = visibleCategories.find((c) => c.id === activeCategoryId);
-        if (selectedCat && p.category_name !== selectedCat.name) {
+        if (selectedCat && p.category_name !== selectedCat.name && p.category_id !== selectedCat.id) {
           return false;
         }
       }
@@ -537,9 +534,7 @@ export const App: React.FC = () => {
                 <span className="section-eyebrow">Selección de la casa</span>
                 <h2>
                   {searchQuery ? `Resultados para "${searchQuery}"` : (
-                    activeCategoryId === 'all'
-                      ? 'Todo el Menú'
-                      : (currentCategory?.name || 'Menú')
+                    currentCategory?.name || 'Menú'
                   )}
                 </h2>
               </div>
@@ -557,9 +552,13 @@ export const App: React.FC = () => {
                 <button
                   type="button"
                   className="btn-reset-filters"
-                  onClick={() => { setSearchQuery(''); setActiveCategoryId('all'); setActiveSize('all'); }}
+                  onClick={() => {
+                    setSearchQuery('');
+                    if (visibleCategories.length > 0) setActiveCategoryId(visibleCategories[0].id);
+                    setActiveSize('all');
+                  }}
                 >
-                  Ver todo el menú
+                  Restablecer filtros
                 </button>
               </div>
             ) : (
