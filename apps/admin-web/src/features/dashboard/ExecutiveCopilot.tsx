@@ -146,7 +146,6 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
         '/admin-ai/executive-insights',
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         },
       );

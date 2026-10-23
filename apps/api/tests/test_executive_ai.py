@@ -341,3 +341,16 @@ def test_post_executive_ai_insights_endpoint(
     data_clients = response_empty_branch.json()
     assert "clientes" in data_clients["answer"].lower()
     assert "customers" in data_clients["sources"]
+
+    # Handles duplicate Content-Type / stringified payload without 422
+    response_raw_content = client.post(
+        "/api/v1/admin-ai/executive-insights",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Actor-User-Id": USER_ID,
+            "Content-Type": "application/json, application/json",
+        },
+        content='{"prompt": "Resumen del negocio", "branch_id": null}',
+    )
+    assert response_raw_content.status_code == 200
+    assert "answer" in response_raw_content.json()

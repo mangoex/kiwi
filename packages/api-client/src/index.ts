@@ -80,13 +80,13 @@ async function requestApi(endpoint: string, options: RequestInit, version: 'v1' 
   const token = localStorage.getItem("auth_token") || sessionStorage.getItem("auth_token");
   const requestGeneration = sessionGeneration;
   const suppliedHeaders = new Headers(options.headers);
-  suppliedHeaders.delete('X-Branch-Context');
-  suppliedHeaders.delete('Authorization');
-  suppliedHeaders.delete('X-Operational-Intent');
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...Object.fromEntries(suppliedHeaders.entries()),
-  };
+  suppliedHeaders.delete('x-branch-context');
+  suppliedHeaders.delete('authorization');
+  suppliedHeaders.delete('x-operational-intent');
+  if (!suppliedHeaders.has('content-type')) {
+    suppliedHeaders.set('content-type', 'application/json');
+  }
+  const headers: Record<string, string> = Object.fromEntries(suppliedHeaders.entries());
 
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;

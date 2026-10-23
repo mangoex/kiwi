@@ -531,6 +531,18 @@ class AssistedOrderDraftRequest(BaseModel):
     text: str = Field(min_length=3, max_length=1000)
 
 
+def _normalize_raw_json_payload(data: Any) -> Any:
+    while isinstance(data, (str, bytes)):
+        try:
+            parsed = json.loads(data)
+            if parsed == data:
+                break
+            data = parsed
+        except Exception:
+            break
+    return data
+
+
 class AdminAiPromptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     prompt: str = Field(min_length=1, max_length=1600)
@@ -547,6 +559,11 @@ class AdminAiPromptRequest(BaseModel):
         default_factory=list, max_length=4
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def parse_raw_payload(cls, data: Any) -> Any:
+        return _normalize_raw_json_payload(data)
+
 
 class AdminAiReviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -557,6 +574,11 @@ class ExecutiveAiPromptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     prompt: str = Field(min_length=1, max_length=1600)
     branch_id: UUID | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_raw_payload(cls, data: Any) -> Any:
+        return _normalize_raw_json_payload(data)
 
     @field_validator("branch_id", mode="before")
     @classmethod
