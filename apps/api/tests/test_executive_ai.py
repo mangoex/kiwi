@@ -354,3 +354,24 @@ def test_post_executive_ai_insights_endpoint(
     )
     assert response_raw_content.status_code == 200
     assert "answer" in response_raw_content.json()
+
+    # Inventory query
+    response_inv = client.post(
+        "/api/v1/admin-ai/executive-insights",
+        headers={"Authorization": f"Bearer {token}", "X-Actor-User-Id": USER_ID},
+        json={"prompt": "¿Cómo está el inventario y stock?"},
+    )
+    assert response_inv.status_code == 200
+    assert "inventario" in response_inv.json()["answer"].lower()
+    assert "inventory_items" in response_inv.json()["sources"]
+
+    # Customer accounts and passwords query
+    response_creds = client.post(
+        "/api/v1/admin-ai/executive-insights",
+        headers={"Authorization": f"Bearer {token}", "X-Actor-User-Id": USER_ID},
+        json={"prompt": "¿Cuántos clientes tienen cuenta y contraseña?"},
+    )
+    assert response_creds.status_code == 200
+    assert "contraseña" in response_creds.json()["answer"].lower() or "clientes" in response_creds.json()["answer"].lower()
+    # Conversational query does not return redundant table data
+    assert response_creds.json()["data_points"] == []

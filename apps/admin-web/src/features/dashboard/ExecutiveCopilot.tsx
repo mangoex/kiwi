@@ -339,6 +339,12 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
                           {insights.data_points[0].channel && (
                             <><th>Canal</th><th>Pedidos</th><th>Venta total</th></>
                           )}
+                          {insights.data_points[0].item_name && (
+                            <><th>Insumo</th><th>SKU</th><th>Stock</th><th>Unidad</th><th>Almacén</th><th>Sucursal</th><th>Costo prom.</th></>
+                          )}
+                          {insights.data_points[0].customer_name && (
+                            <><th>Cliente</th><th>Teléfono</th><th>Email</th><th>Pedidos</th><th>Gasto total</th><th>Último pedido</th><th>App móvil</th></>
+                          )}
                         </tr>
                       </thead>
                       <tbody>
@@ -364,6 +370,28 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
                               <>
                                 <td>{row.channel}</td><td>{row.orders}</td>
                                 <td className="executive-copilot__money">{formatMoney(row.total_sales_cents)}</td>
+                              </>
+                            )}
+                            {row.item_name && (
+                              <>
+                                <td><strong>{row.item_name}</strong></td>
+                                <td>{row.sku || '-'}</td>
+                                <td><strong>{row.stock}</strong></td>
+                                <td>{row.unit}</td>
+                                <td>{row.warehouse}</td>
+                                <td>{row.branch}</td>
+                                <td>{row.avg_cost}</td>
+                              </>
+                            )}
+                            {row.customer_name && (
+                              <>
+                                <td><strong>{row.customer_name}</strong></td>
+                                <td>{row.phone}</td>
+                                <td>{row.email}</td>
+                                <td>{row.total_orders}</td>
+                                <td className="executive-copilot__money">{row.total_spent_mxn}</td>
+                                <td>{row.last_order}</td>
+                                <td>{row.has_mobile_password ? '✅ Sí' : '❌ No'}</td>
                               </>
                             )}
                           </tr>
