@@ -10,6 +10,10 @@ interface ProductModalProps {
   onToggleLike: (productId: string) => void;
   onClose: () => void;
   onAddToCart: (product: Product, quantity: number, notes?: string, modifiers?: SelectedModifier[]) => void;
+  initialQuantity?: number;
+  initialNotes?: string;
+  initialModifiers?: SelectedModifier[];
+  submitButtonLabel?: string;
 }
 
 export const ProductModal: React.FC<ProductModalProps> = ({
@@ -18,10 +22,20 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   onToggleLike,
   onClose,
   onAddToCart,
+  initialQuantity = 1,
+  initialNotes = '',
+  initialModifiers = [],
+  submitButtonLabel,
 }) => {
-  const [quantity, setQuantity] = useState(1);
-  const [notes, setNotes] = useState('');
-  const [selectedModifiers, setSelectedModifiers] = useState<Record<string, SelectedModifier>>({});
+  const [quantity, setQuantity] = useState(initialQuantity);
+  const [notes, setNotes] = useState(initialNotes);
+  const [selectedModifiers, setSelectedModifiers] = useState<Record<string, SelectedModifier>>(() => {
+    const map: Record<string, SelectedModifier> = {};
+    initialModifiers.forEach((m) => {
+      map[m.option_id] = m;
+    });
+    return map;
+  });
   const [modifierError, setModifierError] = useState('');
 
   const modifierDeltaCents = Object.values(selectedModifiers).reduce(
@@ -72,7 +86,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   };
 
   return (
-    <div className="product-modal-backdrop" onClick={onClose}>
+    <div className="product-modal-backdrop product-detail-modal-backdrop" onClick={onClose}>
       <div
         className="product-modal-bottom-sheet"
         onClick={(e) => e.stopPropagation()}
@@ -256,7 +270,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             onClick={handleAdd}
           >
             <ShoppingBag size={19} />
-            <span>Agregar • {formatMoney(totalCents)}</span>
+            <span>{submitButtonLabel ? `${submitButtonLabel} • ${formatMoney(totalCents)}` : `Agregar • ${formatMoney(totalCents)}`}</span>
           </button>
         </div>
       </div>

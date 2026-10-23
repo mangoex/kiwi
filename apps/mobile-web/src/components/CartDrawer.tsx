@@ -53,6 +53,7 @@ interface CartDrawerProps {
   onClose: () => void;
   onUpdateQuantity: (cartId: string, delta: number) => void;
   onRemoveItem: (cartId: string) => void;
+  onEditItem?: (item: CartItem) => void;
   onQuickAddProduct?: (product: Product) => void;
   onSubmitOrder: (info: CustomerOrderInfo) => void;
   isSubmitting: boolean;
@@ -69,6 +70,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onClose,
   onUpdateQuantity,
   onRemoveItem,
+  onEditItem,
   onQuickAddProduct,
   onSubmitOrder,
   isSubmitting,
@@ -208,30 +210,56 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   return (
                     <div key={item.cart_id} className="cart-item-modern-card">
                       <div
-                        className="cart-item-thumbnail-avatar"
-                        style={{
-                          background: iconMeta.bgGradient,
-                          borderColor: iconMeta.borderColor,
+                        className="cart-item-clickable-area"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => onEditItem?.(item)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onEditItem?.(item);
+                          }
                         }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          flex: 1,
+                          minWidth: 0,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                        aria-label={`Editar ${item.product.name} y sus modificadores`}
                       >
-                        <span className="cart-item-thumbnail-emoji">{iconMeta.emoji}</span>
-                      </div>
+                        <div
+                          className="cart-item-thumbnail-avatar"
+                          style={{
+                            background: iconMeta.bgGradient,
+                            borderColor: iconMeta.borderColor,
+                          }}
+                        >
+                          <span className="cart-item-thumbnail-emoji">{iconMeta.emoji}</span>
+                        </div>
 
-                      <div className="cart-item-details">
-                        <span className="cart-item-name">{item.product.name}</span>
-                        <span className="cart-item-price-tag">
-                          {formatMoney(item.line_total_cents)}
-                        </span>
-                        {item.notes && (
-                          <span className="cart-item-notes-text">
-                            📝 {item.notes}
+                        <div className="cart-item-details">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span className="cart-item-name">{item.product.name}</span>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--accent-primary)', fontWeight: 700 }}>✏️ Editar</span>
+                          </div>
+                          <span className="cart-item-price-tag">
+                            {formatMoney(item.line_total_cents)}
                           </span>
-                        )}
-                        {(item.modifiers ?? []).map((modifier) => (
-                          <span key={modifier.option_id} className="cart-item-notes-text">
-                            + {modifier.name}{modifier.text ? `: ${modifier.text}` : ''}
-                          </span>
-                        ))}
+                          {item.notes && (
+                            <span className="cart-item-notes-text">
+                              📝 {item.notes}
+                            </span>
+                          )}
+                          {(item.modifiers ?? []).map((modifier) => (
+                            <span key={modifier.option_id} className="cart-item-notes-text">
+                              + {modifier.name}{modifier.text ? `: ${modifier.text}` : ''}
+                            </span>
+                          ))}
+                        </div>
                       </div>
 
                       <div className="cart-item-actions-cluster">
@@ -239,7 +267,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           <button
                             type="button"
                             className="cart-stepper-btn"
-                            onClick={() => onUpdateQuantity(item.cart_id, -1)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onUpdateQuantity(item.cart_id, -1);
+                            }}
                             aria-label="Disminuir cantidad"
                           >
                             <Minus size={13} />
@@ -248,7 +279,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           <button
                             type="button"
                             className="cart-stepper-btn"
-                            onClick={() => onUpdateQuantity(item.cart_id, 1)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onUpdateQuantity(item.cart_id, 1);
+                            }}
                             aria-label="Aumentar cantidad"
                           >
                             <Plus size={13} />
@@ -258,7 +292,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         <button
                           type="button"
                           className="cart-item-delete-btn"
-                          onClick={() => onRemoveItem(item.cart_id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRemoveItem(item.cart_id);
+                          }}
                           aria-label={`Eliminar ${item.product.name}`}
                         >
                           <Trash2 size={16} />

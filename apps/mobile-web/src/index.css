@@ -921,6 +921,10 @@ body {
   animation: fadeIn 0.2s ease-out;
 }
 
+.product-modal-backdrop.product-detail-modal-backdrop {
+  z-index: 60;
+}
+
 .product-modal-bottom-sheet {
   width: 100%;
   max-width: var(--app-max-width);
@@ -1446,6 +1450,15 @@ body {
   padding: 10px;
   background: var(--bg-card-secondary);
   border-radius: var(--radius-md);
+}
+
+.cart-item-clickable-area {
+  transition: opacity 0.15s ease;
+}
+
+.cart-item-clickable-area:hover,
+.cart-item-clickable-area:focus-visible {
+  opacity: 0.92;
 }
 
 .cart-item-thumbnail,

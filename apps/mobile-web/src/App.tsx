@@ -102,6 +102,7 @@ export const App: React.FC = () => {
   // Modals & Navigation state
   const [currentTab, setCurrentTab] = useState<NavTab>('explore');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [editingCartItem, setEditingCartItem] = useState<CartItem | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [createdOrderResult, setCreatedOrderResult] = useState<CreatedOrderResult | null>(null);
@@ -318,6 +319,48 @@ export const App: React.FC = () => {
 
   const handleRemoveCartItem = (cartId: string) => {
     setCart((prev) => prev.filter((item) => item.cart_id !== cartId));
+  };
+
+  const handleUpdateCartItem = (
+    cartId: string,
+    quantity: number,
+    notes?: string,
+    modifiers: SelectedModifier[] = []
+  ) => {
+    setCart((prev) => {
+      return prev.map((item) => {
+        if (item.cart_id === cartId) {
+          const modTotal = modifiers.reduce((sum, modifier) => sum + modifier.price_delta_cents, 0);
+          return {
+            ...item,
+            quantity,
+            notes: notes || '',
+            modifiers,
+            line_total_cents: quantity * (item.product.price_cents + modTotal),
+          };
+        }
+        return item;
+      });
+    });
+  };
+
+  const handleEditCartItem = (item: CartItem) => {
+    const productWithLatest = products.find((p) => p.id === item.product.id) || item.product;
+    setEditingCartItem({
+      ...item,
+      product: productWithLatest,
+    });
+  };
+
+  const handleSaveEditedCartItem = (
+    _product: Product,
+    quantity: number,
+    notes?: string,
+    modifiers: SelectedModifier[] = []
+  ) => {
+    if (!editingCartItem) return;
+    handleUpdateCartItem(editingCartItem.cart_id, quantity, notes, modifiers);
+    setEditingCartItem(null);
   };
 
   // Submit Order (Hybrid: System + WhatsApp with Branch & GPS)
@@ -624,14 +667,21 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Product Detail Modal */}
-      {selectedProduct && (
+      {/* Product Detail Modal (Add or Edit) */}
+      {(selectedProduct || editingCartItem) && (
         <ProductModal
-          product={selectedProduct}
-          isLiked={likedProductIds.has(selectedProduct.id)}
+          product={(editingCartItem ? editingCartItem.product : selectedProduct)!}
+          isLiked={likedProductIds.has((editingCartItem ? editingCartItem.product.id : selectedProduct?.id) || '')}
           onToggleLike={handleToggleLike}
-          onClose={() => setSelectedProduct(null)}
-          onAddToCart={handleAddToCart}
+          onClose={() => {
+            setSelectedProduct(null);
+            setEditingCartItem(null);
+          }}
+          onAddToCart={editingCartItem ? handleSaveEditedCartItem : handleAddToCart}
+          initialQuantity={editingCartItem?.quantity}
+          initialNotes={editingCartItem?.notes}
+          initialModifiers={editingCartItem?.modifiers}
+          submitButtonLabel={editingCartItem ? 'Guardar cambios' : undefined}
         />
       )}
 
@@ -655,6 +705,7 @@ export const App: React.FC = () => {
           onClose={() => setIsCartOpen(false)}
           onUpdateQuantity={handleUpdateCartQuantity}
           onRemoveItem={handleRemoveCartItem}
+          onEditItem={handleEditCartItem}
           onQuickAddProduct={handleQuickAddToCart}
           onSubmitOrder={handleSubmitOrder}
           isSubmitting={isSubmittingOrder}
