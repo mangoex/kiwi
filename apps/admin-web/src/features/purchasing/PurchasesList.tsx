@@ -170,9 +170,10 @@ const BranchPurchaseWorkspace = () => {
       )}
 
       {canWrite && <div className="premium-card" style={{ marginBottom: 20, padding: '16px 20px' }}>
-        <label style={{ display: 'grid', gap: 6, maxWidth: 360, fontWeight: 600 }}>
-          Caja para compras en efectivo
+        <label style={{ display: 'grid', gap: 8, maxWidth: 380, fontWeight: 600 }}>
+          <span style={{ fontSize: '0.875rem', color: '#1e293b' }}>Caja para compras en efectivo</span>
           <select
+            className="premium-select"
             value={registerId}
             disabled={!canWithdraw || cash.isPending || uncertain}
             onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -180,8 +181,24 @@ const BranchPurchaseWorkspace = () => {
               setRegisterId(value);
               localStorage.setItem(`purchase-register:${scope}`, value);
             }}
-          ><option value="">Selecciona caja</option>{cash.data?.open_registers.map(box => <option key={box.cash_shift_id} value={box.register_id}>{box.register_id}</option>)}</select>
-          <small style={{ color: '#64748b', fontWeight: 400 }}>
+            style={{
+              borderRadius: 12,
+              padding: '10px 14px',
+              border: '1.5px solid #cbd5e1',
+              backgroundColor: (!canWithdraw || cash.isPending || uncertain) ? '#f8fafc' : '#ffffff',
+              color: (!canWithdraw || cash.isPending || uncertain) ? '#94a3b8' : '#0f172a',
+              cursor: (!canWithdraw || cash.isPending || uncertain) ? 'not-allowed' : 'pointer',
+              fontWeight: 500,
+              fontSize: '0.875rem',
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+              outline: 'none',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <option value="">Selecciona caja</option>
+            {cash.data?.open_registers.map(box => <option key={box.cash_shift_id} value={box.register_id}>{box.register_id}</option>)}
+          </select>
+          <small style={{ color: '#64748b', fontWeight: 400, fontSize: '0.8125rem' }}>
             {!canWithdraw ? 'Tu cuenta no tiene permiso de retiro.' : cash.error ? cash.error.message : cash.isPending ? 'Consultando turnos abiertos…' : cash.data?.open_registers.length === 0 ? 'No hay turnos abiertos. Puedes guardar una nota y confirmarla después.' : `Sucursal: ${canonicalSession.active_branch.name}.`}
           </small>
         </label>
