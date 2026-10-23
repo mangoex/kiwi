@@ -1502,24 +1502,30 @@ body {
   justify-content: center;
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid rgba(255, 255, 255, .36);
+  border: 1px solid #cbd5e1;
   border-radius: 10px;
-  background: var(--menu-solid);
-  color: #fff;
+  background: #ffffff;
+  color: #334155;
   font: inherit;
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(16, 24, 40, .12);
-  transition: filter .15s ease, transform .15s ease, box-shadow .15s ease;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .06);
+  transition: background .15s ease, border-color .15s ease, color .15s ease, transform .15s ease, box-shadow .15s ease;
 }
-.pos-sale-menu-group--all { --menu-solid: #087a4c; }
-.pos-sale-menu-group--food { --menu-solid: #a33b0b; }
-.pos-sale-menu-group--drinks { --menu-solid: #075985; }
-.pos-sale-menu-group--other { --menu-solid: #6941c6; }
-.pos-sale-menu-group--favorites { --menu-solid: #8a5500; }
-.pos-sale-menu button:hover { filter: brightness(.94); color: #fff; transform: translateY(-1px); }
-.pos-sale-menu button.active { background: var(--menu-solid); border-color: rgba(255, 255, 255, .9); color: #fff; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .9), 0 5px 12px rgba(16, 24, 40, .22); transform: translateY(-1px); }
+.pos-sale-menu button:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
+  transform: translateY(-1px);
+}
+.pos-sale-menu button.active {
+  background: #ffffff;
+  border: 2px solid #10b981;
+  color: #047857;
+  box-shadow: 0 4px 10px rgba(16, 185, 129, .15);
+  transform: translateY(-1px);
+}
 .pos-sale-menu button:focus-visible { outline: 3px solid #17212b; outline-offset: 2px; }
 .pos-sale-category-select:focus-visible,
 .pos-sale-product-card-select:focus-visible,

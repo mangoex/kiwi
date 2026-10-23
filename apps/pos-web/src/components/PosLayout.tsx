@@ -19,6 +19,7 @@ import {
   ShoppingBag,
   FileText,
   ClipboardCheck,
+  Utensils,
 } from 'lucide-react';
 import { usePosSession, clearPosSession } from '../session';
 import AttendanceClockModal from '../features/attendance/AttendanceClockModal';
@@ -181,8 +182,10 @@ const PosLayout = () => {
       }}>
         <div style={{ display: 'flex', justifyContent: isCollapsed ? 'center' : 'space-between', alignItems: 'center', padding: isCollapsed ? '24px 0' : '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '1.5rem', fontWeight: 800, color: '#10b981' }}>
-            <span>🥝</span>
-            {!isCollapsed && <span>Kiwi</span>}
+            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Utensils size={26} />
+            </span>
+            {!isCollapsed && <span>Mimenu</span>}
           </div>
           <button 
             onClick={() => setIsCollapsed(!isCollapsed)}

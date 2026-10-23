@@ -1663,9 +1663,11 @@ const PointOfSale = () => {
       </p>}
       <header className="pos-sale-header">
         <div className="pos-sale-brand">
-          <span className="pos-sale-mark">K</span>
+          <span className="pos-sale-mark" aria-hidden="true">
+            <Utensils size={18} />
+          </span>
           <div>
-            <strong>Kiwi POS — <span style={{ color: '#10b981' }}>{session?.user?.display_name || ''}</span></strong>
+            <strong>Mimenu — <span style={{ color: '#10b981' }}>{session?.user?.display_name || ''}</span></strong>
             <small>Venta rápida</small>
             {offlineOrderStatus && <small role="status">{offlineOrderStatusLabel(offlineOrderStatus)}</small>}
           </div>
