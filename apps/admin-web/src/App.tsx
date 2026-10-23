@@ -25,6 +25,7 @@ import DeliveryServices from './features/delivery/DeliveryServices';
 import CashConceptsManager from './features/cash/CashConceptsManager';
 import RecipesWorkspace from './features/recipes/RecipesWorkspace';
 import CorporateReconciliationDashboard from './features/reports/CorporateReconciliationDashboard';
+import AnalyticsDashboard from './features/reports/AnalyticsDashboard';
 import IntegrationsHub from './features/integrations/IntegrationsHub';
 import CategoryPriorities from './features/admin-catalog/CategoryPriorities';
 import BulkRecipeWorkspace from './features/admin-catalog/BulkRecipeWorkspace';
@@ -110,7 +111,7 @@ export const App = () => {
 
           {/* Subroutes: Ventas y Reportes */}
           <Route path="reports" element={<CorporateReconciliationDashboard />} />
-          <Route path="analytics" element={<div style={{ padding: 24 }}><h2>Analytics</h2><p>Panel de Métricas en vivo...</p></div>} />
+          <Route path="analytics" element={<AnalyticsDashboard />} />
 
           {/* Subroutes: Administración y Accesos */}
           <Route path="users" element={<UsersList />} />
