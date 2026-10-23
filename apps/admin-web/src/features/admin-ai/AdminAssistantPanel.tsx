@@ -129,6 +129,18 @@ export default function AdminAssistantPanel({
     proposal.payload.questions.length > 0,
   );
   const consultationComplete = Boolean(proposal && !needsClarification);
+  const hasChangeProposal = Boolean(
+    proposal && (proposal.payload.change_set.length > 0 || proposal.status === 'READY_FOR_REVIEW')
+  );
+  const isRecipeRelated = messages.some(
+    (m) => (m.role === 'user' && /receta/i.test(m.text)) || (m.role === 'assistant' && /receta/i.test(m.proposal.payload.answer))
+  );
+  const isCatalogRelated = messages.some(
+    (m) =>
+      (m.role === 'user' && /(producto|precio|categoria|catálogo|insumo)/i.test(m.text)) ||
+      (m.role === 'assistant' && /(producto|precio|categoria|catálogo|insumo)/i.test(m.proposal.payload.answer))
+  );
+
   const filteredItems = useMemo(() => {
     if (!diagnostic) return [];
     const normalized = search.trim().toLocaleLowerCase('es-MX');
@@ -190,21 +202,22 @@ export default function AdminAssistantPanel({
     setPrompt('');
     setMessages((current) => [...current, userMessage]);
     try {
+      const payloadBody: Record<string, any> = {
+        prompt: normalizedMessage,
+        branch_id: branchId || null,
+      };
+      if (parentProposalId) {
+        payloadBody.parent_proposal_id = parentProposalId;
+        payloadBody.clarification_choice = clarificationChoice || null;
+        payloadBody.conversation_idempotency_key = conversationIdempotencyKey;
+        payloadBody.conversation_context = messages
+          .filter((item): item is Extract<AdminAiChatMessage, { role: 'user' }> => item.role === 'user')
+          .map((item) => item.text)
+          .slice(-4);
+      }
       const response = await fetchApi<AdminAiProposal>('/admin-ai/proposals', {
         method: 'POST',
-        body: JSON.stringify({
-          prompt: normalizedMessage,
-          branch_id: branchId || null,
-          parent_proposal_id: parentProposalId,
-          clarification_choice: clarificationChoice || null,
-          conversation_idempotency_key: conversationIdempotencyKey,
-          conversation_context: parentProposalId
-            ? messages
-              .filter((item): item is Extract<AdminAiChatMessage, { role: 'user' }> => item.role === 'user')
-              .map((item) => item.text)
-              .slice(-4)
-            : [],
-        }),
+        body: JSON.stringify(payloadBody),
       });
       if (requestGeneration.current !== requestId) return;
       pendingRetry.current = null;
@@ -273,7 +286,7 @@ export default function AdminAssistantPanel({
   const modalTitle = (
     <span className="admin-ai-title">
       <span className="admin-ai-title-icon" aria-hidden="true"><UserRound size={24} /><Sparkles size={12} /></span>
-      <span>Asistente de configuración</span>
+      <span>Asistente de Menú y Recetas</span>
       <span className="admin-ai-branch"><MapPin size={15} /> {branchName}</span>
     </span>
   );
@@ -281,23 +294,33 @@ export default function AdminAssistantPanel({
   return (
     <Modal isOpen={open} onClose={closePanel} title={modalTitle} maxWidth="1040px" contentClassName="admin-ai-modal">
       <div className="admin-ai-assistant">
-        <ol className="admin-ai-steps" aria-label="Progreso de configuración">
-          <li className={consultationComplete ? 'is-complete' : 'is-active'}>
-            <span className="admin-ai-step-marker">{consultationComplete ? <Check size={17} /> : '1'}</span>
-            <span>
-              <strong>Consultar</strong>
-              <small>{needsClarification ? 'Necesita aclaración' : consultationComplete ? 'Completado' : 'En progreso'}</small>
-            </span>
-          </li>
-          <li className={proposal?.status === 'READY_FOR_REVIEW' ? 'is-complete' : consultationComplete ? 'is-active' : ''}>
-            <span className="admin-ai-step-marker">{proposal?.status === 'READY_FOR_REVIEW' ? <Check size={17} /> : '2'}</span>
-            <span><strong>Revisar resultados</strong><small>{consultationComplete ? proposal?.status === 'READY_FOR_REVIEW' ? 'Completado' : 'En progreso' : 'Pendiente'}</small></span>
-          </li>
-          <li className={proposal?.status === 'READY_FOR_REVIEW' ? 'is-active' : ''}>
-            <span className="admin-ai-step-marker">3</span>
-            <span><strong>Validar cambios</strong><small>{proposal?.status === 'READY_FOR_REVIEW' ? 'Disponible' : 'Pendiente'}</small></span>
-          </li>
-        </ol>
+        {hasChangeProposal ? (
+          <ol className="admin-ai-steps" aria-label="Progreso de configuración">
+            <li className={consultationComplete ? 'is-complete' : 'is-active'}>
+              <span className="admin-ai-step-marker">{consultationComplete ? <Check size={17} /> : '1'}</span>
+              <span>
+                <strong>Consultar</strong>
+                <small>{needsClarification ? 'Necesita aclaración' : consultationComplete ? 'Completado' : 'En progreso'}</small>
+              </span>
+            </li>
+            <li className={proposal?.status === 'READY_FOR_REVIEW' ? 'is-complete' : consultationComplete ? 'is-active' : ''}>
+              <span className="admin-ai-step-marker">{proposal?.status === 'READY_FOR_REVIEW' ? <Check size={17} /> : '2'}</span>
+              <span><strong>Revisar resultados</strong><small>{consultationComplete ? proposal?.status === 'READY_FOR_REVIEW' ? 'Completado' : 'En progreso' : 'Pendiente'}</small></span>
+            </li>
+            <li className={proposal?.status === 'READY_FOR_REVIEW' ? 'is-active' : ''}>
+              <span className="admin-ai-step-marker">3</span>
+              <span><strong>Validar cambios</strong><small>{proposal?.status === 'READY_FOR_REVIEW' ? 'Disponible' : 'Pendiente'}</small></span>
+            </li>
+          </ol>
+        ) : proposal ? (
+          <div className="admin-ai-consultation-banner">
+            <div className="admin-ai-consultation-pill">
+              <Sparkles size={16} />
+              <span>Modo Consulta · Información Verificada</span>
+            </div>
+            <small>Consulta interactiva sin propuesta de cambio pendiente · Puedes continuar preguntando abajo.</small>
+          </div>
+        ) : null}
 
         {!proposal && (
           <section className="admin-ai-query" aria-label="Nueva consulta">
@@ -483,51 +506,60 @@ export default function AdminAssistantPanel({
               )}
             </div>
 
-            {needsClarification && (
-              <>
-                {proposal.payload.clarification?.options.length ? (
-                  <div className="admin-ai-chat-options" aria-label="Opciones de aclaración">
-                    {proposal.payload.clarification.options.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        disabled={loading}
-                        onClick={() => void ask(option.label, option.id)}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                <form
-                  className="admin-ai-chat-composer"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void ask();
-                  }}
-                >
-                  <label htmlFor="admin-ai-follow-up" className="admin-ai-visually-hidden">Responder al asistente</label>
-                  <textarea
-                    id="admin-ai-follow-up"
-                    aria-label="Responder al asistente"
-                    value={prompt}
-                    onChange={(event) => setPrompt(event.target.value)}
-                    maxLength={1600}
-                    rows={2}
-                    placeholder="Escribe una respuesta, por ejemplo: de compra"
-                  />
-                  <Button type="submit" disabled={loading || !prompt.trim()}>
-                    <Send size={16} /> {loading ? 'Enviando…' : 'Responder'}
-                  </Button>
-                </form>
-              </>
-            )}
+            {needsClarification && proposal.payload.clarification?.options.length ? (
+              <div className="admin-ai-chat-options" aria-label="Opciones de aclaración">
+                {proposal.payload.clarification.options.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => void ask(option.label, option.id)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            <form
+              className="admin-ai-chat-composer"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void ask();
+              }}
+            >
+              <label htmlFor="admin-ai-follow-up" className="admin-ai-visually-hidden">
+                {needsClarification ? 'Responder para aclarar' : 'Haz una pregunta de seguimiento'}
+              </label>
+              <textarea
+                id="admin-ai-follow-up"
+                aria-label={needsClarification ? 'Responder para aclarar' : 'Haz una pregunta de seguimiento'}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                maxLength={1600}
+                rows={2}
+                placeholder={needsClarification ? 'Escribe tu respuesta para aclarar...' : 'Escribe una pregunta de seguimiento o pide un cambio...'}
+              />
+              <Button type="submit" disabled={loading || !prompt.trim()}>
+                <Send size={16} /> {loading ? 'Enviando…' : needsClarification ? 'Responder' : 'Preguntar'}
+              </Button>
+            </form>
 
             <div className="admin-ai-guidance-actions">
               {proposal.status === 'READY_FOR_REVIEW' && proposal.payload.change_set[0] && (
                 <Button onClick={reviewProposal}>Revisar configuración <ArrowRight size={16} /></Button>
               )}
-              <Button variant="secondary" onClick={reset}>Nueva conversación</Button>
+              {isRecipeRelated && (
+                <Button variant="secondary" onClick={() => { navigate('/recipes'); closePanel(); }}>
+                  Ir a Recetas de Productos <ArrowRight size={15} />
+                </Button>
+              )}
+              {isCatalogRelated && (
+                <Button variant="secondary" onClick={() => { navigate('/catalog/products'); closePanel(); }}>
+                  Ir a Catálogo de Productos <ArrowRight size={15} />
+                </Button>
+              )}
+              <Button variant="ghost" onClick={reset}>Nueva conversación</Button>
             </div>
           </section>
         )}

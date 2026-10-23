@@ -763,3 +763,30 @@
     transition: none;
   }
 }
+
+/* Consultation Mode Banner (Adaptive Stepper) */
+.admin-ai-consultation-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -2px 0 24px;
+  padding: 12px 18px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+}
+
+.admin-ai-consultation-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #166534;
+  font-weight: 700;
+  font-size: 0.875rem;
+}
+
+.admin-ai-consultation-banner small {
+  color: #15803d;
+  font-size: 0.8rem;
+}

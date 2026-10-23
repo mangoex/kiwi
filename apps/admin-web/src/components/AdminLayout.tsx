@@ -468,7 +468,7 @@ const AdminLayout = () => {
               ) : <span className="admin-active-branch-label">{session.active_branch.name}</span>}
             </div>}
             <button style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><Bell size={18} /></button>
-            {hasCatalogManage && <button type="button" aria-label="Abrir asistente de configuración" title="Asistente de configuración" onClick={() => setIsAssistantOpen(true)} style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><UserRound size={18} /></button>}
+            {hasCatalogManage && <button type="button" aria-label="Abrir asistente de Menú y Recetas" title="Asistente de Menú y Recetas" onClick={() => setIsAssistantOpen(true)} style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><UserRound size={18} /></button>}
             <div 
               onClick={openProfileModal}
               style={{ width: 40, height: 40, borderRadius: '50%', backgroundColor: 'var(--admin-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, overflow: 'hidden', cursor: 'pointer', border: '2px solid var(--admin-accent)' }}
