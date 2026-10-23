@@ -558,6 +558,13 @@ class ExecutiveAiPromptRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=1600)
     branch_id: UUID | None = None
 
+    @field_validator("branch_id", mode="before")
+    @classmethod
+    def clean_empty_branch_id(cls, v: Any) -> Any:
+        if v == "" or (isinstance(v, str) and not v.strip()):
+            return None
+        return v
+
 
 class SuggestedPurchasesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")

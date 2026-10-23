@@ -309,6 +309,22 @@ def generate_executive_insights(
             for k, v in sales_overview["channels"].items()
         ]
         sources = ["orders", "channel_integrations"]
+    elif "cliente" in normalized_prompt:
+        customers_count = int(
+            session.scalar(
+                sa.select(sa.func.count(models.customers.c.id)).where(
+                    models.customers.c.organization_id == ORGANIZATION_ID,
+                    models.customers.c.status == "active",
+                )
+            )
+            or 0
+        )
+        answer = (
+            f"Actualmente se registran {customers_count} clientes activos en la base de datos "
+            f"de la organización. Puedes consultar el detalle completo en la sección de Clientes en Administración."
+        )
+        data_points = [{"total_customers": customers_count}]
+        sources = ["customers"]
     else:
         answer = (
             f"Resumen general del negocio: Se registran {sales_overview['total_orders']} "

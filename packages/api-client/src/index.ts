@@ -114,17 +114,32 @@ async function requestApi(endpoint: string, options: RequestInit, version: 'v1' 
       for (const listener of unauthorizedListeners) listener();
     }
 
-    let errorData;
+    let errorData: any;
     try {
       errorData = await response.json();
     } catch {
       throw new ApiError(response.status, "unknown_error", "An unknown error occurred");
     }
 
+    let errorMessage = "API Error";
+    let errorCode = "api_error";
+    if (typeof errorData?.detail === "string") {
+      errorMessage = errorData.detail;
+    } else if (Array.isArray(errorData?.detail)) {
+      errorMessage = errorData.detail.map((err: any) => err.msg || err.message || JSON.stringify(err)).join("; ") || "Error de validación";
+      errorCode = "validation_error";
+    } else if (errorData?.detail && typeof errorData.detail === "object") {
+      errorMessage = errorData.detail.message || errorData.detail.msg || errorData.detail.error || JSON.stringify(errorData.detail);
+      errorCode = errorData.detail.code || "api_error";
+    } else if (typeof errorData?.message === "string") {
+      errorMessage = errorData.message;
+      if (typeof errorData?.code === "string") errorCode = errorData.code;
+    }
+
     throw new ApiError(
       response.status,
-      errorData.detail?.code || "api_error",
-      errorData.detail?.message || errorData.detail || "API Error"
+      errorCode,
+      errorMessage
     );
   }
 

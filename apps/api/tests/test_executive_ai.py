@@ -327,3 +327,17 @@ def test_post_executive_ai_insights_endpoint(
     assert "answer" in data
     assert "data_points" in data
     assert "sources" in data
+
+    # Empty branch_id coerced cleanly without 422
+    response_empty_branch = client.post(
+        "/api/v1/admin-ai/executive-insights",
+        headers={"Authorization": f"Bearer {token}", "X-Actor-User-Id": USER_ID},
+        json={
+            "prompt": "Cuantos clientes tenemos",
+            "branch_id": "",
+        },
+    )
+    assert response_empty_branch.status_code == 200
+    data_clients = response_empty_branch.json()
+    assert "clientes" in data_clients["answer"].lower()
+    assert "customers" in data_clients["sources"]

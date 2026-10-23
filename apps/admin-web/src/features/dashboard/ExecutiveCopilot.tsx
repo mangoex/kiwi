@@ -138,7 +138,9 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
 
     try {
       const payload: { prompt: string; branch_id?: string } = { prompt: q };
-      if (selectedBranchId) payload.branch_id = selectedBranchId;
+      if (selectedBranchId && selectedBranchId.trim()) {
+        payload.branch_id = selectedBranchId.trim();
+      }
 
       const response = await fetchApi<ExecutiveInsightsResponse>(
         '/admin-ai/executive-insights',
@@ -152,7 +154,13 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
       setInsights(response);
     } catch (requestError: any) {
       console.error('Error fetching executive insights:', requestError);
-      setError(requestError?.message || 'No fue posible generar el informe ejecutivo.');
+      if (requestError?.status === 403 || requestError?.code === 'financial_access_denied') {
+        setError('No cuentas con autorización financiera para consultar los datos del negocio.');
+      } else if (typeof requestError?.message === 'string' && requestError.message && requestError.message !== '[object Object]') {
+        setError(requestError.message);
+      } else {
+        setError('No fue posible generar el informe ejecutivo.');
+      }
     } finally {
       setLoading(false);
     }
