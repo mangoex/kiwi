@@ -335,3 +335,194 @@ def test_post_suggested_purchases_endpoint(
     data = response.json()
     assert "proposals" in data
     assert "summary" in data
+
+
+def test_suggested_purchases_omits_item_when_current_stock_is_sufficient(
+    test_db: Session, sample_inventory_data: dict[str, str]
+) -> None:
+    now = datetime.now(UTC)
+    branch_id = sample_inventory_data["branch_id"]
+    item_id = sample_inventory_data["item_id"]
+
+    # Insert warehouse and positive stock of 200 units
+    warehouse_id = "018f6f73-2d0a-74f0-8f1c-000000000088"
+    test_db.execute(
+        models.warehouses.insert().values(
+            id=warehouse_id,
+            organization_id=ORGANIZATION_ID,
+            branch_id=branch_id,
+            name="Almacén Principal",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    test_db.execute(
+        models.inventory_movements.insert().values(
+            id="018f6f73-2d0a-74f0-8f1c-000000000089",
+            organization_id=ORGANIZATION_ID,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            item_id=item_id,
+            movement_type="PURCHASE_RECEIPT",
+            quantity_delta=Decimal("200.00"),
+            unit_id=UNIT_ID,
+            unit_cost=Decimal("10.00"),
+            total_cost=Decimal("2000.00"),
+            effective_at=now,
+            reason="Stock inicial",
+            status="confirmed",
+            created_at=now,
+        )
+    )
+    test_db.commit()
+
+    proposals = calculate_suggested_purchases(test_db, branch_id=branch_id, days_ahead=7)
+    # Stock is 200, which is well above 0 consumption and threshold -> no purchases needed
+    assert proposals == []
+
+
+def test_suggested_purchases_calculates_demand_from_orders_and_recipes(
+    test_db: Session, sample_inventory_data: dict[str, str]
+) -> None:
+    now = datetime.now(UTC)
+    branch_id = sample_inventory_data["branch_id"]
+    item_id = sample_inventory_data["item_id"]
+    warehouse_id = "018f6f73-2d0a-74f0-8f1c-000000000088"
+
+    # Set current stock to 40 units
+    test_db.execute(
+        models.inventory_movements.insert().values(
+            id="018f6f73-2d0a-74f0-8f1c-000000000091",
+            organization_id=ORGANIZATION_ID,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            item_id=item_id,
+            movement_type="PURCHASE_RECEIPT",
+            quantity_delta=Decimal("40.00"),
+            unit_id=UNIT_ID,
+            unit_cost=Decimal("10.00"),
+            total_cost=Decimal("400.00"),
+            effective_at=now,
+            reason="Compra inicial",
+            status="confirmed",
+            created_at=now,
+        )
+    )
+
+    # Create Category and Product
+    cat_id = "018f6f73-2d0a-74f0-8f1c-000000000100"
+    test_db.execute(
+        models.product_categories.insert().values(
+            id=cat_id,
+            organization_id=ORGANIZATION_ID,
+            name="Hamburguesas",
+            display_order=1,
+            status="active",
+            configuration_version=1,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    product_id = "018f6f73-2d0a-74f0-8f1c-000000000101"
+    test_db.execute(
+        models.products.insert().values(
+            id=product_id,
+            organization_id=ORGANIZATION_ID,
+            category_id=cat_id,
+            sku="PROD-BURGER-01",
+            name="Hamburguesa Clásica",
+            station="kitchen",
+            catalog_scope="organization",
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+
+    # Create Recipe linking Product to Item with 2 units per burger
+    recipe_id = "018f6f73-2d0a-74f0-8f1c-000000000102"
+    test_db.execute(
+        models.recipes.insert().values(
+            id=recipe_id,
+            organization_id=ORGANIZATION_ID,
+            product_id=product_id,
+            output_item_id=None,
+            branch_id=branch_id,
+            recipe_type="product",
+            version=1,
+            status="active",
+            yield_quantity=Decimal("1.00"),
+            yield_unit_id=UNIT_ID,
+            valid_from=now,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    test_db.execute(
+        models.recipe_components.insert().values(
+            recipe_id=recipe_id,
+            item_id=item_id,
+            quantity_base_units=Decimal("2.00"),
+            gross_quantity=Decimal("2.00"),
+            unit_id=UNIT_ID,
+            net_quantity=Decimal("2.00"),
+            waste_rate=Decimal("0.00"),
+            sort_order=1,
+        )
+    )
+
+    # Create Confirmed Order in last 30 days: 300 burgers (600 base units consumed -> 20 units/day)
+    order_id = "018f6f73-2d0a-74f0-8f1c-000000000103"
+    test_db.execute(
+        models.orders.insert().values(
+            id=order_id,
+            organization_id=ORGANIZATION_ID,
+            branch_id=branch_id,
+            folio="ORD-101",
+            channel="WHATSAPP",
+            status="PAID",
+            total_cents=45000,
+            currency="MXN",
+            order_type="dine_in",
+            version=1,
+            created_at=now,
+        )
+    )
+    test_db.execute(
+        models.order_lines.insert().values(
+            id="018f6f73-2d0a-74f0-8f1c-000000000104",
+            order_id=order_id,
+            product_id=product_id,
+            product_name="Hamburguesa Clásica",
+            quantity=300,
+            unit_price_cents=15000,
+            line_total_cents=4500000,
+            station="kitchen",
+            selected_modifiers=[],
+            modifier_total_cents=0,
+            revision=1,
+            family_id_snapshot="fam-1",
+            family_name_snapshot="Burgers",
+            family_snapshot_source="captured",
+            status="confirmed",
+            created_at=now,
+        )
+    )
+    test_db.commit()
+
+    # For 7 days: projected consumption = 20 * 7 = 140.
+    # Shortage = 140 - 40 (stock) = 100.
+    # Presentation yield is 50 -> ceil(100 / 50) * 50 = 100 units!
+    proposals_7d = calculate_suggested_purchases(test_db, branch_id=branch_id, days_ahead=7)
+    assert len(proposals_7d) == 1
+    assert proposals_7d[0]["lines"][0]["suggested_quantity"] == 100.0
+    assert proposals_7d[0]["lines"][0]["unit_cost_cents"] == 1000
+    assert proposals_7d[0]["lines"][0]["line_total_cents"] == 100000  # $1,000.00 MXN
+
+    # For 14 days: projected consumption = 20 * 14 = 280.
+    # Shortage = 280 - 40 (stock) = 240.
+    # Presentation yield is 50 -> ceil(240 / 50) * 50 = 250 units!
+    proposals_14d = calculate_suggested_purchases(test_db, branch_id=branch_id, days_ahead=14)
+    assert len(proposals_14d) == 1
+    assert proposals_14d[0]["lines"][0]["suggested_quantity"] == 250.0
