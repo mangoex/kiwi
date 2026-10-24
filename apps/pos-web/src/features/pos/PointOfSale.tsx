@@ -53,6 +53,11 @@ import {
   toggleAssistedOption,
   type AssistedOrderDraft,
 } from './assistedOrderDraft';
+import {
+  addDismissedUpsellProduct,
+  getVisibleUpsellRecommendations,
+  type UpsellRecommendation,
+} from './upsellSuggestions';
 
 const getProductIcon = (category: string, size: number = 40) => {
   const cat = (category || '').toLowerCase();
@@ -431,7 +436,8 @@ const PointOfSale = () => {
   const [supervisorIdentity, setSupervisorIdentity] = useState('');
   const [pinError, setPinError] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<PosCustomer | null>(null);
-  const [upsellRecs, setUpsellRecs] = useState<Array<{ product_id: string; product_name: string; price_cents: number; reason: string }>>([]);
+  const [upsellRecs, setUpsellRecs] = useState<UpsellRecommendation[]>([]);
+  const [dismissedUpsellProductIds, setDismissedUpsellProductIds] = useState<Set<string>>(() => new Set());
   const [selectedAddressId, setSelectedAddressId] = useState('');
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [availableDrivers, setAvailableDrivers] = useState<DeliveryDriver[]>([]);
@@ -502,6 +508,10 @@ const PointOfSale = () => {
     void refresh();
     return () => { active = false; window.clearInterval(interval); };
   }, [localOrderConfig, pendingOfflineCommandId]);
+
+  useEffect(() => {
+    setDismissedUpsellProductIds(new Set());
+  }, [selectedCustomer?.id]);
 
   useEffect(() => {
     if (!selectedCustomer) {
@@ -1028,6 +1038,15 @@ const PointOfSale = () => {
         notes: '',
       }];
     });
+  };
+
+  const dismissUpsellRecommendation = (productId: string) => {
+    setDismissedUpsellProductIds((current) => addDismissedUpsellProduct(current, productId));
+  };
+
+  const addUpsellRecommendationToCart = (product: Product) => {
+    addToCart(product);
+    setDismissedUpsellProductIds((current) => addDismissedUpsellProduct(current, product.id));
   };
 
   const closeAssistedCapture = () => {
@@ -1648,6 +1667,10 @@ const PointOfSale = () => {
       orderType !== 'delivery' ||
       (selectedCustomer && selectedAddressId),
   );
+  const visibleUpsellRecs = getVisibleUpsellRecommendations(
+    upsellRecs,
+    dismissedUpsellProductIds,
+  );
 
   if (!editOrderId && drafts.captureBlocked) return <div className="pos-sale-screen">
     <h1>Captura de caja</h1><p role="alert">{drafts.error}</p>
@@ -1909,31 +1932,42 @@ const PointOfSale = () => {
             <button type="button" disabled={Boolean(editingOrder) || !hasPermission('payments.confirm')} aria-pressed={orderType === 'dine-in'} onClick={() => setOrderType('dine-in')}>Cobrar ahora</button>
           </div>}
 
-          {selectedCustomer && upsellRecs.length > 0 && (
+          {selectedCustomer && visibleUpsellRecs.length > 0 && (
             <div style={{ margin: '8px 12px 0', padding: '10px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', fontSize: '0.82rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#15803d', fontWeight: 700, marginBottom: '6px' }}>
                 <Sparkles size={15} color="#16a34a" />
                 <span>Sugerencia IA para {selectedCustomer.name.split(' ')[0]}:</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                {upsellRecs.slice(0, 2).map((rec) => {
+                {visibleUpsellRecs.map((rec) => {
                   const matchedProd = products.find((p) => p.id === rec.product_id);
                   return (
                     <div key={rec.product_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcfce7', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
-                      <div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
                         <strong style={{ color: '#15803d', display: 'block', fontSize: '0.85rem' }}>{rec.product_name}</strong>
                         <span style={{ color: '#64748b', fontSize: '0.75rem' }}>{rec.reason} · +{formatMxnCents(rec.price_cents)}</span>
                       </div>
-                      {matchedProd && (
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginLeft: '8px' }}>
+                        {matchedProd && (
                         <button
                           type="button"
-                          onClick={() => addToCart(matchedProd)}
+                          onClick={() => addUpsellRecommendationToCart(matchedProd)}
                           style={{ background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
                         >
                           <Plus size={13} />
                           Agregar
                         </button>
-                      )}
+                        )}
+                        <button
+                          type="button"
+                          aria-label={`Quitar sugerencia ${rec.product_name}`}
+                          title="Quitar sugerencia"
+                          onClick={() => dismissUpsellRecommendation(rec.product_id)}
+                          style={{ width: '28px', height: '28px', border: '1px solid #bbf7d0', borderRadius: '999px', background: '#ffffff', color: '#64748b', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                        >
+                          <X size={14} aria-hidden="true" />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}

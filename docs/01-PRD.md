@@ -1207,7 +1207,11 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   **Cobrar al entregar** usa `takeout`. El pedido nuevo inicia como recoger con cobro al entregar;
   cambiar esa modalidad no modifica una orden confirmada. La cuenta, total y siguiente acción
   permanecen visibles. Se mantienen los cinco grupos, favoritos y categorías/opciones; la búsqueda
-  puede encontrar productos concretos desde cualquier nivel sin eludir sus complementos.
+  puede encontrar productos concretos desde cualquier nivel sin eludir sus complementos. Cada
+  sugerencia de venta cruzada para el cliente seleccionado puede descartarse individualmente sin
+  alterar el carrito, el total ni el pedido. Agregar un producto desde la sugerencia también la
+  oculta; el descarte se conserva durante la captura vigente aunque se vuelvan a solicitar
+  recomendaciones y se reinicia al cambiar o limpiar el cliente.
 - `PRD-FR-254`: Cada línea permite cantidad entera positiva, eliminación previa a confirmación y
   nota de cocina de hasta 500 caracteres. Los complementos obligatorios aparecen primero y no
   pueden omitirse; extras indican recargo. Recuperar o editar conserva notas y selecciones por
