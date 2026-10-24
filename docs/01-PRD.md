@@ -1025,6 +1025,11 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   al servicio canónico de la acción con idempotencia y auditoría. Rechazar o expirar no escribe
   configuración. El MVP excluye órdenes, pagos, caja, compras, movimientos físicos de inventario,
   producción operativa, usuarios, roles y cualquier borrado o archivado automático.
+  Hasta que exista evidencia vigente de que sus respuestas se sustentan en las proyecciones
+  canónicas autorizadas, el acceso frontend permanece suspendido mediante una compuerta separada,
+  deshabilitada por defecto. En ese estado Admin no muestra el disparador, no monta el diálogo y no
+  abre una revisión por `admin_ai_proposal`; el avatar de perfil conserva su funcionamiento. La
+  suspensión no habilita acceso directo a tablas ni amplía el contexto permitido al proveedor.
 
 - `PRD-FR-231`: La ruta pública `/` debe presentar la portada institucional de Kiwi Natural en
   navegadores de escritorio y redirigir los accesos identificados como teléfono a `/menu/` antes de

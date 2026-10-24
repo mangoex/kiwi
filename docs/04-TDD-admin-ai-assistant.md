@@ -34,10 +34,10 @@ Verifica roundtrip vacío de la migración 0055 y downgrade bloqueado cuando exi
 
 ### TDD-TC-201 — semántica del administrador
 
-Verifica UserRound, diálogo Admin, deep link, comparación actual/propuesto y aceptación explícita.
-En navegador, tras aceptar espera la recarga automática y el estado APPLIED persistido, exige un
-único POST de aceptación y ausencia del botón de aceptar. Las capturas de escritorio y móvil se
-toman después de esa lectura, con el estado visible en el viewport; no durante la recarga.
+Verifica que la compuerta frontend sea opt-in mediante valor exacto `true`. Apagada, no renderiza
+UserRound, diálogo ni revisión por deep link y conserva el avatar de perfil. La prueba semántica
+mantiene también el contrato interno de comparación actual/propuesto y aceptación explícita para una
+reactivación futura gobernada.
 
 ### TDD-TC-202 — gates estáticos y de empaquetado
 
@@ -52,9 +52,9 @@ un único ganador y que 0055 pueda revertirse vacía pero bloquee downgrade con 
 
 ### TDD-TC-204 — recorrido visual sintético Admin
 
-Verifica en Chrome, a 1440x1000 y 390x844, que el icono accesible abra el asistente, una respuesta
-READY_FOR_REVIEW navegue con deep link, la revisión muestre actual/propuesto y la aceptación envíe
-una clave idempotente. Exige contenido visible, ausencia de overlay, `pageerror` y errores de consola.
+Verifica en Chrome, a 1440x1000 y 390x844, que el build normal no muestre el icono del asistente y
+que una URL con `admin_ai_proposal` no monte el diálogo de revisión. El avatar debe seguir abriendo el
+perfil. Exige contenido visible, ausencia de overlay, `pageerror` y errores de consola.
 
 ### TDD-TC-205 — observabilidad redactada
 
