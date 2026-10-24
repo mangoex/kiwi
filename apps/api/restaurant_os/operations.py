@@ -9463,8 +9463,8 @@ class ReportingProjectionService:
         if not isinstance(limit, int) or not 1 <= limit <= 100:
             raise BusinessError("report_limit_invalid", "Report limit must be between 1 and 100")
         requested_branch = raw.get("branch_id")
-        if requested_branch is None and not actor_has_organization_authority(
-            self.session, self.actor_user_id
+        if requested_branch is None and not _actor_has_organization_scope(
+            self.session, self.actor_user_id, permission
         ):
             raise AuthorizationError(
                 "report_branch_required", "A branch is required for this actor"
@@ -27839,6 +27839,14 @@ def build_session_profile(
         code: _actor_has_permission(session, actor, code, active_branch_id)
         for code in capability_codes
     }
+    for code in (
+        "dashboard.read",
+        "reports.ingredient_sales.read",
+        "reports.expenses.read",
+    ):
+        admin_capabilities[f"{code}.organization"] = _actor_has_organization_scope(
+            session, actor, code
+        )
     # A fiscal branch role cannot borrow corporate scope from an unrelated role.
     admin_capabilities["invoicing.config.manage"] = _actor_has_organization_scope(
         session, actor, "invoicing.config.manage"
@@ -27867,6 +27875,7 @@ def build_session_profile(
                     models.branches.c.name,
                     models.branches.c.code,
                     models.branches.c.status,
+                    models.branches.c.timezone,
                 )
                 .where(models.branches.c.id.in_(allowed_branch_ids))
                 .order_by(models.branches.c.name, models.branches.c.id)

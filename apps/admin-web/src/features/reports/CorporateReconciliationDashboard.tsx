@@ -11,20 +11,27 @@ interface Branch {
 
 const money = formatReportMoney;
 
-export default function CorporateReconciliationDashboard() {
-  const {session} = useAdminSession();
+type CorporateReconciliationDashboardProps = {
+  embedded?: boolean;
+  branchId?: string | null;
+};
+
+export default function CorporateReconciliationDashboard({ embedded = false, branchId }: CorporateReconciliationDashboardProps) {
+  const {session, dashboardBranchId, selectDashboardBranch} = useAdminSession();
+  const canReadOrganization = session.admin_capabilities['dashboard.read.organization'] === true;
+  const selectedBranchId = branchId === undefined
+    ? (canReadOrganization ? dashboardBranchId : session.active_branch.id)
+    : branchId;
   const [exportError, setExportError] = useState('');
   const today = new Date().toISOString().split('T')[0];
   const firstDay = `${today.substring(0, 7)}-01`;
 
   const [dateFrom, setDateFrom] = useState(firstDay);
   const [dateTo, setDateTo] = useState(today);
-  const [selectedBranchId, setSelectedBranchId] = useState('');
-
-  const { data: branches = [] } = useQuery<Branch[]>({
-    queryKey: ['branches'],
-    queryFn: () => fetchApi('/branches'),
-  });
+  const branches: Branch[] = session.allowed_branches.filter((branch) => branch.status === 'active');
+  const selectableBranches = canReadOrganization
+    ? branches
+    : branches.filter((branch) => branch.id === session.active_branch.id);
 
   const { data, isLoading, error, refetch } = useQuery<ConsolidatedReport>({
     queryKey: ['consolidated-reconciliation-v2', session?.organization_id, session?.user.id, dateFrom, dateTo, selectedBranchId],
@@ -55,7 +62,7 @@ export default function CorporateReconciliationDashboard() {
   const summary = data?.summary;
 
   return (
-    <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ padding: embedded ? 0 : 24, maxWidth: 1200, margin: '0 auto', fontFamily: 'system-ui, sans-serif' }}>
       {/* Header & Controls */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 24 }}>
         <div>
@@ -68,18 +75,19 @@ export default function CorporateReconciliationDashboard() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <select
-            value={selectedBranchId}
-            onChange={(e) => setSelectedBranchId(e.target.value)}
+          {!embedded && <select
+            aria-label="Sucursal del reporte"
+            value={selectedBranchId ?? ''}
+            onChange={(e) => selectDashboardBranch(e.target.value || null)}
             style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
           >
-            <option value="">🏢 Todas las Sucursales</option>
-            {branches.map((b) => (
+            {canReadOrganization && <option value="">🏢 Todas las Sucursales</option>}
+            {selectableBranches.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
               </option>
             ))}
-          </select>
+          </select>}
 
           <label style={{ fontSize: '0.85rem', color: '#475569', display: 'flex', alignItems: 'center', gap: 6 }}>
             Desde:

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BarChart3, LineChart } from 'lucide-react';
+import { BarChart3, History, LineChart } from 'lucide-react';
 import { CategoryHubView, HubCardItem } from './CategoryHubView';
 
 export const ReportsHub: React.FC = () => {
@@ -11,6 +11,14 @@ export const ReportsHub: React.FC = () => {
       iconBg: '#eff6ff',
       iconColor: '#2563eb',
       path: '/reports',
+    },
+    {
+      title: 'Reportes históricos',
+      description: 'Consulta cortes, venta por insumos y gastos por sucursal o de toda la organización.',
+      icon: <History size={26} />,
+      iconBg: '#fff7ed',
+      iconColor: '#ea580c',
+      path: '/historical-reports',
     },
     {
       title: 'Métricas y Rendimiento',

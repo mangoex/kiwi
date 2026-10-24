@@ -744,7 +744,7 @@ Feature: Cerrar ambigüedades contables y de autorización
     Then recibe sólo esa sucursal y paginación estable
     When omite sucursal, cambia filtros bajo el cursor o envía periodo ingenuo o límite inválido
     Then falla branch_scope_denied, report_cursor_invalid o report_period_invalid
-    When Dueño omite sucursal
+    When un Administrador o Dueño con rol organizacional y permiso específico omite sucursal
     Then recibe el consolidado de su organización y nunca datos de otra organización
     And este fallback no sustituye el endpoint corporativo explícito de conciliación autorizado por PRD-FR-226
 
@@ -752,8 +752,10 @@ Feature: Cerrar ambigüedades contables y de autorización
   @BDD-SC-342
   Scenario: UI presenta reportes autoritativos y receta sin fórmulas cliente
     Given una sesión con capacidades de receta, insumos o gastos
-    When abre la superficie correspondiente en ancho de escritorio o reducido
+    When abre la superficie correspondiente en POS o Admin en ancho de escritorio o reducido
     Then sólo ve pestañas y acciones autorizadas con estados carga, vacío, datos, incompleto y error en español
+    And en Admin puede seleccionar una sucursal autorizada o toda la organización si el permiso de la pestaña posee alcance organizacional
+    And una sucursal usa su zona IANA mientras toda la organización declara un período UTC
     And React convierte una vez el día local y presenta cantidades e importes recibidos sin recalcularlos
     And la API registra resultado y alcance sin componentes, razones libres, filtros completos ni PII
 

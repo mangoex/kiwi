@@ -914,7 +914,11 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   una receta actual nunca recalcula una operación histórica. Gastos se derivan de documentos y
   movimientos con clasificación canónica por documento, sin sumar por separado una compra y su retiro
   enlazado; los impuestos se separan. El día operativo usa inicialmente la zona horaria de sucursal,
-  de 00:00 a 23:59 local. React/TypeScript sólo presenta el resultado autoritativo.
+  de 00:00 a 23:59 local. Admin ofrece una superficie de reportes históricos con selector de una
+  sucursal autorizada o, sólo cuando el permiso de esa pestaña tiene alcance organizacional, toda la
+  organización. Una sucursal usa su día local; el consolidado histórico organizacional usa un período
+  calendario UTC explícito para no atribuir un único huso horario a toda la cadena. React/TypeScript
+  sólo presenta el resultado autoritativo.
   Al activar CORTE-CIEGO-001, toda lectura que revele agregados financieros requiere
   PRD-FR-289/300; ni estos perfiles ni el monitor de PRD-FR-218 ni asistentes o
   exportaciones conceden acceso por nombre de rol o por un permiso operativo.
@@ -959,7 +963,9 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   libro de cálculo en Excel (.xlsx) con el formato oficial de Kiwi protegido por RBAC. Consolidado
   y Excel separan saldo por apertura de turnos y actividad calendario; si algún turno carece de
   arqueo equivalente, el total contado y su diferencia permanecen nulos. La revisión gerencial
-  no certifica un conteo físico. D-01/D-02 aprobadas el 2026-10-09 mediante «Adelante».
+  no certifica un conteo físico. El alcance “todas” agrega únicamente sucursales activas autorizadas;
+  una sucursal inactiva conserva su historia pero no invalida ni participa en el consolidado vigente.
+  D-01/D-02 aprobadas el 2026-10-09 mediante «Adelante».
 - `PRD-FR-227`: Debe proveer una interfaz web responsiva de autoservicio para clientes móviles
   (`apps/mobile-web`) y endpoints públicos de consulta de catálogo y captura de pedidos en línea
   (`/api/v1/public/*`), asignando precios vigentes de catálogo sin fallbacks artificiales y registrando
