@@ -30,6 +30,7 @@ const routeRules: Record<string, string[][]> = {
   '/purchase-presentations': [['purchases.read']],
   '/branches': [['admin.manage']], '/drivers': [['admin.manage']], '/integrations': [['admin.manage'], ['invoicing.read'], ['invoicing.config.manage']],
   '/cash-concepts': [['cash.concept.manage']], '/reports': [['admin.manage']],
+  '/historical-reports': [['dashboard.read'], ['reports.ingredient_sales.read'], ['reports.expenses.read']],
   '/analytics': [['dashboard.read']], '/users': [['admin.manage']], '/roles': [['admin.manage']],
   '/customers': [['orders.read']], '/imports': [['admin.manage']],
 };
@@ -38,7 +39,7 @@ const hubRoutes: Record<string, string[]> = {
   '/inventory': ['/inventory/stock','/inventory/items','/production','/inventory/waste','/inventory/transfers','/inventory/counts','/inventory/units','/warehouses','/inventory/thresholds'],
   '/purchasing': ['/purchases','/suppliers','/purchase-presentations','/expenses','/expense-concepts'],
   '/branches-hub': ['/branches','/drivers','/integrations','/cash-concepts'],
-  '/reports-hub': ['/reports','/analytics'], '/admin-access-hub': ['/users','/roles','/customers','/imports'],
+  '/reports-hub': ['/reports','/historical-reports','/analytics'], '/admin-access-hub': ['/users','/roles','/customers','/imports'],
 };
 export function canAccessAdminRoute(session: AdministrativeSession | null, path: string): boolean {
   if (!session?.active_branch || !session.scope.allowed_branch_ids.includes(session.active_branch.id)) return false;

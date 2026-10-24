@@ -25,6 +25,7 @@ import DeliveryServices from './features/delivery/DeliveryServices';
 import CashConceptsManager from './features/cash/CashConceptsManager';
 import RecipesWorkspace from './features/recipes/RecipesWorkspace';
 import CorporateReconciliationDashboard from './features/reports/CorporateReconciliationDashboard';
+import HistoricalReports from './features/reports/HistoricalReports';
 import AnalyticsDashboard from './features/reports/AnalyticsDashboard';
 import IntegrationsHub from './features/integrations/IntegrationsHub';
 import CategoryPriorities from './features/admin-catalog/CategoryPriorities';
@@ -111,6 +112,7 @@ export const App = () => {
 
           {/* Subroutes: Ventas y Reportes */}
           <Route path="reports" element={<CorporateReconciliationDashboard />} />
+          <Route path="historical-reports" element={<HistoricalReports />} />
           <Route path="analytics" element={<AnalyticsDashboard />} />
 
           {/* Subroutes: Administración y Accesos */}

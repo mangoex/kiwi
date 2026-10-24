@@ -2719,11 +2719,19 @@ Un movimiento sin impuesto canónico devuelve `tax_cents=NULL` y aumenta
 derivan con `Decimal` desde la fuente persistida.
 
 Ambos reportes aceptan periodo UTC semiabierto, `branch_id` explícita, límite `1..100` y cursor opaco
-ligado a filtros. Sin `branch_id`, sólo la autoridad organizacional puede solicitar consolidado; un
-perfil de sucursal debe enviar una sucursal asignada. La UI convierte una vez el día local usando la
+ligado a filtros. Sin `branch_id`, sólo un rol de alcance organizacional con el permiso específico
+del reporte puede solicitar consolidado; un perfil de sucursal debe enviar una sucursal asignada.
+Esta autoridad no se infiere del nombre Administrador o Dueño ni concede otros permisos. La UI convierte una vez el día local usando la
 zona IANA de la sucursal y React/TypeScript se limita a presentar DTO, advertencias y paginación. El
 backend emite `ingredient_sales_projection_total` y `expense_report_request_total` con resultado,
 sucursal y código de error, sin filtros completos, nombres, componentes, razones libres ni PII.
+POS y Admin consumen esos mismos endpoints. Admin obtiene el selector exclusivamente de
+`session.allowed_branches`: `branch_id=null` representa toda la organización sólo para una sesión
+organizacional cuando el mismo permiso visible de la pestaña proviene de un rol organizacional; un rol
+corporativo no relacionado no expande un permiso de sucursal. Una sesión restringida conserva su
+sucursal activa. La consulta de una sucursal muestra y usa su zona IANA; el consolidado histórico
+organizacional define y muestra un período UTC. React no mezcla días locales de zonas diferentes ni
+recalcula los agregados autoritativos de Python.
 
 La revisión `0042_recipe_reports` parte de `0041_user_cash_cuts`, agrega
 `recipe_version_commands` e índices de consulta sobre compras, movimientos y snapshots; no copia ni
@@ -4903,8 +4911,12 @@ esta acción. Esta paridad no añade grants ni modifica la autoridad del comando
 GET /api/v2/reports/branch-reconciliation/{daily,consolidated,export} conserva dashboard.read y
 alcance; audit continúa en v1. Los consumidores Admin/POS usan v2 y descarga autenticada con el
 mismo token. El export vigente es mensual y requiere sucursal explícita; Admin no sustituye
-Todas las Sucursales por la primera sucursal, y etiqueta el alcance/mes del archivo. Campos monetarios existentes siguen en pesos exactos calculados con Decimal;
-sólo contado/diferencia admiten null. En HTTP v2 el dinero usa cadenas decimales canónicas de dos
+Todas las Sucursales por la primera sucursal, y etiqueta el alcance/mes del archivo.
+El consolidado sin `branch_id` selecciona sólo sucursales activas de la organización y revalida
+permiso financiero y `dashboard.read`; una sucursal inactiva no se itera como objetivo vigente ni
+convierte una consulta corporativa válida en `permission_denied`.
+Campos monetarios existentes siguen en pesos exactos calculados con Decimal; sólo
+contado/diferencia admiten null. En HTTP v2 el dinero usa cadenas decimales canónicas de dos
 posiciones (ej. "1700.00"), nunca serialización float ni concatenación accidental. El cliente
 valida el formato y usa BigInt de centavos para sumas de presentación y formato MXN; la autoridad
 del saldo continúa en Python/Decimal. Cantidades/IDs de filas y contract_version siguen enteros.

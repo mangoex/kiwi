@@ -45,6 +45,7 @@ Scenario: Filtro por sucursal individual o toda la cadena
   Given el tablero corporativo de conciliación
   When se selecciona una sucursal específica o todas las sucursales
   Then la vista actualiza los KPIs y tablas en tiempo real
+  And todas incluye sólo sucursales activas autorizadas y no falla por sucursales inactivas históricas
 
 @BDD-SC-350
 Scenario: Actualización del estado de auditoría gerencial

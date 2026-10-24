@@ -2826,7 +2826,10 @@ def branch_reconciliation_daily_endpoint(
     )
 
 
-@reconciliation_v2_router.get("/reports/branch-reconciliation/consolidated", dependencies=[Depends(financial_read_guard(*RECONCILIATION_DATASETS))])
+@reconciliation_v2_router.get(
+    "/reports/branch-reconciliation/consolidated",
+    dependencies=[Depends(financial_read_guard(*RECONCILIATION_DATASETS, active_only=True))],
+)
 def branch_reconciliation_consolidated_endpoint(
     date_from: str,
     date_to: str,

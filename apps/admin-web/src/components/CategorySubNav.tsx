@@ -111,6 +111,7 @@ const CATEGORY_CONFIGS: CategoryNavConfig[] = [
     categoryTitle: 'Ventas y Reportes',
     items: [
       { path: '/reports', label: 'Cierre y Reconciliación' },
+      { path: '/historical-reports', label: 'Reportes históricos' },
       { path: '/analytics', label: 'Métricas' },
     ],
   },

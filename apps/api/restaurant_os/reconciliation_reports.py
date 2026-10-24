@@ -750,7 +750,13 @@ def get_branch_daily_reconciliation(
     actor_id: str | None = None,
 ) -> dict[str, Any]:
     """Version 2: whole-shift balances and calendar event activity are distinct."""
-    require_financial_read(session, actor_id, branch_id, RECONCILIATION_DATASETS)
+    require_financial_read(
+        session,
+        actor_id,
+        branch_id,
+        RECONCILIATION_DATASETS,
+        active_only=True,
+    )
     if actor_id:
         authorize_branch_scope(session, actor_id, "dashboard.read", branch_id)
     branch = (
@@ -887,12 +893,19 @@ def get_multi_branch_consolidated_report(
     actor_id: str | None = None,
 ) -> dict[str, Any]:
     """Aggregates daily reconciliations across all or selected branches."""
-    require_financial_read(session, actor_id, branch_id, RECONCILIATION_DATASETS)
+    require_financial_read(
+        session,
+        actor_id,
+        branch_id,
+        RECONCILIATION_DATASETS,
+        active_only=True,
+    )
     if actor_id:
         branch_id = authorize_branch_scope(session, actor_id, "dashboard.read", branch_id)
 
     branches_query = sa.select(models.branches).where(
-        models.branches.c.organization_id == ORGANIZATION_ID
+        models.branches.c.organization_id == ORGANIZATION_ID,
+        models.branches.c.status == "active",
     )
     if branch_id:
         branches_query = branches_query.where(models.branches.c.id == branch_id)

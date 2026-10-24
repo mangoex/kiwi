@@ -150,6 +150,47 @@ def test_report_projections_are_decimal_and_scope_fail_closed(caplog: pytest.Log
         engine.dispose()
 
 
+def test_organization_scoped_report_permission_can_read_all_branches_without_owner_grant() -> None:
+    engine, session = _new_session()
+    try:
+        permission_id = "018f6f73-2d0a-74f0-8f1c-000000007709"
+        session.execute(models.permissions.insert().values(
+            id=permission_id,
+            code="reports.ingredient_sales.read",
+            description="organization ingredient report",
+            created_at=NOW,
+        ))
+        session.execute(models.role_permissions.insert().values(
+            role_id=CASHIER_ROLE_ID,
+            permission_id=permission_id,
+        ))
+        session.execute(
+            models.roles.update().where(models.roles.c.id == CASHIER_ROLE_ID).values(
+                scope="organization"
+            )
+        )
+        session.execute(
+            models.user_roles.update()
+            .where(
+                models.user_roles.c.user_id == CASHIER_ID,
+                models.user_roles.c.role_id == CASHIER_ROLE_ID,
+            )
+            .values(branch_id=None)
+        )
+        session.commit()
+
+        report = ReportingProjectionService(session, CASHIER_ID).ingredient_sales({
+            "from_utc": NOW - timedelta(seconds=1),
+            "to_utc": NOW + timedelta(seconds=1),
+            "branch_id": None,
+        })
+
+        assert report["items"] == []
+    finally:
+        session.close()
+        engine.dispose()
+
+
 def test_ingredient_projection_uses_frozen_line_total_once_and_marks_incomplete() -> None:
     engine, session = _new_session()
     try:
