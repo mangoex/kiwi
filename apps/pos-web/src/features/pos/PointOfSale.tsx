@@ -438,6 +438,7 @@ const PointOfSale = () => {
   const [selectedCustomer, setSelectedCustomer] = useState<PosCustomer | null>(null);
   const [upsellRecs, setUpsellRecs] = useState<UpsellRecommendation[]>([]);
   const [dismissedUpsellProductIds, setDismissedUpsellProductIds] = useState<Set<string>>(() => new Set());
+  const [upsellPanelDismissed, setUpsellPanelDismissed] = useState(false);
   const [selectedAddressId, setSelectedAddressId] = useState('');
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [availableDrivers, setAvailableDrivers] = useState<DeliveryDriver[]>([]);
@@ -511,6 +512,7 @@ const PointOfSale = () => {
 
   useEffect(() => {
     setDismissedUpsellProductIds(new Set());
+    setUpsellPanelDismissed(false);
   }, [selectedCustomer?.id]);
 
   useEffect(() => {
@@ -1932,11 +1934,22 @@ const PointOfSale = () => {
             <button type="button" disabled={Boolean(editingOrder) || !hasPermission('payments.confirm')} aria-pressed={orderType === 'dine-in'} onClick={() => setOrderType('dine-in')}>Cobrar ahora</button>
           </div>}
 
-          {selectedCustomer && visibleUpsellRecs.length > 0 && (
+          {selectedCustomer && !upsellPanelDismissed && visibleUpsellRecs.length > 0 && (
             <div style={{ margin: '8px 12px 0', padding: '10px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', fontSize: '0.82rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#15803d', fontWeight: 700, marginBottom: '6px' }}>
-                <Sparkles size={15} color="#16a34a" />
-                <span>Sugerencia IA para {selectedCustomer.name.split(' ')[0]}:</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', color: '#15803d', fontWeight: 700, marginBottom: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                  <Sparkles size={15} color="#16a34a" />
+                  <span>Sugerencia IA para {selectedCustomer.name.split(' ')[0]}:</span>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Ocultar todas las sugerencias"
+                  title="Ocultar todas las sugerencias"
+                  onClick={() => setUpsellPanelDismissed(true)}
+                  style={{ width: '28px', height: '28px', border: '1px solid #86efac', borderRadius: '999px', background: '#ffffff', color: '#15803d', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                >
+                  <X size={15} aria-hidden="true" />
+                </button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 {visibleUpsellRecs.map((rec) => {
