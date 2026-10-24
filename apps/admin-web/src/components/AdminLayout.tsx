@@ -61,6 +61,7 @@ interface MainCategoryItem {
 
 const AdminLayout = () => {
   const branchScopeV2Enabled = import.meta.env.VITE_BRANCH_SCOPE_V2_ENABLED === 'true';
+  const adminAiAssistantEnabled = import.meta.env.VITE_ADMIN_AI_ASSISTANT_ENABLED === 'true';
   const navigate = useNavigate();
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -468,7 +469,7 @@ const AdminLayout = () => {
               ) : <span className="admin-active-branch-label">{session.active_branch.name}</span>}
             </div>}
             <button style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><Bell size={18} /></button>
-            {hasCatalogManage && <button type="button" aria-label="Abrir asistente de Menú y Recetas" title="Asistente de Menú y Recetas" onClick={() => setIsAssistantOpen(true)} style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><UserRound size={18} /></button>}
+            {adminAiAssistantEnabled && hasCatalogManage && <button type="button" aria-label="Abrir asistente de Menú y Recetas" title="Asistente de Menú y Recetas" onClick={() => setIsAssistantOpen(true)} style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><UserRound size={18} /></button>}
             <div 
               onClick={openProfileModal}
               style={{ width: 40, height: 40, borderRadius: '50%', backgroundColor: 'var(--admin-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, overflow: 'hidden', cursor: 'pointer', border: '2px solid var(--admin-accent)' }}
@@ -552,13 +553,13 @@ const AdminLayout = () => {
           </div>
         </div>
       </Modal>
-      <AdminAssistantPanel
+      {adminAiAssistantEnabled && <AdminAssistantPanel
         open={isAssistantOpen}
         onClose={() => setIsAssistantOpen(false)}
         branchId={branchId}
         branchName={branches.find((branch) => branch.id === branchId)?.name || 'Sucursal'}
-      />
-      {hasCatalogManage && proposalId && <AdminProposalReview proposalId={proposalId} onClose={() => navigate(`${location.pathname}${location.search.replace(/([?&])admin_ai_proposal=[^&]*&?/, '$1').replace(/[?&]$/, '')}`)} />}
+      />}
+      {adminAiAssistantEnabled && hasCatalogManage && proposalId && <AdminProposalReview proposalId={proposalId} onClose={() => navigate(`${location.pathname}${location.search.replace(/([?&])admin_ai_proposal=[^&]*&?/, '$1').replace(/[?&]$/, '')}`)} />}
     </div>
   );
 };

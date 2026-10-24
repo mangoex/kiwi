@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { corporateAdminSession } from '../fixtures/admin_session_fixture.mjs';
 const playwrightImport = process.env.AIA002_PLAYWRIGHT_IMPORT || 'playwright';
-const { chromium } = await import(playwrightImport);
+const playwrightModule = await import(playwrightImport);
+const { chromium } = playwrightModule.default || playwrightModule;
 
 const baseUrl = process.env.AIA002_BASE_URL || 'http://127.0.0.1:4173/admin/products';
 const branchId = '018f6f73-2d0a-74f0-8f1c-000000000003';
@@ -9,6 +10,7 @@ const productId = '018f6f73-2d0a-74f0-8f1c-000000000111';
 const proposalId = '018f6f73-2d0a-74f0-8f1c-000000000099';
 const outputDir = process.env.AIA002_OUTPUT_DIR
   || `${process.cwd()}/docs/implementation-reports/assets`;
+const expectAssistantEnabled = process.env.AIA002_EXPECT_ENABLED === 'true';
 
 const readyProposal = {
   id: proposalId,
@@ -142,12 +144,34 @@ async function verifyViewport(browser, name, viewport) {
   await page.getByRole('heading', { name: 'Productos', exact: true }).waitFor();
   await page.getByTitle('Editar mi perfil').waitFor();
 
-  await page.getByRole('button', { name: 'Abrir asistente de configuración' }).click();
+  if (!expectAssistantEnabled) {
+    assert.equal(
+      await page.getByRole('button', { name: 'Abrir asistente de Menú y Recetas' }).count(),
+      0,
+    );
+    const directReviewUrl = new URL(page.url());
+    directReviewUrl.searchParams.set('admin_ai_proposal', proposalId);
+    await page.goto(directReviewUrl.toString(), { waitUntil: 'networkidle' });
+    assert.equal(await page.getByRole('heading', { name: 'Revisar configuración propuesta' }).count(), 0);
+    await page.screenshot({
+      path: `${outputDir}/AIA-003-${name}-assistant-disabled.png`,
+      fullPage: false,
+      animations: 'disabled',
+    });
+    await page.getByTitle('Editar mi perfil').click();
+    await page.getByRole('heading', { name: 'Mi Cuenta' }).waitFor();
+    assert.deepEqual(pageErrors, []);
+    assert.deepEqual(consoleErrors, []);
+    await page.close();
+    return { name, viewport, assistantEnabled: false, pageErrors, consoleErrors };
+  }
+
+  await page.getByRole('button', { name: 'Abrir asistente de Menú y Recetas' }).click();
   await page.getByLabel('Consulta para asistente de configuración').fill('¿Qué insumos no tienen precio?');
   await page.getByRole('button', { name: 'Consultar' }).click();
   await page.getByRole('heading', { name: 'Aclaremos tu consulta' }).waitFor();
   await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
-  await page.getByRole('button', { name: 'Abrir asistente de configuración' }).click();
+  await page.getByRole('button', { name: 'Abrir asistente de Menú y Recetas' }).click();
   await page.getByLabel('Consulta para asistente de configuración').waitFor();
   assert.equal(await page.getByRole('heading', { name: 'Aclaremos tu consulta' }).count(), 0);
 
@@ -156,13 +180,13 @@ async function verifyViewport(browser, name, viewport) {
   await page.getByRole('button', { name: 'Consultar' }).click();
   await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
   await page.waitForTimeout(600);
-  await page.getByRole('button', { name: 'Abrir asistente de configuración' }).click();
+  await page.getByRole('button', { name: 'Abrir asistente de Menú y Recetas' }).click();
   await page.getByLabel('Consulta para asistente de configuración').waitFor();
   assert.equal(await page.getByRole('heading', { name: 'Aclaremos tu consulta' }).count(), 0);
   await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
 
-  await page.getByRole('button', { name: 'Abrir asistente de configuración' }).click();
-  await page.getByRole('heading', { name: 'Asistente de configuración' }).waitFor();
+  await page.getByRole('button', { name: 'Abrir asistente de Menú y Recetas' }).click();
+  await page.getByRole('heading', { name: 'Asistente de Menú y Recetas' }).waitFor();
   await page.getByLabel('Consulta para asistente de configuración').fill('Actualiza Hamburguesa Kiwi a Hamburguesa Especial Kiwi');
   await page.getByRole('button', { name: 'Consultar' }).click();
   await page.getByText('Propuesta lista para revisión').waitFor();

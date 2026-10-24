@@ -3189,6 +3189,12 @@ El asistente vive exclusivamente en `apps/admin-web` y su disparador sustituye e
 consultas a `/api/v1/admin-ai/proposals`. Una respuesta de conocimiento queda `DRAFT`; sólo una
 salida de proveedor que supere el contrato backend puede quedar `READY_FOR_REVIEW`.
 
+El acceso frontend está además gobernado por `VITE_ADMIN_AI_ASSISTANT_ENABLED`, una compuerta de
+build separada y deshabilitada salvo valor exacto `true`. Con la compuerta apagada `AdminLayout` no
+renderiza `UserRound`, no monta `AdminAssistantPanel` y tampoco monta `AdminProposalReview` aunque
+la URL contenga `admin_ai_proposal`. El perfil permanece disponible. Esta suspensión de superficie
+no cambia permisos, persistencia ni la frontera backend y no autoriza habilitar el proveedor.
+
 `AdminAiService` separa cuatro autoridades:
 
 1. `CanonicalKnowledge`: allowlist versionada de reglas y referencias PRD/SDD para organización,
