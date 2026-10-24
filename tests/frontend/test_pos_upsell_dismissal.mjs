@@ -35,9 +35,15 @@ assert.match(source, /aria-label=\{`Quitar sugerencia \$\{rec\.product_name\}`\}
   'each recommendation must expose an accessible remove control');
 assert.match(source, /onClick=\{\(\) => dismissUpsellRecommendation\(rec\.product_id\)\}/,
   'the remove control must dismiss only its recommendation');
+assert.match(source, /aria-label="Ocultar todas las sugerencias"/,
+  'the suggestion header must expose an accessible global close control');
+assert.match(source, /onClick=\{\(\) => setUpsellPanelDismissed\(true\)\}/,
+  'the global close control must dismiss the complete suggestion panel');
+assert.match(source, /selectedCustomer && !upsellPanelDismissed && visibleUpsellRecs\.length > 0/,
+  'a globally dismissed panel must stay hidden while recommendations refresh');
 assert.match(source, /addToCart\(product\);\s*setDismissedUpsellProductIds/,
   'adding a recommendation must also hide it');
-assert.match(source, /useEffect\(\(\) => \{\s*setDismissedUpsellProductIds\(new Set\(\)\);\s*\}, \[selectedCustomer\?\.id\]\)/,
-  'dismissed recommendations must reset when the customer context changes');
+assert.match(source, /useEffect\(\(\) => \{\s*setDismissedUpsellProductIds\(new Set\(\)\);\s*setUpsellPanelDismissed\(false\);\s*\}, \[selectedCustomer\?\.id\]\)/,
+  'individual and global dismissals must reset when the customer context changes');
 
 console.log('POS upsell suggestion dismissal contract passed');

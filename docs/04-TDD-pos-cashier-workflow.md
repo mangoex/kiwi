@@ -21,9 +21,10 @@ modificadores, edición del mismo folio, confirmar pago una vez y acciones por p
 Verificar campos completos, no confiar precios guardados, aislar usuario/sucursal/caja/transporte,
 limpiar logout, impedir suspensión de edición/checkout incierto, cuotas y datos inválidos. Borrar
 carrito no cancela orden. Notas de líneas diferentes no se fusionan. QA 1366×768 y 1024×768.
-Cada recomendación visible expone un control accesible para quitarla; descartar no agrega productos
-ni altera el total, agregar desde la recomendación la descarta y las respuestas posteriores no la
-restauran durante el mismo cliente. Cambiar o limpiar el cliente reinicia el descarte.
+Cada recomendación visible expone un control accesible para quitarla y el encabezado permite cerrar
+todo el bloque. Ningún descarte agrega productos ni altera el total; agregar desde la recomendación
+la descarta y las respuestas posteriores no restauran elementos ni el bloque durante el mismo
+cliente. Cambiar o limpiar el cliente reinicia ambos niveles de descarte.
 
 ## TDD-TS-127 Proyecciones y cálculo Python
 
