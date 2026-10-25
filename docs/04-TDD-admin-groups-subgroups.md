@@ -16,6 +16,10 @@ Casos:
   estado React dentro de Productos;
 - Productos consulta la cobertura de la categoría seleccionada e incluye la asignación en el comando
   transaccional de configuración del producto;
+- la estación calcula el conteo por `assignment.value_id`, distingue un subgrupo vacío de uno
+  meramente activo y enlaza un alta contextual sin escribir producto ni asignación;
+- Productos consume una sola vez `create=1`, `category_id` y `subgroup_id`, resuelve los IDs contra
+  el catálogo cargado, preselecciona el borrador y limpia esos parámetros de navegación;
 - una asignación inválida revierte producto, precio, asignación y auditoría de éxito, y la operación
   muestra el error sin anunciar un guardado completo;
 - la ruta heredada `/category-options` conserva acceso a la estación integrada sin duplicar una
@@ -37,6 +41,16 @@ Then la API de configuración conserva la identidad del producto
 And Python valida y persiste producto, precio y asignación explícita en una transacción.
 When el cajero abre el mismo grupo en POS
 Then ve primero Subgrupos y después sólo los productos concretos elegibles.
+
+## TDD-TC-472 Conteo y alta contextual desde un subgrupo vacío
+
+Given un subgrupo activo sin productos asignados
+When se renderiza su fila en Grupos y subgrupos
+Then muestra `0 productos asignados`, advierte que no aparecerá en POS y ofrece crear un producto en
+ese contexto.
+When Productos recibe los IDs canónicos desde esa acción
+Then abre un alta nueva con el grupo y subgrupo preseleccionados sin persistir nada todavía
+And elimina los parámetros consumidos para que una recarga posterior no descarte el trabajo actual.
 
 ## Comandos focalizados
 

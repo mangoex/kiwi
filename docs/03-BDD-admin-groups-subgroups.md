@@ -50,4 +50,13 @@ Feature: Administrar y consumir grupos y subgrupos con el lenguaje operativo del
     Then la etapa siguiente se presenta como Subgrupos
     And elegir un subgrupo filtra productos concretos sin agregar una línea al carrito
     And cambiar grupo o subgrupo conserva carrito y búsqueda conforme al contrato vigente
+
+  @BDD-SC-802
+  Scenario: Explicar un subgrupo vacío y comenzar un producto en su contexto
+    Given un grupo contiene un subgrupo activo sin productos asignados
+    When el administrador revisa Grupos y subgrupos
+    Then ve el conteo cero y la advertencia de que ese subgrupo no aparecerá en POS
+    When elige Crear producto en ese subgrupo
+    Then Productos abre un borrador nuevo con grupo y subgrupo canónicos preseleccionados
+    And guardar continúa sujeto a precio, estación, estado y validación transaccional del backend
 ```

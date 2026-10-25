@@ -154,15 +154,48 @@ const PRODUCT_CONFIGURATION_TABS = [
 
 type ProductConfigurationTab = (typeof PRODUCT_CONFIGURATION_TABS)[number]['value'];
 
+const newProductForm = (categoryName = '', requestedSubgroupId = ''): Record<string, any> => ({
+  name: '',
+  sku: '',
+  category_name: categoryName,
+  subgroup_value_id: requestedSubgroupId,
+  price_with_tax: '',
+  tax_rate: '',
+  is_exempt: false,
+  non_billable: false,
+  unit: '',
+  station: '',
+  is_favorite: false,
+  barcode: '',
+  open_price: 'NO',
+  suspended: 'NO',
+  additional_fee_percent: '',
+  server_commission_percent: '',
+  product_type: '',
+  warehouse: '',
+  price_dining: '',
+  price_delivery: '',
+  price_apps: '',
+  status: 'active',
+  image_url: '',
+  loyalty_accrual: false,
+  loyalty_accrual_percent: '',
+  loyalty_points_price: '',
+});
+
 export const ProductsList: React.FC = () => {
   const queryClient = useQueryClient();
   const { session } = useAdminSession();
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get('search') || '';
+  const requestedCreate = searchParams.get('create') === '1';
+  const requestedCategoryId = searchParams.get('category_id');
+  const requestedSubgroupId = searchParams.get('subgroup_id');
 
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const saveIntentKeyRef = useRef<string>(crypto.randomUUID());
   const continueToRecipeAfterSaveRef = useRef(false);
+  const contextualCreateAppliedRef = useRef('');
   const branchId = resolveBranchId();
   const currentUser = getSessionUser();
   const canManageRecipes = Boolean((currentUser.permissions || []).includes('recipes.manage'));
@@ -235,34 +268,7 @@ export const ProductsList: React.FC = () => {
   };
 
   // Form State
-  const [formData, setFormData] = useState<Record<string, any>>({
-    name: '',
-    sku: '',
-    category_name: '',
-    subgroup_value_id: '',
-    price_with_tax: '',
-    tax_rate: '',
-    is_exempt: false,
-    non_billable: false,
-    unit: '',
-    station: '',
-    is_favorite: false,
-    barcode: '',
-    open_price: 'NO',
-    suspended: 'NO',
-    additional_fee_percent: '',
-    server_commission_percent: '',
-    product_type: '',
-    warehouse: '',
-    price_dining: '',
-    price_delivery: '',
-    price_apps: '',
-    status: 'active',
-    image_url: '',
-    loyalty_accrual: false,
-    loyalty_accrual_percent: '',
-    loyalty_points_price: '',
-  });
+  const [formData, setFormData] = useState<Record<string, any>>(() => newProductForm());
 
   // Queries
   const { data: rawProducts = [], isLoading, error, refetch, isFetching } = useQuery<Product[]>({
@@ -270,12 +276,21 @@ export const ProductsList: React.FC = () => {
     queryFn: () => fetchApi<Product[]>('/catalog/products'),
   });
 
-  const { data: rawCategories = [], error: categoriesError, refetch: refetchCategories } = useQuery<Category[]>({
+  const { data: rawCategories = [], error: categoriesError, refetch: refetchCategories, isLoading: categoriesLoading } = useQuery<Category[]>({
     queryKey: ['categories'],
     queryFn: () => fetchApi<Category[]>('/categories'),
   });
   const products: Product[] = useMemo(() => (Array.isArray(rawProducts) ? rawProducts : []), [rawProducts]);
   const categories: Category[] = useMemo(() => (Array.isArray(rawCategories) ? rawCategories : []), [rawCategories]);
+  const requestedCategory = useMemo(
+    () => categories.find((category) => category.id === requestedCategoryId) || null,
+    [categories, requestedCategoryId],
+  );
+  const requestedCoverageQuery = useQuery<SubgroupCoverage>({
+    queryKey: ['category-option-coverage', requestedCategoryId || ''],
+    queryFn: () => fetchApi(`/categories/${requestedCategoryId}/selection-group`),
+    enabled: requestedCreate && Boolean(requestedCategory && requestedSubgroupId),
+  });
   const formCategory = useMemo(
     () => categories.find((category) => category.name.toLocaleUpperCase('es-MX') === formData.category_name.toLocaleUpperCase('es-MX')) || null,
     [categories, formData.category_name],
@@ -321,6 +336,63 @@ export const ProductsList: React.FC = () => {
     });
     return Array.from(names).sort();
   }, [categories, products]);
+
+  useEffect(() => {
+    if (!requestedCreate) return;
+    const requestKey = `${requestedCategoryId || ''}:${requestedSubgroupId || ''}`;
+    if (contextualCreateAppliedRef.current === requestKey) return;
+    if (categoriesLoading) return;
+
+    const clearContextParams = () => {
+      const next = new URLSearchParams(searchParams);
+      next.delete('create');
+      next.delete('category_id');
+      next.delete('subgroup_id');
+      setSearchParams(next, { replace: true });
+    };
+
+    if (!requestedCategoryId || !requestedSubgroupId || !requestedCategory) {
+      contextualCreateAppliedRef.current = requestKey;
+      setSaveError('No fue posible iniciar el producto: el grupo solicitado ya no está disponible.');
+      clearContextParams();
+      return;
+    }
+    if (requestedCoverageQuery.isLoading || requestedCoverageQuery.isFetching) return;
+    const requestedCoverage = requestedCoverageQuery.data?.category_id === requestedCategory.id
+      ? requestedCoverageQuery.data
+      : undefined;
+    const requestedSubgroup = requestedCoverage?.values.find((value) => value.id === requestedSubgroupId && value.status === 'active');
+    if (requestedCoverageQuery.isError || !requestedSubgroup) {
+      contextualCreateAppliedRef.current = requestKey;
+      setSaveError('No fue posible iniciar el producto: el subgrupo solicitado ya no está activo o no pertenece al grupo.');
+      clearContextParams();
+      return;
+    }
+
+    contextualCreateAppliedRef.current = requestKey;
+    setSaveError('');
+    setSelectedGroup(requestedCategory.name);
+    setSelectedProductId(null);
+    setIsNew(true);
+    setIsEditing(true);
+    setActiveTab('Principal / Varios');
+    saveIntentKeyRef.current = crypto.randomUUID();
+    setFormData(newProductForm(requestedCategory.name, requestedSubgroupId));
+    clearContextParams();
+    setTimeout(() => nameInputRef.current?.focus(), 60);
+  }, [
+    categoriesLoading,
+    requestedCategory,
+    requestedCategoryId,
+    requestedCoverageQuery.data,
+    requestedCoverageQuery.isError,
+    requestedCoverageQuery.isFetching,
+    requestedCoverageQuery.isLoading,
+    requestedCreate,
+    requestedSubgroupId,
+    searchParams,
+    setSearchParams,
+  ]);
 
   // Filtered Products for Master Table
   const filteredProducts = useMemo(() => {
@@ -515,34 +587,7 @@ export const ProductsList: React.FC = () => {
     setIsEditing(true);
     setActiveTab('Principal / Varios');
     saveIntentKeyRef.current = crypto.randomUUID();
-    setFormData({
-      name: '',
-      sku: '',
-      category_name: selectedGroup !== '(TODOS)' ? selectedGroup : (categoryOptions[0] || ''),
-      subgroup_value_id: '',
-      price_with_tax: '',
-      tax_rate: '',
-      is_exempt: false,
-      non_billable: false,
-      unit: '',
-      station: '',
-      is_favorite: false,
-      barcode: '',
-      open_price: 'NO',
-      suspended: 'NO',
-      additional_fee_percent: '',
-      server_commission_percent: '',
-      product_type: '',
-      warehouse: '',
-      price_dining: '',
-      price_delivery: '',
-      price_apps: '',
-      status: 'active',
-      image_url: '',
-      loyalty_accrual: false,
-      loyalty_accrual_percent: '',
-      loyalty_points_price: '',
-    });
+    setFormData(newProductForm(selectedGroup !== '(TODOS)' ? selectedGroup : (categoryOptions[0] || '')));
     setTimeout(() => {
       nameInputRef.current?.focus();
     }, 60);
