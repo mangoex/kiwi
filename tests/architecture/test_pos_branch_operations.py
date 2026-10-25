@@ -58,17 +58,62 @@ def test_admin_pages_are_guarded_before_mounting():
     assert 'resetQueries()' in session
 
 
-def test_local_availability_is_in_canonical_pages_with_explicit_scope():
+def test_local_availability_is_not_mounted_for_global_order_comments():
     app = read('apps/admin-web/src/App.tsx')
     catalog = read('apps/admin-web/src/features/catalog/CatalogAdministration.tsx')
     for kind in ('products','variations','ingredient-extras'):
         assert f'<CatalogAdministration kind="{kind}"' in app
     for page in ('<ProductsList />','<VariationNotes />','<IngredientExtras />'):
         assert page in catalog
+    assert "variations: 'variation-notes'" not in catalog
+    assert "kind === 'ingredient-extras' && branchAccess && branchManage" in catalog
     assert 'branch_id=${encodeURIComponent(branchId)}' in catalog
     assert 'catalog.branch.manage' in catalog and 'branch.admin.access' in catalog
     assert "method: 'PUT'" in catalog
     assert 'row.has_local_override' in catalog
+
+
+def test_every_order_comment_writer_uses_the_organization_lock():
+    operations = read('apps/api/restaurant_os/operations.py')
+    writers = (
+        'archive_all_order_comments',
+        'delete_order_comment',
+        'delete_all_order_comments',
+        'bulk_order_comments',
+        'update_order_comment',
+        'replace_order_comment_products',
+    )
+    for index, writer in enumerate(writers):
+        start = operations.index(f'def {writer}(')
+        remaining_starts = [
+            operations.find(f'def {candidate}(', start + 1)
+            for candidate in writers[index + 1:]
+        ]
+        next_starts = [position for position in remaining_starts if position >= 0]
+        end = min(next_starts) if next_starts else operations.find('\n\ndef ', start + 1)
+        body = operations[start:end if end >= 0 else len(operations)]
+        assert '_require_order_comment_catalog_authority(session, actor_id)' in body
+        assert (
+            '_acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)'
+            in body
+        )
+
+
+def test_order_comment_write_responses_are_materialized_before_commit():
+    operations = read('apps/api/restaurant_os/operations.py')
+    boundaries = (
+        ('bulk_order_comments', 'update_order_comment'),
+        ('update_order_comment', 'replace_order_comment_products'),
+        ('replace_order_comment_products', 'PRESET_VARIATION_GROUP'),
+    )
+    for writer, next_symbol in boundaries:
+        start = operations.index(f'def {writer}(')
+        end = operations.index(next_symbol, start + 1)
+        body = operations[start:end]
+        response_position = body.rfind('response = ')
+        commit_position = body.rfind('session.commit()')
+        return_position = body.rfind('return response')
+        assert 0 <= response_position < commit_position < return_position
 
 
 def test_read_only_and_directional_operations_use_canonical_capabilities():

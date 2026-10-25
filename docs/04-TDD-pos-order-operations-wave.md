@@ -65,6 +65,33 @@ Pruebas frontend:
 - la pantalla canónica de adicionales no administra ni presenta relaciones históricas por producto
   como requisito de venta.
 
+## TDD-TC-466 Archivo masivo seguro de comentarios opcionales
+
+Una prueba focal API crea varios comentarios activos, archiva todos mediante
+`POST /catalog/order-comments/archive-all` y verifica que el comando exige `catalog.manage`, actualiza
+sólo los activos de la organización, registra `order_comment.all_archived` con actor y conteo, deja de
+publicarlos en ventas nuevas y converge a conteo cero al repetirlo sin eliminar relaciones ni historia.
+Una prueba semántica frontend exige confirmación explícita, una sola mutación masiva, archivados
+ocultos por defecto con control para revelarlos y ausencia de `BranchAvailability` en la superficie de
+Comentarios del pedido.
+
+## TDD-TC-467 Eliminación definitiva gobernada y limpieza offline
+
+Pruebas focales API verifican que sólo `catalog.manage` puede eliminar, que la eliminación individual
+y masiva retira relaciones, presets y opciones heredadas de los grupos dedicados atómicamente,
+conserva en auditoría el texto y los productos y converge a cero al repetir el lote. La regresión
+también rechaza un rol branch-scoped aun si tiene `catalog.manage`, falla cerrado ante un grupo mixto,
+audita el snapshot de cada grupo retirado y conserva el `selected_modifiers` histórico de una línea existente.
+La regresión de autoridad cubre también alta, edición y reasignación; una comprobación focal exige que
+todas las escrituras participen en el lock organizacional compartido para impedir que una inserción o
+reactivación concurrente sobreviva a un borrado masivo y que la respuesta se materialice antes del
+`commit` que libera ese lock.
+Una prueba de renovación SQLite instala un bundle con comentarios y después uno sin ellos para
+demostrar que el reemplazo acotado purga las filas obsoletas sin borrar historia operacional.
+La prueba semántica frontend exige acciones destructivas individuales y masivas, confirmación explícita,
+un estado pendiente compartido por todas las mutaciones y estilos redondeados con foco visible para
+botones, tarjetas, campos y checkboxes.
+
 ## TDD-TC-058 Catálogos globales sin dependencia de sucursal
 
 Given comentarios, adicionales, dos productos y dos sucursales

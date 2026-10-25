@@ -1716,6 +1716,40 @@ retirar relaciones no incluidas. `GET /api/v1/catalog/order-comments` lista el c
 `PUT /api/v1/catalog/order-comments/{id}/products` reemplaza el conjunto de productos sólo después
 de mostrar el impacto. Crear, editar, archivar o relacionar exige `catalog.manage`; no existe
 `branch_id` ni override local en ninguno de estos contratos. Supervisor y Cajero sólo leen y usan.
+`POST /api/v1/catalog/order-comments/archive-all` archiva atómicamente todos los comentarios activos
+de la organización, actualiza actor y timestamp, registra un único evento
+`order_comment.all_archived` con el conteo afectado y responde de forma convergente con cero cuando
+ya no quedan activos. No elimina presets, relaciones ni snapshots. La UI muestra sólo activos por
+defecto, permite revelar archivados y exige confirmación explícita antes del archivo masivo; la
+sección de comentarios no monta controles de disponibilidad local heredados.
+`DELETE /api/v1/catalog/order-comments/{id}` elimina un preset actual y
+`DELETE /api/v1/catalog/order-comments/all` elimina todos los presets actuales, además de opciones
+`preset_instruction` heredadas que pertenezcan a los grupos dedicados `Variaciones y cambios` o
+`Comentarios del pedido`. Ambos contratos exigen `catalog.manage` desde un rol de alcance
+organizacional; un rol limitado a sucursal falla cerrado aunque posea el mismo permiso. Todas las
+escrituras del catálogo —alta/reactivación, edición, reasignación, archivo y borrado— comparten un lock
+transaccional PostgreSQL por organización. Cada writer materializa su respuesta confirmada antes de
+liberar el lock con `commit`, evitando respuestas 404/500 posteriores a una escritura ya persistida.
+Dentro de la misma transacción,
+capturan en `order_comment.deleted` o `variation_note.legacy_deleted` el estado recuperable antes de
+retirar primero overrides/relaciones y después opciones, presets y grupos vacíos. Un grupo heredado se
+considera dedicado sólo si es opcional y todas sus opciones son `preset_instruction`; cualquier mezcla
+con modificadores reales aborta el lote completo. Cada grupo retirado registra además
+`variation_note.legacy_group_deleted` con su snapshot y opciones. El comando masivo registra
+`order_comment.all_deleted` con conteos de presets, relaciones, opciones y grupos, y converge a cero al
+repetirse. Los snapshots de
+líneas de pedido son JSON sin FK al catálogo y no se modifican. La renovación de catálogo offline
+reemplaza de forma acotada `order_comment_products` y `order_comment_presets` de la organización y
+retira las opciones `preset_instruction` sólo de grupos heredados dedicados antes del upsert firmado,
+para que las bajas centrales no sobrevivan como filas obsoletas en SQLite.
+La UI permite eliminar cada comentario o vaciar el catálogo completo, separa visualmente la acción destructiva y redondea
+botones, tarjetas, campos y checkboxes con foco visible y objetivos táctiles de al menos 40 px. Archivo,
+borrado individual, borrado masivo, aplicación, edición, reasignación y cambio de estado comparten un
+estado pendiente que impide lanzar dos mutaciones del catálogo desde la misma pantalla.
+Las señales mínimas son los eventos de auditoría por elemento, el resumen masivo con conteos actuales,
+heredados y relaciones, y la generación/hash del siguiente bundle firmado. Deben responder: ¿quién
+eliminó qué configuración y con qué alcance?, ¿cuántas filas y relaciones se retiraron?, ¿la repetición
+convergió a cero?, y ¿la renovación firmada eliminó las filas obsoletas de la sucursal?
 El cliente liga el preview al texto exacto y al conjunto ordenado de destinos; cambiar cualquiera de
 ellos invalida la confirmación hasta pedir un preview nuevo. Al seleccionar comentarios en POS, el
 carrito conserva y muestra sus textos elegidos, mientras que el backend conserva el snapshot final.
