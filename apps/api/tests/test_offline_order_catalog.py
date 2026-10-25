@@ -508,6 +508,144 @@ def test_legacy_bundle_rejects_active_shared_assignment_instead_of_omitting_it(s
         engine.dispose()
 
 
+def test_refresh_removes_order_comments_deleted_from_the_central_catalog() -> None:
+    source_engine, source, _catalog, seed = _bundle_source()
+    operational_engine = _sqlite_engine()
+    comment_id = "018f6f73-2d0a-74f0-8f1c-000000009481"
+    relation_id = "018f6f73-2d0a-74f0-8f1c-000000009482"
+    legacy_group_id = "018f6f73-2d0a-74f0-8f1c-000000009483"
+    legacy_option_id = "018f6f73-2d0a-74f0-8f1c-000000009484"
+    try:
+        source.execute(
+            models.order_comment_presets.insert().values(
+                id=comment_id,
+                organization_id=ORG_ID,
+                text="Sin cebolla",
+                text_normalized="sin cebolla",
+                display_order=0,
+                status="archived",
+                created_by=ACTOR,
+                updated_by=ACTOR,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        source.execute(
+            models.order_comment_products.insert().values(
+                id=relation_id,
+                comment_preset_id=comment_id,
+                product_id=BURGER,
+                status="active",
+                actor_user_id=ACTOR,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        source.execute(
+            models.modifier_groups.insert().values(
+                id=legacy_group_id,
+                organization_id=ORG_ID,
+                product_id=BURGER,
+                name="Variaciones y cambios",
+                is_required=False,
+                minimum_selections=0,
+                maximum_selections=1,
+                included_selections=0,
+                display_order=0,
+                status="active",
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        source.execute(
+            models.modifier_options.insert().values(
+                id=legacy_option_id,
+                group_id=legacy_group_id,
+                name="Comentario heredado",
+                effect_type="preset_instruction",
+                price_delta_cents=0,
+                remove_quantity=Decimal("0"),
+                add_quantity=Decimal("0"),
+                inventory_effect=False,
+                kitchen_text="Comentario heredado",
+                display_order=0,
+                status="active",
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        source.commit()
+        initial_catalog = build_catalog_snapshot(
+            source, organization_id=ORG_ID, branch_id=BRANCH_A
+        )
+        hydrate_bundle(
+            operational_engine,
+            {"manifest": _manifest(), "catalog": initial_catalog, "operational_seed": seed},
+            include_operational_seed=True,
+        )
+        with Session(operational_engine) as operational:
+            assert operational.scalar(
+                sa.select(sa.func.count()).select_from(models.order_comment_presets)
+            ) == 1
+            assert operational.scalar(
+                sa.select(sa.func.count()).select_from(models.modifier_options).where(
+                    models.modifier_options.c.id == legacy_option_id
+                )
+            ) == 1
+
+        source.execute(
+            models.order_comment_products.delete().where(
+                models.order_comment_products.c.comment_preset_id == comment_id
+            )
+        )
+        source.execute(
+            models.order_comment_presets.delete().where(
+                models.order_comment_presets.c.id == comment_id
+            )
+        )
+        source.execute(
+            models.modifier_options.delete().where(
+                models.modifier_options.c.id == legacy_option_id
+            )
+        )
+        source.execute(
+            models.modifier_groups.delete().where(
+                models.modifier_groups.c.id == legacy_group_id
+            )
+        )
+        source.commit()
+        refreshed_catalog = build_catalog_snapshot(
+            source, organization_id=ORG_ID, branch_id=BRANCH_A
+        )
+        refresh_catalog_snapshot(
+            operational_engine,
+            manifest=_manifest("c" * 64),
+            catalog=refreshed_catalog,
+            operational_seed=seed,
+        )
+        with Session(operational_engine) as operational:
+            assert operational.scalar(
+                sa.select(sa.func.count()).select_from(models.order_comment_products)
+            ) == 0
+            assert operational.scalar(
+                sa.select(sa.func.count()).select_from(models.order_comment_presets)
+            ) == 0
+            assert operational.scalar(
+                sa.select(sa.func.count()).select_from(models.modifier_options).where(
+                    models.modifier_options.c.id == legacy_option_id
+                )
+            ) == 0
+            assert operational.scalar(
+                sa.select(sa.func.count()).select_from(models.modifier_groups).where(
+                    models.modifier_groups.c.id == legacy_group_id
+                )
+            ) == 0
+    finally:
+        operational_engine.dispose()
+        source.close()
+        source_engine.dispose()
+
+
 def test_refresh_upgrades_legacy_modifier_schema_without_erasing_rows() -> None:
     source_engine, source, catalog, seed = _bundle_source()
     target = _sqlite_engine()

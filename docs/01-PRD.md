@@ -637,7 +637,18 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   muestra su alcance antes de confirmar.
   Los comentarios no tienen disponibilidad ni excepción por sucursal. En POS se muestran como
   controles táctiles únicamente para los productos relacionados y se congelan en la línea, KDS y
-  comanda. Un comentario nunca modifica precio, receta, inventario, reserva, consumo ni costo.
+  comanda. Un comentario nunca modifica precio, receta, inventario, reserva, consumo ni costo. La
+  administración debe permitir archivar en una sola acción todos los comentarios activos cuando la
+  organización decida configurar esas instrucciones únicamente mediante Modificadores. La limpieza
+  es lógica y auditable: conserva relaciones, pedidos y snapshots históricos, oculta los archivados
+  por defecto y permite inspeccionarlos o reactivarlos de forma explícita. Un Administrador puede
+  eliminar definitivamente uno o todos los comentarios mediante una confirmación diferenciada. La
+  eliminación masiva incluye las indicaciones heredadas de los grupos históricos dedicados, retira
+  únicamente presets, opciones y relaciones del catálogo, conserva una instantánea suficiente en
+  auditoría y nunca modifica pedidos ni snapshots históricos. La siguiente renovación del catálogo
+  offline debe retirar también los presets eliminados para impedir que una sucursal desconectada los
+  siga ofreciendo. En administración, botones, selectores y tarjetas de esta superficie deben usar
+  una jerarquía visual redondeada y táctil, sin controles nativos rectangulares incongruentes.
 - `PRD-FR-200`: Debe administrar ingredientes adicionales corporativos a partir del catálogo de
   insumos, con cantidad exacta en unidad base, estación y precio de venta explícito. Un ingrediente
   adicional activo queda disponible para cualquier producto sin relación previa producto-insumo; en

@@ -9,6 +9,7 @@ import {
   Layers3,
   MessageSquareText,
   RotateCcw,
+  Trash2,
   X,
 } from 'lucide-react';
 import { Button, Input, Modal } from '@restaurantos/ui';
@@ -70,6 +71,13 @@ interface CommentPreview {
   product_ids: string[];
 }
 
+interface DeleteResult {
+  deleted_count: number;
+  deleted_relation_count: number;
+  deleted_legacy_count: number;
+  deleted_legacy_group_count: number;
+}
+
 type OperationalGroup = 'food' | 'drinks' | 'other';
 
 const OPERATIONAL_GROUPS: {
@@ -85,7 +93,7 @@ const OPERATIONAL_GROUPS: {
 const card: React.CSSProperties = {
   background: '#fff',
   border: '1px solid #e2e8f0',
-  borderRadius: 14,
+  borderRadius: 20,
 };
 
 function operationalGroupForStation(station?: string): OperationalGroup {
@@ -134,8 +142,14 @@ export default function VariationNotes() {
   const [scopeProductIds, setScopeProductIds] = useState<string[]>([]);
   const [scopeSearch, setScopeSearch] = useState('');
   const [statusTarget, setStatusTarget] = useState<Comment | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Comment | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [error, setError] = useState('');
+  const [archiveFeedback, setArchiveFeedback] = useState('');
+  const [archiveError, setArchiveError] = useState('');
+  const [deleteFeedback, setDeleteFeedback] = useState('');
+  const [deleteError, setDeleteError] = useState('');
   const [removalNotice, setRemovalNotice] = useState<{ commentId: string; message: string } | null>(null);
   const [removalError, setRemovalError] = useState<{ commentId: string; message: string } | null>(null);
 
@@ -190,6 +204,15 @@ export default function VariationNotes() {
     [activeProducts, categories.data, selectedProductIds],
   );
   const parsedComments = useMemo(() => parseVisibleComments(text), [text]);
+  const activeComments = useMemo(
+    () => (notes.data || []).filter((comment) => comment.status === 'active'),
+    [notes.data],
+  );
+  const archivedComments = useMemo(
+    () => (notes.data || []).filter((comment) => comment.status === 'archived'),
+    [notes.data],
+  );
+  const visibleComments = showArchived ? (notes.data || []) : activeComments;
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ['order-comments'] });
     void client.invalidateQueries({ queryKey: ['products'] });
@@ -345,6 +368,84 @@ export default function VariationNotes() {
       reason instanceof ApiError ? reason.message : 'No fue posible cambiar el estado.',
     ),
   });
+  const archiveAll = useMutation({
+    mutationFn: () => fetchApi<{ archived_count: number }>('/catalog/order-comments/archive-all', {
+      method: 'POST',
+    }),
+    onSuccess: (response) => {
+      setShowArchived(false);
+      setArchiveError('');
+      setArchiveFeedback(response.archived_count
+        ? `${response.archived_count} comentario(s) quedaron archivados. Los pedidos anteriores no cambiaron.`
+        : 'No había comentarios activos por archivar.');
+      refresh();
+    },
+    onError: (reason) => {
+      setArchiveFeedback('');
+      setArchiveError(reason instanceof ApiError ? reason.message : 'No fue posible archivar los comentarios.');
+    },
+  });
+  const confirmArchiveAll = () => {
+    if (!activeComments.length || archiveAll.isPending) return;
+    if (!window.confirm(
+      `Se archivarán ${activeComments.length} comentario(s) activos. Dejarán de ofrecerse en ventas nuevas, pero se conservarán pedidos e historial. ¿Deseas continuar?`,
+    )) return;
+    setArchiveFeedback('');
+    setArchiveError('');
+    archiveAll.mutate();
+  };
+  const deleteOne = useMutation<DeleteResult, Error, Comment>({
+    mutationFn: (comment) => fetchApi(`/catalog/order-comments/${comment.id}`, {
+      method: 'DELETE',
+    }),
+    onMutate: () => {
+      setDeleteFeedback('');
+      setDeleteError('');
+    },
+    onSuccess: (response, comment) => {
+      setDeleteTarget(null);
+      setDeleteFeedback(`“${comment.text}” se eliminó del catálogo junto con ${response.deleted_relation_count} relación(es). Los pedidos anteriores no cambiaron.`);
+      refresh();
+    },
+    onError: (reason) => setDeleteError(
+      reason instanceof ApiError ? reason.message : 'No fue posible eliminar el comentario.',
+    ),
+  });
+  const deleteAllComments = useMutation<DeleteResult>({
+    mutationFn: () => fetchApi('/catalog/order-comments/all', {
+      method: 'DELETE',
+    }),
+    onMutate: () => {
+      setDeleteFeedback('');
+      setDeleteError('');
+    },
+    onSuccess: (response) => {
+      setShowArchived(false);
+      const total = response.deleted_count + response.deleted_legacy_count;
+      setDeleteFeedback(total
+        ? `${response.deleted_count} comentario(s) actuales y ${response.deleted_legacy_count} heredado(s) en ${response.deleted_legacy_group_count} grupo(s) se eliminaron definitivamente. Los pedidos anteriores no cambiaron.`
+        : 'No había comentarios actuales ni heredados por eliminar.');
+      refresh();
+    },
+    onError: (reason) => setDeleteError(
+      reason instanceof ApiError ? reason.message : 'No fue posible eliminar los comentarios.',
+    ),
+  });
+  const confirmDeleteAllComments = () => {
+    if (deleteAllComments.isPending) return;
+    if (!window.confirm(
+      `Se eliminarán definitivamente ${notes.data?.length || 0} comentario(s) actuales, sus relaciones y cualquier comentario heredado. Esta configuración no se puede deshacer; los pedidos anteriores conservarán su texto. ¿Deseas continuar?`,
+    )) return;
+    deleteAllComments.mutate();
+  };
+  const catalogMutationPending = archiveAll.isPending
+    || deleteAllComments.isPending
+    || deleteOne.isPending
+    || changeStatus.isPending
+    || apply.isPending
+    || save.isPending
+    || replaceProducts.isPending
+    || removeProduct.isPending;
 
   const toggleGroup = (groupId: OperationalGroup) => {
     setExpandedGroups((current) => current.includes(groupId)
@@ -422,7 +523,7 @@ export default function VariationNotes() {
         <div>
           <h1 style={{ margin: 0 }}>Comentarios del pedido</h1>
           <p style={{ color: '#64748b', marginBottom: 0 }}>
-            Configura indicaciones de cocina por producto, sin cambiar precio, receta ni inventario.
+            Atajos opcionales de cocina sin precio ni inventario. Para elecciones configurables usa Modificadores.
           </p>
         </div>
       </header>
@@ -467,7 +568,7 @@ export default function VariationNotes() {
                   const expanded = expandedGroups.includes(group.id);
                   const selectedInGroup = group.categories.filter((category) => selectedCategoryIds.includes(category.id)).length;
                   return (
-                    <section key={group.id} style={{ border: '1px solid #e2e8f0', borderRadius: 11, overflow: 'hidden', background: '#fff' }}>
+                    <section key={group.id} className="order-comment-selector" style={{ border: '1px solid #e2e8f0', overflow: 'hidden', background: '#fff' }}>
                       <button
                         type="button"
                         aria-expanded={expanded}
@@ -575,6 +676,7 @@ export default function VariationNotes() {
               <span style={{ color: '#64748b', fontSize: 13 }}>Sepáralos por coma, salto de línea o dos espacios.</span>
             </div>
             <textarea
+              className="order-comment-textarea"
               aria-label="Comentarios corporativos"
               value={text}
               onChange={(event) => {
@@ -591,7 +693,6 @@ export default function VariationNotes() {
                 resize: 'vertical',
                 padding: 14,
                 border: '1px solid #cbd5e1',
-                borderRadius: 11,
                 font: 'inherit',
                 boxSizing: 'border-box',
                 outlineColor: '#10b981',
@@ -618,7 +719,7 @@ export default function VariationNotes() {
               {error && <div role="alert" style={{ color: '#b91c1c', marginBottom: 10 }}>{error}</div>}
               {feedback && <div role="status" style={{ color: '#047857', marginBottom: 10 }}>{feedback}</div>}
               <Button
-                disabled={!parsedComments.length || !selectedProductIds.length || requestPreview.isPending}
+                disabled={!parsedComments.length || !selectedProductIds.length || requestPreview.isPending || catalogMutationPending}
                 onClick={requestCurrentPreview}
               >
                 <CheckCircle2 size={17} /> Revisar aplicación
@@ -636,7 +737,7 @@ export default function VariationNotes() {
                   {currentPreview.created.length} nuevos · {currentPreview.existing.length} existentes · {selectedProductIds.length} productos
                 </span>
               </div>
-              <Button disabled={!previewApproved || apply.isPending} onClick={applyCurrentPreview}>
+              <Button disabled={!previewApproved || catalogMutationPending} onClick={applyCurrentPreview}>
                 Aplicar comentarios
               </Button>
             </div>
@@ -647,15 +748,51 @@ export default function VariationNotes() {
         )}
       </section>
 
+      {!notes.isLoading && !notes.isError && (
+        <section style={{ ...card, marginTop: 18, padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+          <div>
+            <strong style={{ display: 'block', color: '#1e293b' }}>Catálogo vigente</strong>
+            <span style={{ color: '#64748b', fontSize: 13 }}>
+              {activeComments.length} activo(s) · {archivedComments.length} archivado(s). Archivar conserva relaciones, pedidos y auditoría.
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+            {archivedComments.length > 0 && (
+              <Button variant="secondary" onClick={() => setShowArchived((current) => !current)}>
+                {showArchived ? 'Ocultar archivados' : 'Mostrar archivados'}
+              </Button>
+            )}
+            <Button disabled={!activeComments.length || catalogMutationPending} onClick={confirmArchiveAll}>
+              <Archive size={16} /> Archivar todos los comentarios activos
+            </Button>
+            <Button
+              variant="danger"
+              disabled={catalogMutationPending}
+              onClick={confirmDeleteAllComments}
+            >
+              <Trash2 size={16} /> Eliminar todos los comentarios
+            </Button>
+          </div>
+          {archiveFeedback && <p role="status" style={{ width: '100%', margin: 0, color: '#166534' }}>{archiveFeedback}</p>}
+          {archiveError && <p role="alert" style={{ width: '100%', margin: 0, color: '#b91c1c' }}>{archiveError}</p>}
+          {deleteFeedback && <p role="status" style={{ width: '100%', margin: 0, color: '#166534' }}>{deleteFeedback}</p>}
+          {deleteError && <p role="alert" style={{ width: '100%', margin: 0, color: '#b91c1c' }}>{deleteError}</p>}
+        </section>
+      )}
+
       {notes.isLoading ? (
         <p>Cargando comentarios…</p>
       ) : notes.isError ? (
         <p role="alert">No fue posible cargar comentarios. <button onClick={() => void notes.refetch()}>Reintentar</button></p>
       ) : (
         <section style={{ marginTop: 18, display: 'grid', gap: 8 }}>
-          {(notes.data || []).length === 0 ? (
-            <p style={{ color: '#64748b' }}>Aún no hay comentarios corporativos.</p>
-          ) : (notes.data || []).map((note) => {
+          {visibleComments.length === 0 ? (
+            <p style={{ color: '#64748b' }}>
+              {archivedComments.length > 0
+                ? 'No hay comentarios activos. Puedes mostrar los archivados para revisarlos o reactivarlos.'
+                : 'Aún no hay comentarios corporativos.'}
+            </p>
+          ) : visibleComments.map((note) => {
             const commentExpanded = expandedCommentIds.includes(note.id);
             const productsByCategory = note.products.reduce<Record<string, CommentProduct[]>>((groups, product) => {
               const catalogProduct = activeProducts.find((item) => item.id === product.product_id);
@@ -663,14 +800,14 @@ export default function VariationNotes() {
               return { ...groups, [categoryName]: [...(groups[categoryName] || []), product] };
             }, {});
             return (
-              <article key={note.id} style={{ ...card, padding: 15 }}>
+              <article key={note.id} className="order-comment-card" style={{ ...card, padding: 15 }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                   <button
                     type="button"
                     aria-expanded={commentExpanded}
                     aria-label={`${commentExpanded ? 'Ocultar' : 'Mostrar'} productos de ${note.text}`}
                     onClick={() => toggleCommentExpanded(note.id)}
-                    style={{ border: 0, background: 'transparent', padding: 3, cursor: 'pointer' }}
+                    className="order-comment-action order-comment-action--icon order-comment-action--quiet"
                   >
                     {commentExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                   </button>
@@ -678,11 +815,12 @@ export default function VariationNotes() {
                     <strong>{note.text}</strong>
                     <div style={{ color: '#64748b', fontSize: 13 }}>{note.products.length} producto(s) relacionado(s) · {note.status === 'active' ? 'Activo' : 'Archivado'}</div>
                   </div>
-                  <button type="button" onClick={() => openScopeEditor(note)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <button type="button" disabled={catalogMutationPending} className="order-comment-action" onClick={() => openScopeEditor(note)}>
                     <Layers3 size={16} /> Editar productos
                   </button>
-                  <button aria-label={`Editar ${note.text}`} onClick={() => setEditing(note)}><Edit3 size={16} /></button>
-                  <button aria-label={`Cambiar estado ${note.text}`} onClick={() => setStatusTarget(note)}>{note.status === 'active' ? <Archive size={16} /> : <RotateCcw size={16} />}</button>
+                  <button type="button" disabled={catalogMutationPending} className="order-comment-action order-comment-action--icon" aria-label={`Editar ${note.text}`} onClick={() => setEditing(note)}><Edit3 size={16} /></button>
+                  <button type="button" disabled={catalogMutationPending} className="order-comment-action order-comment-action--icon" aria-label={`Cambiar estado ${note.text}`} onClick={() => setStatusTarget(note)}>{note.status === 'active' ? <Archive size={16} /> : <RotateCcw size={16} />}</button>
+                  <button type="button" disabled={catalogMutationPending} className="order-comment-action order-comment-action--icon order-comment-action--danger" aria-label={`Eliminar ${note.text}`} onClick={() => setDeleteTarget(note)}><Trash2 size={16} /></button>
                 </div>
                 {commentExpanded && (
                   <div style={{ margin: '12px 0 0 31px', borderTop: '1px solid #f1f5f9', paddingTop: 10 }}>
@@ -704,7 +842,7 @@ export default function VariationNotes() {
                                     title={note.products.length <= 1
                                       ? 'El comentario debe conservar al menos un producto'
                                       : `Quitar ${product.product_name}`}
-                                    disabled={note.products.length <= 1 || removeProduct.isPending}
+                                    disabled={note.products.length <= 1 || catalogMutationPending}
                                     onClick={() => removeProduct.mutate({ comment: note, product })}
                                   >
                                     <X size={13} aria-hidden="true" />
@@ -736,11 +874,27 @@ export default function VariationNotes() {
 
       <Modal isOpen={Boolean(editing)} onClose={() => setEditing(null)} title="Editar comentario">
         <label>Texto del comentario<Input value={editing?.text || ''} onChange={(event) => setEditing((current) => current && { ...current, text: event.target.value })} /></label>
-        <Button disabled={save.isPending || !editing?.text.trim()} onClick={() => save.mutate()}>Guardar cambios</Button>
+        <Button disabled={catalogMutationPending || !editing?.text.trim()} onClick={() => save.mutate()}>Guardar cambios</Button>
       </Modal>
       <Modal isOpen={Boolean(statusTarget)} onClose={() => setStatusTarget(null)} title={statusActionLabel}>
         <p>Las relaciones y pedidos históricos permanecen intactos.</p>
-        <Button disabled={changeStatus.isPending} onClick={() => changeStatus.mutate()}>{statusTarget?.status === 'active' ? 'Archivar' : 'Reactivar'}</Button>
+        <Button disabled={catalogMutationPending} onClick={() => changeStatus.mutate()}>{statusTarget?.status === 'active' ? 'Archivar' : 'Reactivar'}</Button>
+      </Modal>
+      <Modal isOpen={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} title="Eliminar comentario">
+        <div className="order-comment-delete-confirmation">
+          <p>
+            “{deleteTarget?.text}” y sus relaciones se eliminarán definitivamente del catálogo.
+            Los pedidos anteriores conservarán el texto congelado.
+          </p>
+          {deleteError && <div role="alert" style={{ color: '#b91c1c' }}>{deleteError}</div>}
+          <Button
+            variant="danger"
+            disabled={!deleteTarget || catalogMutationPending}
+            onClick={() => deleteTarget && deleteOne.mutate(deleteTarget)}
+          >
+            <Trash2 size={16} /> Eliminar definitivamente
+          </Button>
+        </div>
       </Modal>
       <Modal
         isOpen={Boolean(scopeTarget)}
@@ -767,7 +921,7 @@ export default function VariationNotes() {
             const categoryIds = categoryProducts.map((product) => product.id);
             const selectionState = categorySelectionState(categoryIds, scopeProductIds);
             return (
-              <section key={category.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 10 }}>
+              <section key={category.id} className="order-comment-selector" style={{ border: '1px solid #e2e8f0', padding: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
                   <input
                     aria-label={`Seleccionar productos visibles de ${category.name}`}
@@ -804,7 +958,7 @@ export default function VariationNotes() {
         {error && <div role="alert" style={{ marginTop: 8, color: '#b91c1c' }}>{error}</div>}
         {scopeProductIds.length === 0 && <div role="alert" style={{ marginTop: 8, color: '#b91c1c' }}>Selecciona al menos un producto activo.</div>}
         <div style={{ marginTop: 14 }}>
-          <Button disabled={replaceProducts.isPending || scopeProductIds.length === 0} onClick={() => replaceProducts.mutate()}>
+          <Button disabled={catalogMutationPending || scopeProductIds.length === 0} onClick={() => replaceProducts.mutate()}>
             Guardar productos
           </Button>
         </div>

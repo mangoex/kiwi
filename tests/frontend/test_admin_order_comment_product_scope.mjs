@@ -87,9 +87,40 @@ for (const contract of [
   'product.product_sku',
   'Seleccionar todos',
   'Quitar todos',
+  'showArchived',
+  'activeComments',
+  'archiveAll',
+  '/catalog/order-comments/archive-all',
+  'Archivar todos los comentarios activos',
+  'Mostrar archivados',
+  "method: 'DELETE'",
+  '/catalog/order-comments/all',
+  'Eliminar todos los comentarios',
+  'deleteTarget',
+  'catalogMutationPending',
+  '|| apply.isPending',
+  '|| save.isPending',
+  '|| replaceProducts.isPending',
+  '|| removeProduct.isPending',
+  'order-comment-action',
 ]) {
   assert.ok(screen.includes(contract), `VariationNotes debe integrar ${contract}`);
 }
+
+const catalogAdministration = readFileSync(
+  join(root, 'apps/admin-web/src/features/catalog/CatalogAdministration.tsx'),
+  'utf8',
+);
+assert.match(
+  catalogAdministration,
+  /kind === 'ingredient-extras'[\s\S]*<BranchAvailability kind=\{kind\}/,
+  'La disponibilidad local heredada sólo puede seguir montada en Ingredientes adicionales',
+);
+assert.doesNotMatch(
+  catalogAdministration,
+  /\{kind !== 'products' && branchAccess && branchManage && <BranchAvailability kind=\{kind\}/,
+  'Comentarios del pedido no debe montar disponibilidad local heredada',
+);
 
 assert.match(screen, /aria-expanded=/, 'Categorías y comentarios deben comunicar expansión');
 assert.match(screen, /mixed/, 'La selección parcial debe comunicarse como estado mixto');
@@ -104,6 +135,18 @@ assert.match(screen, /removeProduct\.mutate/, 'La X debe persistir el conjunto r
 assert.match(responsiveStyles, /order-comment-product-chip__remove/, 'La X debe tener estilo propio');
 assert.match(responsiveStyles, /:hover[\s\S]*:focus-visible/, 'La X debe revelarse por puntero o teclado');
 assert.match(responsiveStyles, /@media \(hover: none\)/, 'La X debe permanecer visible en pantallas táctiles');
+for (const contract of [
+  '.order-comment-workspace .ui-button',
+  '.order-comment-selector',
+  '.order-comment-action',
+  "input[type='checkbox']",
+  'border-radius: 999px',
+  'height: 40px !important',
+  'width: 40px !important',
+  ':focus-visible',
+]) {
+  assert.ok(responsiveStyles.includes(contract), `La superficie debe suavizar ${contract}`);
+}
 assert.match(responsiveStyles, /@media \(max-width: 760px\)/, 'La pantalla debe reordenarse en ancho reducido');
 assert.match(
   responsiveStyles,

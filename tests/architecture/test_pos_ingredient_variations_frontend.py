@@ -15,7 +15,8 @@ def test_corporate_catalog_keeps_comments_and_universal_extras_separate() -> Non
     app = _read("apps/admin-web/src/App.tsx")
 
     assert "Comentarios del pedido" in comments
-    assert "Configura indicaciones de cocina por producto" in comments
+    assert "Atajos opcionales de cocina sin precio ni inventario" in comments
+    assert "Para elecciones configurables usa Modificadores" in comments
     for value in (
         "Elige productos",
         "despliega sus productos para afinar la selección",
@@ -68,8 +69,8 @@ def test_branch_routes_and_pos_sections_are_separated_and_guarded() -> None:
     hub = _read("apps/pos-web/src/features/admin/AdminHub.tsx")
     pos = _read("apps/pos-web/src/features/pos/PointOfSale.tsx")
 
-    assert "variations: 'variation-notes'" in local
-    assert "Comentarios del pedido" in local and "catalog.branch.manage" in local
+    assert "variations: 'variation-notes'" not in local
+    assert "kind === 'ingredient-extras'" in local and "catalog.branch.manage" in local
     assert "'ingredient-extras': 'ingredient-variations'" in local
     assert "Ingredientes adicionales" in local
     assert all(

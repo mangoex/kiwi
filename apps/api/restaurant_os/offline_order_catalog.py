@@ -1176,6 +1176,57 @@ def _upsert_hydrated_rows(
     # ``user_roles`` would retain a revoked corporate role and can duplicate a
     # branch-less link on every renewal.  Replacing only the bundle's users and
     # branch leaves historical identities and all operational facts intact.
+    organization_ids = {str(row["id"]) for row in catalog_rows["organizations"]}
+    conflicting_legacy_option = sa.exists().where(
+        models.modifier_options.c.group_id == models.modifier_groups.c.id,
+        models.modifier_options.c.effect_type != "preset_instruction",
+    )
+    legacy_group_ids = sa.select(models.modifier_groups.c.id).where(
+        models.modifier_groups.c.organization_id.in_(organization_ids),
+        models.modifier_groups.c.product_id.is_not(None),
+        models.modifier_groups.c.is_required.is_(False),
+        models.modifier_groups.c.minimum_selections == 0,
+        models.modifier_groups.c.maximum_selections >= 1,
+        sa.func.lower(sa.func.trim(models.modifier_groups.c.name)).in_(
+            ("variaciones y cambios", "comentarios del pedido")
+        ),
+        ~conflicting_legacy_option,
+    )
+    legacy_option_ids = sa.select(models.modifier_options.c.id).where(
+        models.modifier_options.c.group_id.in_(legacy_group_ids),
+        models.modifier_options.c.effect_type == "preset_instruction",
+    )
+    session.execute(
+        models.branch_modifier_options.delete().where(
+            models.branch_modifier_options.c.option_id.in_(legacy_option_ids)
+        )
+    )
+    session.execute(
+        models.modifier_options.delete().where(
+            models.modifier_options.c.id.in_(legacy_option_ids)
+        )
+    )
+    session.execute(
+        models.modifier_groups.delete().where(
+            models.modifier_groups.c.id.in_(legacy_group_ids),
+            ~sa.exists().where(
+                models.modifier_options.c.group_id == models.modifier_groups.c.id
+            ),
+        )
+    )
+    local_comment_ids = sa.select(models.order_comment_presets.c.id).where(
+        models.order_comment_presets.c.organization_id.in_(organization_ids)
+    )
+    session.execute(
+        models.order_comment_products.delete().where(
+            models.order_comment_products.c.comment_preset_id.in_(local_comment_ids)
+        )
+    )
+    session.execute(
+        models.order_comment_presets.delete().where(
+            models.order_comment_presets.c.organization_id.in_(organization_ids)
+        )
+    )
     if "product_option_value_assignments" in catalog_rows:
         product_ids = {row["id"] for row in catalog_rows["products"]}
         session.execute(

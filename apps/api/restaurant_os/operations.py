@@ -19367,13 +19367,304 @@ def list_order_comments(
     ]
 
 
+def archive_all_order_comments(
+    session: Session,
+    actor_user_id: str | None = None,
+) -> dict[str, int]:
+    actor_id = _actor_user_id(actor_user_id)
+    _require_order_comment_catalog_authority(session, actor_id)
+    _acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)
+    now = _now()
+    result = session.execute(
+        models.order_comment_presets.update()
+        .where(
+            models.order_comment_presets.c.organization_id == ORGANIZATION_ID,
+            models.order_comment_presets.c.status == "active",
+        )
+        .values(status="archived", updated_by=actor_id, updated_at=now)
+    )
+    archived_count = max(int(cast(CursorResult[Any], result).rowcount or 0), 0)
+    _audit(
+        session,
+        "order_comment.all_archived",
+        "organization",
+        ORGANIZATION_ID,
+        {"archived_count": archived_count},
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"archived_count": archived_count}
+
+
+def _require_order_comment_catalog_authority(session: Session, actor_id: str) -> None:
+    if not _actor_has_organization_scope(session, actor_id, "catalog.manage"):
+        _record_authorization_denied(
+            session,
+            actor_user_id=actor_id or None,
+            permission_code="catalog.manage",
+            branch_id=None,
+            reason="organization_scope_required",
+        )
+        raise AuthorizationError(
+            "permission_denied",
+            "Organization scope is required to manage corporate order comments",
+        )
+    require_permission(session, actor_id, "catalog.manage", None)
+
+
+def _delete_order_comments(
+    session: Session,
+    actor_id: str,
+    *,
+    comment_id: str | None,
+) -> dict[str, int]:
+    query = (
+        sa.select(models.order_comment_presets)
+        .where(models.order_comment_presets.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.order_comment_presets.c.id)
+        .with_for_update()
+    )
+    if comment_id is not None:
+        query = query.where(models.order_comment_presets.c.id == comment_id)
+    comments = list(session.execute(query).mappings())
+    if comment_id is not None:
+        if not comments:
+            raise NotFoundError("order_comment_not_found", "Corporate order comment was not found")
+
+    comment_ids = [str(comment["id"]) for comment in comments]
+    relations = (
+        list(
+            session.execute(
+                sa.select(models.order_comment_products).where(
+                    models.order_comment_products.c.comment_preset_id.in_(comment_ids)
+                )
+            ).mappings()
+        )
+        if comment_ids
+        else []
+    )
+    product_ids_by_comment: dict[str, list[str]] = {identifier: [] for identifier in comment_ids}
+    for relation in relations:
+        product_ids_by_comment[str(relation["comment_preset_id"])].append(
+            str(relation["product_id"])
+        )
+    for comment in comments:
+        identifier = str(comment["id"])
+        product_ids = sorted(product_ids_by_comment[identifier])
+        _audit(
+            session,
+            "order_comment.deleted",
+            "order_comment_preset",
+            identifier,
+            {
+                "preset": dict(comment),
+                "relations": [
+                    dict(relation)
+                    for relation in relations
+                    if str(relation["comment_preset_id"]) == identifier
+                ],
+                "product_ids": product_ids,
+                "relation_count": len(product_ids),
+            },
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+    if comment_ids:
+        session.execute(
+            models.order_comment_products.delete().where(
+                models.order_comment_products.c.comment_preset_id.in_(comment_ids)
+            )
+        )
+        session.execute(
+            models.order_comment_presets.delete().where(
+                models.order_comment_presets.c.id.in_(comment_ids),
+                models.order_comment_presets.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+    return {
+        "deleted_count": len(comment_ids),
+        "deleted_relation_count": len(relations),
+        "deleted_legacy_count": 0,
+        "deleted_legacy_group_count": 0,
+    }
+
+
+def _is_dedicated_legacy_order_comment_group(
+    session: Session, group: dict[str, Any]
+) -> bool:
+    if group["is_required"] or group["minimum_selections"] != 0:
+        return False
+    if group["maximum_selections"] < 1:
+        return False
+    effects = set(
+        session.scalars(
+            sa.select(models.modifier_options.c.effect_type).where(
+                models.modifier_options.c.group_id == group["id"]
+            )
+        )
+    )
+    return effects <= {"preset_instruction"}
+
+
+def _delete_legacy_order_comments(session: Session, actor_id: str) -> tuple[int, int]:
+    legacy_names = ("variaciones y cambios", "comentarios del pedido")
+    legacy_groups = list(
+        session.execute(
+            sa.select(models.modifier_groups)
+            .where(
+                models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+                models.modifier_groups.c.product_id.is_not(None),
+                sa.func.lower(sa.func.trim(models.modifier_groups.c.name)).in_(legacy_names),
+            )
+            .order_by(models.modifier_groups.c.id)
+            .with_for_update()
+        ).mappings()
+    )
+    groups_by_id = {str(group["id"]): dict(group) for group in legacy_groups}
+    group_ids = list(groups_by_id)
+    unsafe_group = next(
+        (
+            group
+            for group in legacy_groups
+            if not _is_dedicated_legacy_order_comment_group(session, dict(group))
+        ),
+        None,
+    )
+    if unsafe_group is not None:
+        raise BusinessError(
+            "variation_group_conflict",
+            "A legacy order-comment group contains non-comment modifier configuration",
+        )
+    legacy_options = list(
+        session.execute(
+            sa.select(models.modifier_options)
+            .where(
+                models.modifier_options.c.group_id.in_(group_ids),
+                models.modifier_options.c.effect_type == "preset_instruction",
+            )
+            .order_by(models.modifier_options.c.id)
+            .with_for_update()
+        ).mappings()
+    )
+    option_ids = [str(option["id"]) for option in legacy_options]
+    branch_overrides = (
+        list(
+            session.execute(
+                sa.select(models.branch_modifier_options).where(
+                    models.branch_modifier_options.c.option_id.in_(option_ids)
+                )
+            ).mappings()
+        )
+        if option_ids
+        else []
+    )
+    for option in legacy_options:
+        option_id = str(option["id"])
+        _audit(
+            session,
+            "variation_note.legacy_deleted",
+            "modifier_option",
+            option_id,
+            {
+                "option": dict(option),
+                "group": groups_by_id[str(option["group_id"])],
+                "branch_overrides": [
+                    dict(override)
+                    for override in branch_overrides
+                    if str(override["option_id"]) == option_id
+                ],
+            },
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+    if option_ids:
+        session.execute(
+            models.branch_modifier_options.delete().where(
+                models.branch_modifier_options.c.option_id.in_(option_ids)
+            )
+        )
+        session.execute(
+            models.modifier_options.delete().where(models.modifier_options.c.id.in_(option_ids))
+        )
+    deleted_group_count = 0
+    for group_id in sorted(group_ids):
+        remaining = session.scalar(
+            sa.select(sa.func.count())
+            .select_from(models.modifier_options)
+            .where(models.modifier_options.c.group_id == group_id)
+        )
+        if not remaining:
+            _audit(
+                session,
+                "variation_note.legacy_group_deleted",
+                "modifier_group",
+                group_id,
+                {
+                    "group": groups_by_id[group_id],
+                    "deleted_option_ids": sorted(
+                        str(option["id"])
+                        for option in legacy_options
+                        if str(option["group_id"]) == group_id
+                    ),
+                },
+                branch_id=None,
+                actor_user_id=actor_id,
+            )
+            session.execute(
+                models.modifier_groups.delete().where(models.modifier_groups.c.id == group_id)
+            )
+            deleted_group_count += 1
+    return len(option_ids), deleted_group_count
+
+
+def delete_order_comment(
+    session: Session,
+    comment_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, int]:
+    actor_id = _actor_user_id(actor_user_id)
+    _require_order_comment_catalog_authority(session, actor_id)
+    _acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)
+    result = _delete_order_comments(session, actor_id, comment_id=comment_id)
+    session.commit()
+    return result
+
+
+def delete_all_order_comments(
+    session: Session,
+    actor_user_id: str | None = None,
+) -> dict[str, int]:
+    actor_id = _actor_user_id(actor_user_id)
+    _require_order_comment_catalog_authority(session, actor_id)
+    _acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)
+    result = _delete_order_comments(session, actor_id, comment_id=None)
+    deleted_legacy_count, deleted_legacy_group_count = _delete_legacy_order_comments(
+        session, actor_id
+    )
+    result["deleted_legacy_count"] = deleted_legacy_count
+    result["deleted_legacy_group_count"] = deleted_legacy_group_count
+    _audit(
+        session,
+        "order_comment.all_deleted",
+        "organization",
+        ORGANIZATION_ID,
+        result,
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return result
+
+
 def bulk_order_comments(
     session: Session,
     payload: dict[str, Any],
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
+    _require_order_comment_catalog_authority(session, actor_id)
+    _acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)
     _reject_global_catalog_branch_override(payload)
     raw_value = payload.get("comments", payload.get("text", ""))
     product_ids = _validate_order_comment_products(session, _order_comment_product_ids(payload))
@@ -19463,7 +19754,6 @@ def bulk_order_comments(
         branch_id=None,
         actor_user_id=actor_id,
     )
-    session.commit()
     persisted_ids = {
         row["text_normalized"]: row["id"]
         for row in session.execute(
@@ -19481,7 +19771,7 @@ def bulk_order_comments(
     persisted_items = [
         {**item, "id": persisted_ids[item["text_normalized"]]} for item in preview["items"]
     ]
-    return {
+    response = {
         **preview,
         "items": persisted_items,
         "existing": [
@@ -19490,6 +19780,8 @@ def bulk_order_comments(
         "created_ids": created_ids,
         "relation_count": relation_count,
     }
+    session.commit()
+    return response
 
 
 def update_order_comment(
@@ -19499,7 +19791,8 @@ def update_order_comment(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
+    _require_order_comment_catalog_authority(session, actor_id)
+    _acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)
     _reject_global_catalog_branch_override(payload)
     comment = (
         session.execute(
@@ -19553,8 +19846,9 @@ def update_order_comment(
         branch_id=None,
         actor_user_id=actor_id,
     )
+    response = _order_comment_payload(session, comment_id, actor_id)
     session.commit()
-    return _order_comment_payload(session, comment_id, actor_id)
+    return response
 
 
 def replace_order_comment_products(
@@ -19564,7 +19858,8 @@ def replace_order_comment_products(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
+    _require_order_comment_catalog_authority(session, actor_id)
+    _acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)
     _reject_global_catalog_branch_override(payload)
     _order_comment_payload(session, comment_id, actor_id)
     product_ids = _validate_order_comment_products(session, _order_comment_product_ids(payload))
@@ -19611,8 +19906,9 @@ def replace_order_comment_products(
         branch_id=None,
         actor_user_id=actor_id,
     )
+    response = _order_comment_payload(session, comment_id, actor_id)
     session.commit()
-    return _order_comment_payload(session, comment_id, actor_id)
+    return response
 
 
 PRESET_VARIATION_GROUP = "Variaciones y cambios"

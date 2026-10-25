@@ -177,6 +177,9 @@ from restaurant_os.operations import (
     create_cash_concept_version,
     create_cash_movement,
     create_customer,
+    archive_all_order_comments,
+    delete_all_order_comments,
+    delete_order_comment,
     create_driver,
     create_ingredient_variation,
     create_inventory_transfer,
@@ -5959,6 +5962,37 @@ def post_order_comments_bulk(
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: bulk_order_comments(session, payload, actor_id))
+
+
+@router.post("/catalog/order-comments/archive-all")
+def post_archive_all_order_comments(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, int]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: archive_all_order_comments(session, actor_id))
+
+
+@router.delete("/catalog/order-comments/all")
+def delete_all_order_comments_endpoint(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, int]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: delete_all_order_comments(session, actor_id))
+
+
+@router.delete("/catalog/order-comments/{comment_id}")
+def delete_order_comment_endpoint(
+    comment_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, int]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: delete_order_comment(session, comment_id, actor_id))
 
 
 @router.put("/catalog/order-comments/{comment_id}")
