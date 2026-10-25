@@ -211,6 +211,9 @@ from restaurant_os.operations import (
     deactivate_driver,
     decide_order_reopen_request,
     delete_branch,
+    delete_category,
+    delete_category_option_group,
+    delete_category_option_value,
     delete_product,
     delete_user,
     get_branch_context,
@@ -5116,6 +5119,17 @@ def put_category(
     )
 
 
+@router.delete("/categories/{category_id}")
+def remove_category(
+    category_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: delete_category(session, category_id, actor_id))
+
+
 @router.get("/categories/{category_id}/selection-group")
 def get_category_selection_group(
     category_id: str,
@@ -5138,6 +5152,19 @@ def post_category_selection_group(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
         lambda: upsert_category_option_group(session, category_id, payload, actor_id)
+    )
+
+
+@router.delete("/categories/{category_id}/selection-group")
+def remove_category_selection_group(
+    category_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: delete_category_option_group(session, category_id, actor_id)
     )
 
 
@@ -5180,6 +5207,20 @@ def put_category_option_value(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
         lambda: upsert_category_option_value(session, group_id, payload, value_id, actor_id)
+    )
+
+
+@router.delete("/catalog/category-option-groups/{group_id}/values/{value_id}")
+def remove_category_option_value(
+    group_id: str,
+    value_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: delete_category_option_value(session, group_id, value_id, actor_id)
     )
 
 

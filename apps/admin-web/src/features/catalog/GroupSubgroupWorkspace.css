@@ -216,8 +216,17 @@
 .subgroup-publish strong { font-size: 0.82rem; }
 .subgroup-intro span,
 .subgroup-publish span { color: #475569; font-size: 0.74rem; line-height: 1.45; }
-.subgroup-publish { align-items: center; border-color: #e2e8f0; background: #f8fafc; color: var(--workspace-ink); }
+.subgroup-publish { align-items: stretch; flex-direction: column; border-color: #e2e8f0; background: #f8fafc; color: var(--workspace-ink); }
 .subgroup-publish .ui-button { flex-shrink: 0; }
+.subgroup-publish-actions { display: grid; width: 100%; flex: 0 0 auto; gap: 7px; }
+.subgroup-publish-actions .ui-button { width: 100%; }
+.group-subgroup-workspace .destructive-action {
+  border-color: #fecaca;
+  background: #fff;
+  color: #b91c1c;
+}
+.group-subgroup-workspace .destructive-action:hover:not(:disabled) { background: #fef2f2; }
+.group-subgroup-workspace .destructive-action:disabled { cursor: not-allowed; opacity: 0.48; }
 .subgroup-panel .ui-badge { white-space: nowrap; }
 .subgroup-list { display: grid; gap: 8px; }
 .subgroup-empty-copy { margin: 0; padding: 18px; border: 1px dashed #cbd5e1; border-radius: 10px; color: var(--workspace-muted); text-align: center; }
@@ -232,7 +241,8 @@
   background: #fff;
 }
 
-.subgroup-row.empty { border-color: #fcd34d; background: #fffbeb; }
+.subgroup-row.empty { grid-template-columns: 1fr; border-color: #fcd34d; background: #fffbeb; }
+.subgroup-row.empty .subgroup-row-controls { justify-content: flex-start; flex-wrap: wrap; }
 .subgroup-row-copy { display: grid; min-width: 0; gap: 2px; }
 .subgroup-row-copy strong,
 .subgroup-row-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -249,6 +259,10 @@
 }
 .subgroup-empty-warning svg { flex: 0 0 auto; }
 .subgroup-row-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.subgroup-row-controls > button:disabled { cursor: not-allowed; opacity: 0.42; }
+.subgroup-row-controls .subgroup-icon-action { border-radius: 999px; }
+.subgroup-row-controls .subgroup-icon-action.destructive { border-color: #fecaca; color: #b91c1c; }
+.subgroup-row-controls .subgroup-icon-action.destructive:hover:not(:disabled) { background: #fef2f2; }
 .subgroup-row-controls .subgroup-create-product {
   width: auto;
   min-width: 0;
@@ -301,6 +315,7 @@
   .group-product-row { grid-template-columns: 1fr; }
   .subgroup-publish { align-items: stretch; flex-direction: column; }
   .subgroup-publish .ui-button { width: 100%; }
+  .subgroup-publish-actions { width: 100%; }
   .subgroup-row { grid-template-columns: 1fr; }
   .subgroup-row-controls { justify-content: flex-start; flex-wrap: wrap; }
   .subgroup-row-controls .subgroup-create-product { flex: 1 1 auto; }

@@ -2085,6 +2085,26 @@ contra categorías y cobertura canónicas, abre un borrador nuevo y preseleccion
 parámetros nunca crean ni asignan por sí mismos, no transportan nombre, precio o receta y se retiran
 de la URL después de hidratar el borrador para evitar reabrirlo accidentalmente.
 
+Los comandos destructivos conservan `catalog.manage`, alcance corporativo y el mismo bloqueo de
+organización que las escrituras hermanas. Eliminar un valor individual falla con
+`category_option_value_in_use` si existe cualquier asignación, incluso de un producto inactivo o
+archivado. Eliminar la configuración completa falla con `category_option_group_delete_active`
+mientras esté publicada; cuando está inactiva elimina en una sola transacción sus asignaciones,
+valores y grupo técnico. Eliminar una categoría falla con `category_delete_has_products` si existe
+cualquier producto relacionado; sólo una categoría vacía puede retirar su configuración técnica y
+su referencia de prioridades administrativas antes de borrar la fila. Cada éxito registra un
+`audit_event` append-only con identidad previa y conteos, sin nombres de productos ni datos de
+pedidos. El evento es corporativo (`branch_id = null`) y conserva las filas administrativas previas
+de categoría, selector, valores, asignaciones por ID y prioridades modificadas para permitir una
+compensación explícita; no existe una restauración automática. No hay cascada implícita hacia
+productos, recetas, precios, pedidos o inventario.
+
+Operación debe poder responder: (1) cuántas eliminaciones terminaron o fueron bloqueadas y por qué;
+(2) cuántos valores o asignaciones retiró cada limpieza completa; y (3) si ocurrió un fallo
+inesperado después de iniciar la transacción. El evento `catalog_structure_delete` registra sólo
+operación, resultado, razón estable y conteos acotados; `audit_event` conserva actor, entidad y
+snapshot administrativo del éxito. Ninguna señal incluye productos, pedidos o datos personales.
+
 La proyección pública se centraliza en Python. Un producto elegible conserva las reglas existentes:
 activo, en alcance de sucursal, disponible y con `price_cents` entero positivo. Para una categoría
 con grupo activo, sólo se publica un producto cuya asignación activa coincide con un valor activo del

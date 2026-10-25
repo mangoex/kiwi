@@ -13,6 +13,7 @@ import {
   Save,
   Search,
   Tags,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
@@ -178,6 +179,22 @@ export default function CategoriesList() {
     },
   });
 
+  const deleteCategoryMutation = useMutation({
+    mutationFn: () => fetchApi(`/categories/${selectedCategoryId}`, { method: 'DELETE' }),
+    onSuccess: async () => {
+      const deletedName = selectedCategory?.name || 'seleccionado';
+      client.removeQueries({ queryKey: ['category-option-coverage', selectedCategoryId] });
+      hydratedCategoryId.current = '';
+      categoryAttempt.current = null;
+      setCategoryConflict(false);
+      setIsCreatingCategory(false);
+      setSelectedCategoryId('');
+      setNotice({ tone: 'success', text: `Grupo ${deletedName} eliminado.` });
+      await client.invalidateQueries({ queryKey: ['categories'] });
+    },
+    onError: (reason) => setNotice({ tone: 'error', text: failure(reason) }),
+  });
+
   const groupMutation = useMutation({
     mutationFn: (status: 'active' | 'inactive') => fetchApi(`/categories/${selectedCategoryId}/selection-group`, {
       method: 'POST',
@@ -185,6 +202,20 @@ export default function CategoriesList() {
     }),
     onSuccess: async (_, status) => {
       setNotice({ tone: 'success', text: status === 'active' ? 'Los subgrupos ya se muestran en POS.' : 'Los subgrupos se ocultaron del POS.' });
+      await refreshWorkspace();
+    },
+    onError: (reason) => setNotice({ tone: 'error', text: failure(reason) }),
+  });
+
+  const deleteSelectionGroupMutation = useMutation({
+    mutationFn: () => fetchApi<{ deleted_values: number; deleted_assignments: number }>(`/categories/${selectedCategoryId}/selection-group`, {
+      method: 'DELETE',
+    }),
+    onSuccess: async (deleted) => {
+      setNotice({
+        tone: 'success',
+        text: `Configuración eliminada: ${deleted.deleted_values} subgrupo(s) y ${deleted.deleted_assignments} asignación(es).`,
+      });
       await refreshWorkspace();
     },
     onError: (reason) => setNotice({ tone: 'error', text: failure(reason) }),
@@ -222,6 +253,17 @@ export default function CategoriesList() {
     onError: (reason) => setNotice({ tone: 'error', text: failure(reason) }),
   });
 
+  const deleteSubgroupMutation = useMutation({
+    mutationFn: (valueId: string) => fetchApi(`/catalog/category-option-groups/${coverage?.group?.id}/values/${valueId}`, {
+      method: 'DELETE',
+    }),
+    onSuccess: async () => {
+      setNotice({ tone: 'success', text: 'Subgrupo eliminado.' });
+      await refreshWorkspace();
+    },
+    onError: (reason) => setNotice({ tone: 'error', text: failure(reason) }),
+  });
+
   const assignmentMutation = useMutation({
     mutationFn: ({ productId, optionValueId }: { productId: string; optionValueId: string }) => fetchApi(`/catalog/category-option-groups/${coverage?.group?.id}/assignments/${productId}`, {
       method: 'PUT',
@@ -242,6 +284,24 @@ export default function CategoriesList() {
     setCategoryConflict(false);
     setCategoryForm({ name: '', display_order: categories.length, status: 'active', classification_code: '', configuration_version: 0 });
     setNotice(null);
+  };
+
+  const confirmCategoryDeletion = () => {
+    if (!selectedCategory) return;
+    if (!window.confirm(`¿Eliminar el grupo ${selectedCategory.name}? Sólo se eliminará si no contiene productos.`)) return;
+    deleteCategoryMutation.mutate();
+  };
+
+  const confirmSelectionGroupDeletion = () => {
+    if (!coverage?.group) return;
+    if (!window.confirm('¿Eliminar todos los subgrupos? Se quitarán también sus asignaciones actuales, pero los productos permanecerán en el grupo.')) return;
+    deleteSelectionGroupMutation.mutate();
+  };
+
+  const confirmSubgroupDeletion = (value: SubgroupValue, assignedCount: number) => {
+    if (assignedCount > 0) return;
+    if (!window.confirm(`¿Eliminar ${value.name}? Esta acción no puede deshacerse.`)) return;
+    deleteSubgroupMutation.mutate(value.id);
   };
 
   const isLoading = categoriesQuery.isLoading;
@@ -349,6 +409,11 @@ export default function CategoriesList() {
               <Button variant="primary" onClick={() => categoryMutation.mutate()} disabled={!categoryForm.name.trim() || (!selectedCategoryId && !categoryForm.classification_code) || categoryConflict || categoryMutation.isPending}>
                 <Save size={16} /> {categoryMutation.isPending ? 'Guardando…' : 'Guardar grupo'}
               </Button>
+              {selectedCategory && (
+                <Button className="destructive-action" variant="secondary" onClick={confirmCategoryDeletion} disabled={deleteCategoryMutation.isPending}>
+                  <Trash2 size={16} /> {deleteCategoryMutation.isPending ? 'Eliminando…' : 'Eliminar grupo'}
+                </Button>
+              )}
               {categoryConflict && <Button variant="secondary" onClick={async () => {
                 const refreshed = await categoriesQuery.refetch();
                 if (refreshed.isError) return;
@@ -393,13 +458,24 @@ export default function CategoriesList() {
                           ? 'La cobertura está completa y puedes mostrarlos al cajero.'
                           : `${coverage.incomplete_products.length} producto(s) necesitan un subgrupo antes de publicarlos.`}</span>
                     </div>
-                    <Button
-                      variant={coverage.group.status === 'active' ? 'secondary' : 'primary'}
-                      onClick={() => groupMutation.mutate(coverage.group?.status === 'active' ? 'inactive' : 'active')}
-                      disabled={groupMutation.isPending || (coverage.group.status !== 'active' && (!coverage.complete || activeSubgroupCount === 0))}
-                    >
-                      {coverage.group.status === 'active' ? 'Ocultar subgrupos del POS' : 'Mostrar subgrupos en POS'}
-                    </Button>
+                    <div className="subgroup-publish-actions">
+                      <Button
+                        variant={coverage.group.status === 'active' ? 'secondary' : 'primary'}
+                        onClick={() => groupMutation.mutate(coverage.group?.status === 'active' ? 'inactive' : 'active')}
+                        disabled={groupMutation.isPending || (coverage.group.status !== 'active' && (!coverage.complete || activeSubgroupCount === 0))}
+                      >
+                        {coverage.group.status === 'active' ? 'Ocultar subgrupos del POS' : 'Mostrar subgrupos en POS'}
+                      </Button>
+                      <Button
+                        className="destructive-action"
+                        variant="secondary"
+                        onClick={confirmSelectionGroupDeletion}
+                        disabled={coverage.group.status === 'active' || deleteSelectionGroupMutation.isPending}
+                        title={coverage.group.status === 'active' ? 'Oculta primero los subgrupos del POS' : undefined}
+                      >
+                        <Trash2 size={15} /> {deleteSelectionGroupMutation.isPending ? 'Eliminando…' : 'Eliminar todos los subgrupos'}
+                      </Button>
+                    </div>
                   </div>
                 )}
 
@@ -429,7 +505,15 @@ export default function CategoriesList() {
                                 </button>
                               )}
                               <Badge variant={value.status === 'active' ? 'success' : 'default'}>{value.status === 'active' ? 'Activo' : value.status === 'inactive' ? 'Inactivo' : 'Archivado'}</Badge>
-                              <button type="button" onClick={() => setEditingSubgroup({ id: value.id, name: value.name })} aria-label={`Editar ${value.name}`}><Edit3 size={16} /></button>
+                              <button className="subgroup-icon-action" type="button" onClick={() => setEditingSubgroup({ id: value.id, name: value.name })} aria-label={`Editar ${value.name}`}><Edit3 size={16} /></button>
+                              <button
+                                className="subgroup-icon-action destructive"
+                                type="button"
+                                onClick={() => confirmSubgroupDeletion(value, assignedCount)}
+                                aria-label={`Eliminar ${value.name}`}
+                                title={assignedCount > 0 ? 'Reasigna sus productos antes de eliminarlo' : `Eliminar ${value.name}`}
+                                disabled={assignedCount > 0 || deleteSubgroupMutation.isPending}
+                              ><Trash2 size={16} /></button>
                             </div>
                           </>
                         )}

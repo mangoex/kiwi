@@ -20,6 +20,12 @@ Casos:
   meramente activo y enlaza un alta contextual sin escribir producto ni asignación;
 - Productos consume una sola vez `create=1`, `category_id` y `subgroup_id`, resuelve los IDs contra
   el catálogo cargado, preselecciona el borrador y limpia esos parámetros de navegación;
+- la UI confirma los comandos destructivos, permite borrar valores sin asignaciones y ofrece retirar
+  toda la configuración sólo cuando no está publicada en POS;
+- `apps/api/tests/test_platform_api.py` comprueba autorización, bloqueo de subgrupos asignados,
+  rechazo de selector activo, eliminación transaccional de una configuración inactiva, rechazo de
+  categoría con productos, conservación de productos, rollback ante fallo de auditoría y snapshots
+  compensables de una categoría vacía eliminada;
 - una asignación inválida revierte producto, precio, asignación y auditoría de éxito, y la operación
   muestra el error sin anunciar un guardado completo;
 - la ruta heredada `/category-options` conserva acceso a la estación integrada sin duplicar una
@@ -51,6 +57,22 @@ ese contexto.
 When Productos recibe los IDs canónicos desde esa acción
 Then abre un alta nueva con el grupo y subgrupo preseleccionados sin persistir nada todavía
 And elimina los parámetros consumidos para que una recarga posterior no descarte el trabajo actual.
+
+## TDD-TC-473 Eliminación protegida de grupos y subgrupos
+
+Given una configuración de subgrupos incorrecta
+When el administrador intenta borrar un valor con asignaciones o retirar un selector publicado
+Then Python rechaza el comando antes de cualquier escritura con un error de dominio estable.
+When el selector está oculto y el administrador confirma retirar todos sus subgrupos
+Then asignaciones, valores y selector se eliminan en una transacción auditada
+And los productos concretos permanecen en su grupo y vuelven a abrirse directamente en POS.
+And el guardado atómico de Productos comparte el bloqueo organizacional con la eliminación.
+When la auditoría falla antes del commit
+Then selector, valores y asignaciones permanecen sin mutación parcial.
+When el administrador intenta borrar un grupo con cualquier producto activo, inactivo o archivado
+Then Python lo rechaza sin cascada
+But una categoría vacía se elimina junto con configuración técnica residual y referencias de
+prioridad administrativa, conservando la evidencia append-only.
 
 ## Comandos focalizados
 

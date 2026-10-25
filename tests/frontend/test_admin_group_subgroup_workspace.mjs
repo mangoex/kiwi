@@ -25,6 +25,12 @@ assert.match(categories, /No aparecerá en POS/, 'Un subgrupo vacío debe explic
 assert.match(categories, /Crear producto en/, 'Un subgrupo debe ofrecer alta contextual de producto');
 assert.match(categories, /create=1[&]category_id=/, 'El alta contextual debe transportar el ID canónico del grupo');
 assert.match(categories, /[&]subgroup_id=/, 'El alta contextual debe transportar el ID canónico del subgrupo');
+assert.match(categories, /method: 'DELETE'/, 'Las eliminaciones deben usar comandos explícitos y no simularse en memoria');
+assert.match(categories, /Eliminar grupo/, 'El detalle debe ofrecer eliminación protegida del grupo');
+assert.match(categories, /Eliminar todos los subgrupos/, 'La estación debe permitir retirar una configuración de subgrupos oculta');
+assert.match(categories, /Eliminar \$\{value\.name\}/, 'Cada subgrupo debe exponer una acción de eliminación accesible');
+assert.match(categories, /window\.confirm/, 'Toda eliminación debe exigir confirmación explícita');
+assert.match(categories, /category-option-groups\/\$\{coverage\?\.group\?\.id\}\/values\/\$\{valueId\}/, 'El subgrupo debe eliminarse por su relación canónica');
 
 assert.doesNotMatch(products, /INITIAL_SUBGROUPS/, 'Productos no debe conservar un catálogo de subgrupos simulado');
 assert.doesNotMatch(products, /setSubgroups\(/, 'Productos no debe crear subgrupos sólo en memoria');
