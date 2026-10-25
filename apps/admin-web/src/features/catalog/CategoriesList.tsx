@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { ApiError, fetchApi } from '@restaurantos/api-client';
 import { Badge, Button, Input, Select } from '@restaurantos/ui';
 import {
@@ -74,6 +75,7 @@ const failure = (reason: unknown) => reason instanceof ApiError
 
 export default function CategoriesList() {
   const client = useQueryClient();
+  const navigate = useNavigate();
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [search, setSearch] = useState('');
@@ -100,7 +102,22 @@ export default function CategoriesList() {
   const coverage = coverageQuery.data?.category_id === selectedCategoryId ? coverageQuery.data : undefined;
   const groupHydrationKey = categoryOptionEditorHydrationKey(coverage?.group);
   const activeSubgroupCount = coverage?.values.filter((value) => value.status === 'active').length || 0;
+  const subgroupAssignmentCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    coverage?.values.forEach((value) => counts.set(value.id, 0));
+    coverage?.products.forEach((product) => {
+      const valueId = product.assignment?.value_id;
+      if (valueId && counts.has(valueId)) {
+        counts.set(valueId, (counts.get(valueId) || 0) + 1);
+      }
+    });
+    return counts;
+  }, [coverage?.products, coverage?.values]);
   const filteredCategories = categories.filter((category) => category.name.toLocaleLowerCase('es-MX').includes(search.trim().toLocaleLowerCase('es-MX')));
+
+  const createProductInSubgroup = (subgroupId: string) => {
+    navigate(`/products?create=1&category_id=${encodeURIComponent(selectedCategoryId)}&subgroup_id=${encodeURIComponent(subgroupId)}`);
+  };
 
   useEffect(() => {
     if (selectedCategoryId || isCreatingCategory || categories.length === 0) return;
@@ -389,8 +406,10 @@ export default function CategoriesList() {
                 <div className="subgroup-list" aria-label="Subgrupos del grupo seleccionado">
                   {!coverage?.values.length ? <p className="subgroup-empty-copy">Aún no hay subgrupos.</p> : coverage.values.map((value) => {
                     const editing = editingSubgroup?.id === value.id ? editingSubgroup : null;
+                    const assignedCount = subgroupAssignmentCounts.get(value.id) || 0;
+                    const isEmptyActiveSubgroup = value.status === 'active' && assignedCount === 0;
                     return (
-                      <div className="subgroup-row" key={value.id}>
+                      <div className={`subgroup-row${isEmptyActiveSubgroup ? ' empty' : ''}`} key={value.id}>
                         {editing ? (
                           <div className="subgroup-edit-grid">
                             <Input aria-label={`Nombre de ${value.name}`} value={editing.name} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setEditingSubgroup({ ...editing, name: event.target.value })} />
@@ -398,9 +417,20 @@ export default function CategoriesList() {
                           </div>
                         ) : (
                           <>
-                            <span><strong>{value.name}</strong></span>
-                            <Badge variant={value.status === 'active' ? 'success' : 'default'}>{value.status === 'active' ? 'Activo' : value.status === 'inactive' ? 'Inactivo' : 'Archivado'}</Badge>
-                            <button type="button" onClick={() => setEditingSubgroup({ id: value.id, name: value.name })} aria-label={`Editar ${value.name}`}><Edit3 size={16} /></button>
+                            <span className="subgroup-row-copy">
+                              <strong>{value.name}</strong>
+                              <small>{assignedCount} {assignedCount === 1 ? 'producto asignado' : 'productos asignados'}</small>
+                              {isEmptyActiveSubgroup && <small className="subgroup-empty-warning"><AlertCircle size={13} aria-hidden="true" /> No aparecerá en POS hasta que tenga un producto disponible.</small>}
+                            </span>
+                            <div className="subgroup-row-controls">
+                              {isEmptyActiveSubgroup && (
+                                <button className="subgroup-create-product" type="button" onClick={() => createProductInSubgroup(value.id)}>
+                                  <Plus size={15} aria-hidden="true" /> Crear producto en {value.name}
+                                </button>
+                              )}
+                              <Badge variant={value.status === 'active' ? 'success' : 'default'}>{value.status === 'active' ? 'Activo' : value.status === 'inactive' ? 'Inactivo' : 'Archivado'}</Badge>
+                              <button type="button" onClick={() => setEditingSubgroup({ id: value.id, name: value.name })} aria-label={`Editar ${value.name}`}><Edit3 size={16} /></button>
+                            </div>
                           </>
                         )}
                       </div>

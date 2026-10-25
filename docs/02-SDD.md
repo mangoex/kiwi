@@ -2077,6 +2077,14 @@ perder foco. Código, orden y estado pueden seguir enviándose por API para comp
 omiten Python los genera o conserva conforme al caso. La cobertura separa un conteo y marca de los
 incompletos, sin afirmar que toda la lista sea incompleta.
 
+La estación deriva, desde `coverage.products[].assignment.value_id`, el conteo de productos activos
+asignados a cada subgrupo. Un valor con conteo cero conserva su estado canónico, pero presenta la
+advertencia de que no aparecerá en POS y una acción **Crear producto en {subgrupo}**. La acción
+navega a `/products` con `create=1`, `category_id` y `subgroup_id`; Productos resuelve esos IDs
+contra categorías y cobertura canónicas, abre un borrador nuevo y preselecciona ambos valores. Los
+parámetros nunca crean ni asignan por sí mismos, no transportan nombre, precio o receta y se retiran
+de la URL después de hidratar el borrador para evitar reabrirlo accidentalmente.
+
 La proyección pública se centraliza en Python. Un producto elegible conserva las reglas existentes:
 activo, en alcance de sucursal, disponible y con `price_cents` entero positivo. Para una categoría
 con grupo activo, sólo se publica un producto cuya asignación activa coincide con un valor activo del

@@ -197,6 +197,10 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   configuración incompleta. El pedido, KDS, comanda y precio conservan siempre el `product_id` y
   snapshot concretos; el valor elegido no es modificador ni precio. Cambiar de categoría u opción
   sólo limpia personalización transitoria, nunca el carrito. La búsqueda no evita el selector.
+  Administración debe mostrar cuántos productos activos están asignados a cada subgrupo y advertir
+  cuando un subgrupo vacío no aparecerá en POS. Desde ese estado debe ofrecer un acceso al alta de
+  Productos con grupo y subgrupo preseleccionados; la navegación sólo transporta IDs canónicos y no
+  sustituye la validación transaccional del backend al guardar.
 
 ### 4.3 Pedidos
 
