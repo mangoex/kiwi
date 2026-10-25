@@ -100,7 +100,7 @@ def main() -> None:
         source.commit()
         catalog = build_catalog_snapshot(
             source, organization_id=ORG_ID, branch_id=BRANCH_A,
-            catalog_schema="ord-off-catalog/v3",
+            catalog_schema="ord-off-catalog/v4",
         )
         seed = build_operational_seed(
             source, organization_id=ORG_ID, branch_id=BRANCH_A, actor_ids=[ACTOR]

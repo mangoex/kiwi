@@ -99,8 +99,9 @@ excedan el entero persistible se rechazan con error de negocio, nunca con 500.
 
 ## TDD-TC-268 Relaciones de producto seguras
 
-Aceptar sólo productos corporativos activos de la misma organización y estación, con receta efectiva,
-sin autorreferencia, combo o grupos seleccionables. Cada contraparte inválida revierte el comando
+Aceptar sólo productos corporativos activos de la misma organización, con receta efectiva, sin
+autorreferencia, combo o segunda profundidad de producto componente. Admitir estaciones distintas y
+grupos ordinarios propios; cada contraparte inválida revierte el comando
 completo. Una opción ordinaria no puede conservar `component_product_id` y la clonación heredada
 rechaza grupos que lo contengan. El gate PostgreSQL cruza
 los dos comandos para demostrar que el bloqueo compartido sólo permite producto seleccionable o

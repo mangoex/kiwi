@@ -502,3 +502,20 @@ debe conservar `12.345678` en el comando o dejar el campo sin modificación; edi
 enviar exactamente ese nuevo valor. Verificar que los cálculos usan el valor original, que APIs y
 persistencia retienen su precisión y que conteos/identificadores no reciben formato decimal.
 Ejecutar pruebas semánticas y typecheck focales al implementar cada interfaz.
+
+## TDD-TS-161 Combos seleccionables con productos configurables
+
+PRD-FR-245/262; SDD §48.7; BDD-SC-797..799. Automatizar contrato de Admin, cotización y aceptación
+central, snapshot histórico, precio e inventario exactos, tareas multiestación, KDS, catálogo SQLite
+y recorrido POS con modificadores hijos.
+
+### TDD-TC-468 Selección y cálculo autoritativo del producto hijo
+
+Crear un set compartido con `product_component`, elegir un hijo con grupos requeridos y comprobar que
+sin selecciones hijas falla cerrado; con ellas, cotización y pedido coinciden, el precio propio del hijo
+no se suma y receta/modificadores quedan congelados.
+
+### TDD-TC-469 Producción, offline y profundidad máxima
+
+Comprobar tarea por componente en su estación, KDS con sólo sus instrucciones, paridad del gateway
+SQLite y rechazo atómico de un hijo que contenga otra opción `product_component`.

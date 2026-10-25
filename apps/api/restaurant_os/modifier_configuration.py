@@ -204,6 +204,40 @@ def _has_selectable_groups(session: Session, product_id: str) -> bool:
     )
 
 
+def _has_product_component_options(session: Session, product_id: str) -> bool:
+    assigned_sets = sa.select(models.modifier_set_products.c.modifier_set_id).where(
+        models.modifier_set_products.c.product_id == product_id,
+        models.modifier_set_products.c.status == "active",
+        sa.exists(
+            sa.select(models.modifier_sets.c.id).where(
+                models.modifier_sets.c.id == models.modifier_set_products.c.modifier_set_id,
+                models.modifier_sets.c.organization_id == ORGANIZATION_ID,
+                models.modifier_sets.c.status == "active",
+            )
+        ),
+    )
+    return bool(
+        session.scalar(
+            sa.select(models.modifier_options.c.id)
+            .join(
+                models.modifier_groups,
+                models.modifier_groups.c.id == models.modifier_options.c.group_id,
+            )
+            .where(
+                sa.or_(
+                    models.modifier_groups.c.product_id == product_id,
+                    models.modifier_groups.c.modifier_set_id.in_(assigned_sets),
+                ),
+                models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+                models.modifier_groups.c.status == "active",
+                models.modifier_options.c.status == "active",
+                models.modifier_options.c.effect_type == "product_component",
+            )
+            .limit(1)
+        )
+    )
+
+
 def _groups_view(session: Session, product_id: str) -> list[dict[str, Any]]:
     groups = _manageable_groups(session, product_id)
     if not groups:
@@ -229,7 +263,6 @@ def _component_candidates(session: Session, parent: dict[str, Any]) -> list[dict
             models.products.c.organization_id == ORGANIZATION_ID,
             models.products.c.status == "active",
             models.products.c.catalog_scope == "organization",
-            models.products.c.station == parent["station"],
             models.products.c.id != parent["id"],
             sa.exists(
                 sa.select(models.recipes.c.id).where(
@@ -249,11 +282,9 @@ def _component_candidates(session: Session, parent: dict[str, Any]) -> list[dict
         )
         .order_by(models.products.c.name, models.products.c.sku)
     ).mappings()
-    return [
-        dict(row)
-        for row in candidates
-        if not _has_selectable_groups(session, product_id=str(row["id"]))
-    ]
+    return [dict(row) for row in candidates if not _has_product_component_options(
+        session, product_id=str(row["id"])
+    )]
 
 
 def get_modifier_configuration(
@@ -328,11 +359,6 @@ def _validate_component(
         raise BusinessError(
             "modifier_component_out_of_scope", "Component product is not corporate and active"
         )
-    if component["station"] != parent["station"]:
-        raise BusinessError(
-            "modifier_component_station_mismatch",
-            "Component product must use the same production station",
-        )
     if session.scalar(
         sa.select(models.product_compositions.c.id)
         .where(
@@ -343,9 +369,9 @@ def _validate_component(
         .limit(1)
     ):
         raise BusinessError("modifier_component_nested", "Fixed combos cannot be selected")
-    if _has_selectable_groups(session, component_product_id):
+    if _has_product_component_options(session, component_product_id):
         raise BusinessError(
-            "modifier_component_nested", "Selectable products cannot contain modifier groups"
+            "modifier_component_nested", "Selectable products cannot contain product components"
         )
     if not session.scalar(
         sa.select(models.recipes.c.id)
@@ -589,7 +615,12 @@ def save_modifier_configuration(
             "Modifier configuration changed in another session",
         )
     normalized = _normalize_groups(session, parent, payload.get("groups"))
-    if normalized and session.scalar(
+    contains_product_component = any(
+        option.get("effect_type") == "product_component"
+        for group in normalized
+        for option in group.get("options", [])
+    )
+    if contains_product_component and session.scalar(
         sa.select(models.product_compositions.c.id)
         .where(
             models.product_compositions.c.combo_product_id == product_id,
@@ -620,7 +651,7 @@ def save_modifier_configuration(
     ):
         raise BusinessError(
             "modifier_component_nested",
-            "A product already used as a component cannot contain selectable groups",
+            "A product already used as a component cannot contain another product component",
         )
     existing_groups = {str(row["id"]): dict(row) for row in _manageable_groups(session, product_id)}
     now = _now()

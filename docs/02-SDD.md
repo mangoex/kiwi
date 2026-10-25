@@ -3868,18 +3868,20 @@ corporativo; Productos no presenta campos locales sin una autoridad canónica vi
 `modifier_groups` agrega `included_selections`, entero entre cero y `maximum_selections`.
 `modifier_options` agrega `component_product_id` nullable y `component_quantity` entera positiva.
 `effect_type=product_component` exige ambos campos y prohíbe IDs de insumo; los demás efectos los
-mantienen nulos. El producto componente es corporativo, activo, de la misma organización y estación,
-no puede ser el padre, combo fijo ni producto con grupos seleccionables propios. En cada sucursal la
+mantienen nulos. El producto componente es corporativo, activo y de la misma organización; no puede
+ser el padre, combo fijo ni contener otra opción `product_component`. Puede pertenecer a otra estación
+y conservar grupos ordinarios propios. En cada sucursal la
 proyección POS oculta una opción cuyo producto o receta efectiva no estén disponibles.
 
 La selección conserva el orden explícito del cajero. Python aplica `included_selections` a las
 primeras opciones de cada grupo; sólo las restantes suman su `price_delta_cents`, multiplicado por la
 cantidad de la línea. El navegador puede anticipar ese total, pero cotización y aceptación recalculan
 con el catálogo vigente. Cada producto componente expande su receta efectiva, multiplicada por
-`component_quantity` y la cantidad de la línea, dentro del snapshot de consumo del padre. El snapshot
-del modificador congela producto, nombre, cantidad, receta, precio listado, precio aplicado y si fue
-incluido. Al exigirse la misma estación, se conserva una sola tarea de producción y no se inventa una
-semántica multiestación o anidada.
+`component_quantity` y la cantidad de la línea, y después aplica sus modificadores hijos dentro del
+snapshot de consumo del padre. El snapshot congela producto, nombre, cantidad, receta, opciones
+hijas, precios listados/aplicados y si la selección padre fue incluida. La aceptación crea una tarea
+por componente en su estación; KDS recibe únicamente los modificadores de ese componente. La
+anidación termina allí: un modificador hijo no puede seleccionar otro producto.
 
 La compatibilidad técnica usa `GET/PUT /api/v1/products/{product_id}/modifier-configuration`; estos
 endpoints no tienen una ruta visible en Productos. La lectura requiere
@@ -4644,11 +4646,11 @@ migración. La baja lógica preserva IDs usados por historia.
 `PUT /api/v1/catalog/modifier-sets/{id}/products` requieren autoridad corporativa y
 `catalog.manage`. Crear, editar el árbol o reemplazar el alcance exige `Idempotency-Key`; cada
 respuesta persistida incluye versión. `expected_version` y bloqueo de cabecera impiden lost update.
-Producto inexistente, inactivo, no corporativo, de estación distinta, conjunto vacío, insumo fuera
-de alcance o `product_component` rechazan toda la transacción. La auditoría registra set, versión y
+Producto inexistente, inactivo, no corporativo, conjunto vacío, insumo fuera de alcance o una segunda
+profundidad de `product_component` rechazan toda la transacción. La auditoría registra set, versión y
 conteos, no payloads de inventario. Un producto relacionado con un set no puede ser cabecera ni
-componente de combo fijo o `product_component`, aun cuando el set todavía no tenga grupos. Los
-writers adquieren `product-composition-mode` para cabecera y componentes en orden estable, además
+componente de combo fijo. Sí puede ser un componente seleccionable cuando el set contiene únicamente
+modificadores ordinarios. Los writers adquieren `product-composition-mode` para cabecera y componentes en orden estable, además
 de `shared-modifier-product`, para que ambos órdenes de escritura fallen cerrados sin carrera.
 
 ### 55.3 Lectura POS, precio e historia
@@ -4658,7 +4660,9 @@ relación al producto siga activa. El resultado usa los mismos IDs de opción pa
 asignados y pasa por `_apply_order_modifiers`; Python vuelve a validar disponibilidad, cardinalidad,
 recargo e inventario al aceptar. Una asignación retirada desaparece de ventas nuevas. Los snapshots
 de líneas aceptadas conservan nombre, texto, precio y efecto aplicados y no se consultan de nuevo.
-Comentarios, extras universales y composición fija/selectable no cambian de autoridad.
+Comentarios, extras universales y composición fija no cambian de autoridad. Una opción seleccionable
+puede resolver grupos ordinarios del producto hijo; su payload `component_modifiers` se vuelve a
+validar y cotizar en Python y queda anidado en el snapshot de la línea.
 
 ### 55.4 Administración y operación
 
@@ -4667,8 +4671,8 @@ categoría/producto y su patrón de trabajo en dos columnas: alcance a la izquie
 de grupos/opciones a la derecha. Comunica estados vacío/parcial/completo, mantiene visibles los
 requisitos de creación y conserva el borrador ante errores. Un intento incompleto no envía el comando:
 explica el nombre o alcance faltante y dirige el foco al campo correspondiente. Es
-la única superficie administrativa visible para modificadores: el editor compartido oculta productos
-componentes y copia, y Productos no monta pestaña, resumen, enlace ni editor de modificadores.
+la única superficie administrativa visible para modificadores: el editor compartido ofrece productos
+componentes, pero oculta copia; Productos no monta pestaña, resumen, enlace ni editor de modificadores.
 Un grupo nuevo inicia con cero selecciones incluidas para no neutralizar silenciosamente un recargo
 capturado. El editor explica que `0` cobra cada opción desde la primera y que cualquier valor mayor
 reserva, por orden de selección, opciones sin recargo. La POS comunica en la línea si la selección
@@ -4687,18 +4691,19 @@ separada. En release, la migración autorizada a `0075_shared_modifier_sets` deb
 publicar la UI que depende de `modifier_sets`, seguida por smoke acotado; el downgrade se bloquea
 mientras exista catálogo compartido para no perder configuración.
 
-### 55.5 Compatibilidad del catálogo offline al integrar 0075
+### 55.5 Compatibilidad del catálogo offline
 
 Los paquetes firmados v1/v2/v3 omiten `modifier_set_id` en grupos directos y el decodificador lo
 normaliza a null. SQLite existente agrega esa columna nullable sin reescribir filas; las tablas de
 sets y asignaciones vacías permiten las consultas del motor actual y los targets FK. No se importan
 tablas por recorrido indiscriminado del metadata en el catálogo de sólo lectura.
 
-El emisor comprueba exactamente los productos del snapshot y rechaza una asignación activa a set
-activo con `offline_shared_modifiers_unsupported`, incluso sin grupos. El rechazo ocurre antes de
-firmar/instalar/renovar una generación. Un paquete antiguo no puede introducir `modifier_set_id`
-no nulo. Una versión futura deberá transportar sets, asignaciones y alcance íntegros; estos paquetes
-no aparentan soportarlos con opciones omitidas. Historia y paquetes legados siguen operativos.
+El emisor comprueba exactamente los productos del snapshot. v1/v2/v3 siguen rechazando una asignación
+activa con `offline_shared_modifiers_unsupported` antes de firmar o renovar y no pueden introducir
+`modifier_set_id` no nulo. `ord-off-catalog/v4` transporta `modifier_sets`,
+`modifier_set_products`, grupos y opciones íntegros, conserva la generación/clasificación de v3 y
+se hidrata en orden FK antes de atender pedidos. Historia y paquetes legados siguen operativos; un
+gateway anterior rechaza v4 por versión en vez de vender omitiendo opciones.
 
 ## 56. EXP-001 — Conceptos de gasto y Gastos
 

@@ -121,13 +121,16 @@ def verify_bundle(bundle: dict[str, Any], keyring: dict[str, Any]) -> dict[str, 
         if isinstance(bundle.get("catalog"), dict)
         else None
     )
-    if "catalog_generation" in manifest or schema == "ord-off-catalog/v3":
+    if "catalog_generation" in manifest or schema in {
+        "ord-off-catalog/v3",
+        "ord-off-catalog/v4",
+    }:
         if (
             isinstance(generation, bool)
             or not isinstance(generation, int)
             or generation < 1
             or mode not in ("legacy", "explicit")
-            or schema != "ord-off-catalog/v3"
+            or schema not in {"ord-off-catalog/v3", "ord-off-catalog/v4"}
         ):
             raise BusinessError("offline_bundle_invalid", "Classification manifest is invalid")
     canonical = _canonical_bundle_payload(bundle)

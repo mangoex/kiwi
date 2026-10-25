@@ -383,8 +383,10 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   ordenados cuyas opciones puedan referenciar productos vendibles corporativos simples. Cada grupo
   define mínimo, máximo y número de selecciones incluidas; las selecciones posteriores aplican el
   precio adicional canónico de su opción en el orden elegido por el operador. Un componente
-  seleccionable debe pertenecer a la misma organización, estar activo, compartir estación con el
-  producto padre, tener receta efectiva y no ser combo ni contener otra configuración seleccionable.
+  seleccionable debe pertenecer a la misma organización, estar activo, tener receta efectiva y no
+  ser combo ni contener a su vez otra opción `product_component`. Puede pertenecer a otra estación
+  y conservar grupos ordinarios propios; al elegirlo, POS debe solicitar esas selecciones hijas antes
+  de agregar la línea.
   La aceptación congela identidad, nombre, cantidad, precio y receta del componente, y agrega su
   consumo al snapshot de la línea sin sumar el precio propio del producto componente. El servicio
   conserva la configuración completa con versión esperada e idempotencia y no acepta una escritura ante
@@ -396,9 +398,9 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   comportamiento separado.
   - Las configuraciones existentes conservan compatibilidad de dominio y API para ventas e historia,
     pero **Productos** no ofrece un submenú ni un segundo editor de modificadores. La administración
-    visible se realiza exclusivamente desde **Catálogo y Menú > Modificadores**, cuyo alcance
-    compartido no crea `product_component`; Python permanece como única autoridad de precio,
-    selecciones incluidas, consumo y validación del catálogo.
+    visible se realiza exclusivamente desde **Catálogo y Menú > Modificadores**, incluido el alta de
+    opciones `product_component`; Python permanece como única autoridad de precio, selecciones
+    incluidas, consumo y validación del catálogo y de los modificadores hijos.
 
 ### 4.8 Compras y cuentas por pagar
 
@@ -1286,17 +1288,17 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   versionada, idempotente y auditada. Retirar un producto sólo afecta ventas futuras y nunca
   reescribe pedidos ni snapshots históricos.
 
-  **Comentarios del pedido**, **Ingredientes adicionales**, combos fijos y productos componentes
-  seleccionables mantienen sus autoridades actuales. Una configuración compartida no puede crear
-  `product_component`; esa composición continúa ligada al producto. Las configuraciones históricas
+  **Comentarios del pedido**, **Ingredientes adicionales** y combos fijos mantienen sus autoridades
+  actuales. Una configuración compartida puede crear grupos de `product_component` para modelar
+  combos elegibles y cada producto elegido conserva sus modificadores ordinarios; no se permite una
+  segunda profundidad de productos componentes. Las configuraciones históricas
   por producto permanecen compatibles para lectura operativa e historia, pero **Productos** no
   muestra resumen, enlace, submenú ni editor alterno: el catálogo central es la única superficie
   administrativa visible de modificadores.
 
-  Los paquetes offline v1/v2/v3 conservan las configuraciones históricas por producto. Cuando el
-  catálogo a exportar tiene asignaciones compartidas activas, su emisión o renovación se rechaza
-  explícitamente: nunca se vende omitiendo grupos requeridos o recargos. Transportar conjuntos
-  compartidos offline requiere una versión posterior del paquete; la operación central sí los admite.
+  El catálogo offline transporta los sets compartidos, sus asignaciones y opciones de producto con
+  una versión aditiva; un gateway que no entiende esa versión debe rechazarla. La venta nunca omite
+  grupos requeridos, modificadores hijos, recargos ni consumo por operar sin conexión.
 
 ### 4.25 EXP-001 — Gastos operativos sin inventario
 

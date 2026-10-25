@@ -183,7 +183,7 @@ def renew_orders(
                     {
                         "lease_epoch": epoch,
                         "public_key": public_key,
-                        "catalog_schema": "ord-off-catalog/v3",
+                        "catalog_schema": "ord-off-catalog/v4",
                     },
                 ),
             )
@@ -241,7 +241,7 @@ def recover_orders(
                 {
                     "lease_epoch": epoch,
                     "public_key": public_key,
-                    "catalog_schema": "ord-off-catalog/v3",
+                    "catalog_schema": "ord-off-catalog/v4",
                 },
             )
         finally:
@@ -392,7 +392,7 @@ def prepare_orders(
             {
                 "lease_epoch": epoch,
                 "public_key": public_key,
-                "catalog_schema": "ord-off-catalog/v3",
+                "catalog_schema": "ord-off-catalog/v4",
             },
         )
     finally:

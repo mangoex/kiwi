@@ -380,6 +380,36 @@ Feature: Usar dos decimales sin perder precisión interna
     And una modificación explícita válida a 12.34 usa el nuevo valor capturado
 ```
 
+## BDD-FEAT-159 Combos seleccionables con productos configurables
+
+```gherkin
+@PRD-FR-245 @PRD-FR-262 @inventory @offline @production
+Feature: Elegir productos reales dentro de un combo
+
+  @BDD-SC-797
+  Scenario: Elegir un medio baguette y completar sus modificadores
+    Given un combo con un grupo compartido obligatorio "Medio baguette"
+    And la opción elegida referencia un producto con grupos ordinarios de pan y queso
+    When el cajero elige el producto componente
+    Then POS solicita y valida pan y queso antes de agregar la línea
+    And Python calcula los recargos, congela ambas selecciones y aplica la receta modificada
+    And producción recibe una tarea del componente en su estación con sus instrucciones
+
+  @BDD-SC-798
+  Scenario: Rechazar anidación de productos o una selección hija incompleta
+    Given una opción componente cuyo producto contiene otra opción de producto o un grupo requerido
+    When se guarda la configuración o se cotiza sin completar el grupo requerido
+    Then el backend rechaza la operación con un código estable
+    And no crea pedido, reserva, tarea ni versión parcial
+
+  @BDD-SC-799
+  Scenario: Conservar el mismo contrato durante operación offline
+    Given un gateway con el catálogo compatible de sets compartidos y productos componentes
+    When el POS cotiza y acepta el combo sin conexión
+    Then aplica las mismas cardinalidades, recargos, snapshots y tareas que la autoridad central
+    And un gateway incompatible rechaza el catálogo en vez de omitir opciones
+```
+
 ## Regla de expansión
 
 Cada historia nueva deberá incluir:
