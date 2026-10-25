@@ -401,9 +401,14 @@ def next_bundle_metadata(
     _lock(session, organization_id)
     table = models.catalog_classification_branches
     row = _branch_rows(session, organization_id).get(branch_id)
-    if catalog_schema not in (None, "ord-off-catalog/v2", "ord-off-catalog/v3"):
+    if catalog_schema not in (
+        None,
+        "ord-off-catalog/v2",
+        "ord-off-catalog/v3",
+        "ord-off-catalog/v4",
+    ):
         raise BusinessError("classification_schema_unsupported", "Unsupported catalog schema")
-    if catalog_schema != "ord-off-catalog/v3":
+    if catalog_schema not in {"ord-off-catalog/v3", "ord-off-catalog/v4"}:
         if row and row["generation"] > 0:
             raise BusinessError(
                 "classification_client_downgrade", "Gateway must retain v3 capability"

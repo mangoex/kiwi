@@ -498,6 +498,15 @@ def test_legacy_bundle_rejects_active_shared_assignment_instead_of_omitting_it(s
                 source, organization_id=ORG_ID, branch_id=BRANCH_A, catalog_schema=schema,
             )
         assert rejected.value.code == "offline_shared_modifiers_unsupported"
+        compatible = build_catalog_snapshot(
+            source,
+            organization_id=ORG_ID,
+            branch_id=BRANCH_A,
+            catalog_schema="ord-off-catalog/v4",
+        )
+        assert compatible["schema_version"] == "ord-off-catalog/v4"
+        assert compatible["tables"]["modifier_sets"][0]["id"] == "offline-shared-set"
+        assert compatible["tables"]["modifier_set_products"][0]["product_id"] == BURGER
         source.execute(models.modifier_set_products.update().values(status="archived"))
         source.commit()
         assert build_catalog_snapshot(

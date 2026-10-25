@@ -3063,6 +3063,51 @@ def _price_order_line(
     }
 
 
+def _production_tasks_for_priced_line(
+    *,
+    branch_id: str,
+    order_id: str,
+    order_line_id: str,
+    product: dict[str, Any],
+    quantity: int,
+    snapshot: dict[str, Any],
+    created_at: datetime,
+) -> list[dict[str, Any]]:
+    selected_components = [
+        modifier
+        for modifier in snapshot["modifiers"]
+        if modifier.get("effect_type") == "product_component"
+    ]
+    task_products = selected_components or [{
+        "component_product_name": product["name"],
+        "component_station": product["station"],
+        "component_quantity": 1,
+    }]
+    tasks = []
+    for task_product in task_products:
+        task_quantity = Decimal(str(task_product["component_quantity"])) * quantity
+        if task_quantity != task_quantity.to_integral_value():
+            raise BusinessError(
+                "modifier_component_quantity_invalid",
+                "Component task quantity must be a whole product unit",
+            )
+        tasks.append({
+            "id": _id(),
+            "organization_id": ORGANIZATION_ID,
+            "branch_id": branch_id,
+            "order_id": order_id,
+            "order_line_id": order_line_id,
+            "station": task_product["component_station"],
+            "status": "PENDING",
+            "product_name": task_product["component_product_name"],
+            "quantity": int(task_quantity),
+            "created_at": created_at,
+            "started_at": None,
+            "completed_at": None,
+        })
+    return tasks
+
+
 def _order_cart_hash(lines: list[dict[str, Any]]) -> str:
     return hashlib.sha256(
         json.dumps(lines, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
@@ -3643,22 +3688,15 @@ def create_local_order(
             combo_lines_data.append(order_lines_data[-1])
             continue
 
-        tasks_data.append(
-            {
-                "id": _id(),
-                "organization_id": ORGANIZATION_ID,
-                "branch_id": actual_branch_id,
-                "order_id": order_id,
-                "order_line_id": order_line_id,
-                "station": product["station"],
-                "status": "PENDING",
-                "product_name": product["name"],
-                "quantity": quantity,
-                "created_at": now,
-                "started_at": None,
-                "completed_at": None,
-            }
-        )
+        tasks_data.extend(_production_tasks_for_priced_line(
+            branch_id=actual_branch_id,
+            order_id=order_id,
+            order_line_id=order_line_id,
+            product=product,
+            quantity=quantity,
+            snapshot=consumption_snapshot,
+            created_at=now,
+        ))
 
         _record_calculated_consumption_movements(
             session,
@@ -7087,23 +7125,16 @@ def _amend_order(
         if is_combo:
             combo_new_lines.append(new_line)
             continue
-        new_tasks.append(
-            {
-                "id": _id(),
-                "organization_id": ORGANIZATION_ID,
-                "branch_id": order["branch_id"],
-                "order_id": order_id,
-                "order_line_id": line_id,
-                "station": product["station"],
-                "status": "PENDING",
-                "product_name": product["name"],
-                "quantity": quantity,
-                "created_at": now,
-                "started_at": None,
-                "completed_at": None,
-            }
-        )
         assert snapshot is not None
+        new_tasks.extend(_production_tasks_for_priced_line(
+            branch_id=str(order["branch_id"]),
+            order_id=order_id,
+            order_line_id=line_id,
+            product=product,
+            quantity=quantity,
+            snapshot=snapshot,
+            created_at=now,
+        ))
         _record_calculated_consumption_movements(
             session,
             components=snapshot["components"],
@@ -9246,7 +9277,30 @@ def list_kds_tasks(session: Session, branch_id: str) -> list[dict[str, Any]]:
         .order_by(models.production_tasks.c.created_at.desc())
         .limit(100)
     ).mappings()
-    return [dict(row) for row in rows]
+    result = []
+    for row in rows:
+        item = dict(row)
+        component = next(
+            (
+                modifier
+                for modifier in item["selected_modifiers"] or []
+                if modifier.get("effect_type") == "product_component"
+                and modifier.get("component_product_name") == item["product_name"]
+                and modifier.get("component_station") == item["station"]
+            ),
+            None,
+        )
+        if component:
+            item["selected_modifiers"] = [
+                {
+                    "option_name": component.get("option_name"),
+                    "kitchen_text": component.get("kitchen_text"),
+                    "effect_type": "product_component",
+                },
+                *(component.get("component_modifiers") or []),
+            ]
+        result.append(item)
+    return result
 
 
 def advance_kds_task(
@@ -11459,8 +11513,6 @@ def _build_order_consumption_snapshot(
 ) -> dict[str, Any]:
     catalog_session = catalog_session_for(session)
     components = _active_recipe_components(catalog_session, product_id, branch_id)
-    if not components:
-        raise BusinessError("active_recipe_required", "Product requires an active recipe")
     warehouse_id = _branch_warehouse_id(catalog_session, branch_id)
     breakdown = []
     total = Decimal("0")
@@ -11507,12 +11559,26 @@ def _build_order_consumption_snapshot(
         breakdown,
         selected_modifiers or [],
     )
+    first_component_snapshot = next(
+        (
+            modifier
+            for modifier in modifier_snapshots
+            if modifier.get("effect_type") == "product_component"
+        ),
+        None,
+    )
+    if not components and not first_component_snapshot:
+        raise BusinessError("active_recipe_required", "Product requires an active recipe")
     total = sum((_cost(component["total_cost"]) for component in final_components), Decimal("0"))
     return {
         "order_line_id": order_line_id,
         "order_id": order_id,
-        "recipe_id": components[0]["recipe_id"],
-        "recipe_version": components[0]["recipe_version"],
+        "recipe_id": components[0]["recipe_id"]
+        if components
+        else first_component_snapshot["component_recipe_id"],
+        "recipe_version": components[0]["recipe_version"]
+        if components
+        else first_component_snapshot["component_recipe_version"],
         "branch_id": branch_id,
         "components": _sanitize_for_json(final_components),
         "modifiers": _sanitize_for_json(modifier_snapshots),
@@ -11529,6 +11595,8 @@ def _apply_order_modifiers(
     ordered_quantity: int,
     base_components: list[dict[str, Any]],
     selected_modifiers: list[dict[str, Any]],
+    *,
+    allow_product_components: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     selected_option_ids = [str(selection.get("option_id", "")) for selection in selected_modifiers]
     legacy_ingredient_option = None
@@ -11672,6 +11740,7 @@ def _apply_order_modifiers(
     warehouse_id = _branch_warehouse_id(session, branch_id)
     snapshots = []
     price_per_unit = 0
+    nested_price_total = 0
     group_selection_positions: dict[str, int] = {}
     for group, option, selection in resolved:
         effect = option["effect_type"]
@@ -11712,37 +11781,21 @@ def _apply_order_modifiers(
         component_product = None
         component_recipe = None
         component_quantity = Decimal("0")
+        component_modifier_snapshots: list[dict[str, Any]] = []
+        component_recipe_components: list[dict[str, Any]] = []
+        component_modifier_total_cents = 0
         if effect == "product_component":
+            if not allow_product_components:
+                raise BusinessError(
+                    "modifier_component_nested",
+                    "A selected component cannot select another product component",
+                )
             component_product_id = str(option.get("component_product_id") or "")
             component_product = _get_available_product(session, component_product_id, branch_id)
             if not component_product:
                 raise BusinessError(
                     "modifier_component_unavailable",
                     "Selected component product is unavailable in this branch",
-                )
-            parent_station = session.scalar(
-                sa.select(models.products.c.station).where(models.products.c.id == product_id)
-            )
-            if component_product["station"] != parent_station:
-                raise BusinessError(
-                    "modifier_component_station_mismatch",
-                    "Selected component must use the parent production station",
-                )
-            component_group_ids: sa.ScalarResult[str] = session.scalars(
-                sa.select(models.modifier_groups.c.id).where(
-                    models.modifier_groups.c.product_id == component_product_id,
-                    models.modifier_groups.c.organization_id == ORGANIZATION_ID,
-                    models.modifier_groups.c.status == "active",
-                )
-            )
-            if any(
-                not _modifier_catalog_is_managed_elsewhere(
-                    session, group_id=str(component_group_id)
-                )
-                for component_group_id in component_group_ids
-            ) or _has_active_shared_modifier_set(session, component_product_id):
-                raise BusinessError(
-                    "modifier_component_nested", "Selected component has its own modifier groups"
                 )
             from restaurant_os.combo import effective_composition
 
@@ -11770,6 +11823,15 @@ def _apply_order_modifiers(
                 "version": recipe_components[0]["recipe_version"],
             }
             factor = component_quantity * ordered_quantity
+            raw_component_modifiers = selection.get("component_modifiers", [])
+            if not isinstance(raw_component_modifiers, list) or any(
+                not isinstance(item, dict) for item in raw_component_modifiers
+            ):
+                raise BusinessError(
+                    "modifier_component_selection_invalid",
+                    "Component modifiers must be an array of selections",
+                )
+            component_base: list[dict[str, Any]] = []
             for recipe_component in recipe_components:
                 scaled_gross = _quantity(
                     Decimal(str(recipe_component["gross_quantity"]))
@@ -11781,29 +11843,65 @@ def _apply_order_modifiers(
                     / Decimal(str(recipe_component["yield_quantity"]))
                     * factor
                 )
-                prior_net = _quantity(
-                    components.get(recipe_component["item_id"], {}).get("net_quantity", 0)
-                )
-                existed = recipe_component["item_id"] in components
-                _add_modifier_component(
-                    session,
-                    components,
-                    recipe_component["item_id"],
-                    scaled_gross,
-                    branch_id,
-                    warehouse_id,
-                )
-                merged = components[recipe_component["item_id"]]
-                merged["net_quantity"] = _sanitize_for_json(prior_net + scaled_net)
-                if not existed:
-                    merged["waste_rate"] = recipe_component["waste_rate"]
-                else:
-                    merged_gross = _quantity(merged["gross_quantity"])
-                    merged_net = _quantity(merged["net_quantity"])
-                    merged["waste_rate"] = _sanitize_for_json(
-                        _quantity((merged_gross - merged_net) / merged_gross)
+                state = session.execute(
+                    sa.select(models.inventory_cost_states.c.average_unit_cost).where(
+                        models.inventory_cost_states.c.branch_id == branch_id,
+                        models.inventory_cost_states.c.warehouse_id == warehouse_id,
+                        models.inventory_cost_states.c.item_id == recipe_component["item_id"],
                     )
+                ).scalar_one_or_none()
+                unit_cost = _cost(state or 0)
+                component_base.append(_sanitize_for_json({
+                    "item_id": recipe_component["item_id"],
+                    "item_name": recipe_component["item_name"],
+                    "unit_id": recipe_component["unit_id"],
+                    "unit_code": recipe_component["unit_code"],
+                    "net_quantity": scaled_net,
+                    "gross_quantity": scaled_gross,
+                    "waste_rate": recipe_component["waste_rate"],
+                    "unit_cost": unit_cost,
+                    "total_cost": _cost(scaled_gross * unit_cost),
+                }))
+            (
+                component_recipe_components,
+                component_modifier_snapshots,
+                component_modifier_total_cents,
+            ) = _apply_order_modifiers(
+                session,
+                component_product_id,
+                branch_id,
+                int(factor),
+                component_base,
+                raw_component_modifiers,
+                allow_product_components=False,
+            )
+            nested_price_total += component_modifier_total_cents
+            for child_component in component_recipe_components:
+                item_id = str(child_component["item_id"])
+                if item_id not in components:
+                    components[item_id] = dict(child_component)
+                    continue
+                current = components[item_id]
+                merged_gross = _quantity(current["gross_quantity"]) + _quantity(
+                    child_component["gross_quantity"]
+                )
+                merged_net = _quantity(current["net_quantity"]) + _quantity(
+                    child_component["net_quantity"]
+                )
+                current["gross_quantity"] = _sanitize_for_json(merged_gross)
+                current["net_quantity"] = _sanitize_for_json(merged_net)
+                current["total_cost"] = _sanitize_for_json(
+                    _cost(_cost(current["total_cost"]) + _cost(child_component["total_cost"]))
+                )
+                current["waste_rate"] = _sanitize_for_json(
+                    _quantity((merged_gross - merged_net) / merged_gross)
+                )
         elif option["inventory_effect"] and effect not in {"instruction", "preset_instruction"}:
+            if selection.get("component_modifiers"):
+                raise BusinessError(
+                    "modifier_component_selection_invalid",
+                    "Only product components accept component modifiers",
+                )
             affected_id = option["affected_item_id"]
             replacement_id = option["replacement_item_id"]
             remove_quantity = _quantity(option["remove_quantity"]) * ordered_quantity
@@ -11901,10 +11999,20 @@ def _apply_order_modifiers(
                     "component_recipe_version": component_recipe["version"]
                     if component_recipe
                     else None,
+                    "component_station": component_product["station"]
+                    if component_product
+                    else None,
+                    "component_modifiers": component_modifier_snapshots,
+                    "component_modifier_total_cents": component_modifier_total_cents,
+                    "component_recipe_components": component_recipe_components,
                 }
             )
         )
-    return list(components.values()), snapshots, price_per_unit * ordered_quantity
+    return (
+        list(components.values()),
+        snapshots,
+        price_per_unit * ordered_quantity + nested_price_total,
+    )
 
 
 def _add_modifier_component(
@@ -16672,26 +16780,6 @@ def _prepare_legacy_modifier_configuration_write(
                 "modifier_component_nested",
                 "A fixed combo cannot also contain selectable modifier groups",
             )
-        if session.scalar(
-            sa.select(models.modifier_options.c.id)
-            .select_from(
-                models.modifier_options.join(
-                    models.modifier_groups,
-                    models.modifier_groups.c.id == models.modifier_options.c.group_id,
-                )
-            )
-            .where(
-                models.modifier_options.c.component_product_id == product_id,
-                models.modifier_options.c.status == "active",
-                models.modifier_groups.c.organization_id == ORGANIZATION_ID,
-                models.modifier_groups.c.status == "active",
-            )
-            .limit(1)
-        ):
-            raise BusinessError(
-                "modifier_component_nested",
-                "A product used as a component cannot contain selectable modifier groups",
-            )
     header = (
         session.execute(
             sa.select(models.product_modifier_configurations)
@@ -20578,24 +20666,9 @@ def list_product_modifiers(
                 session, str(row["component_product_id"]), actual_branch_id
             ):
                 continue
-            parent_station = session.scalar(
-                sa.select(models.products.c.station).where(models.products.c.id == product_id)
-            )
-            if component_product["station"] != parent_station:
-                continue
-            component_group_ids: sa.ScalarResult[str] = session.scalars(
-                sa.select(models.modifier_groups.c.id).where(
-                    models.modifier_groups.c.product_id == row["component_product_id"],
-                    models.modifier_groups.c.organization_id == ORGANIZATION_ID,
-                    models.modifier_groups.c.status == "active",
-                )
-            )
-            if any(
-                not _modifier_catalog_is_managed_elsewhere(
-                    session, group_id=str(component_group_id)
-                )
-                for component_group_id in component_group_ids
-            ) or _has_active_shared_modifier_set(session, str(row["component_product_id"])):
+            from restaurant_os.modifier_configuration import _has_product_component_options
+
+            if _has_product_component_options(session, str(row["component_product_id"])):
                 continue
             from restaurant_os.combo import effective_composition
 
@@ -29943,14 +30016,31 @@ def _accept_public_order_intent(
                 "public_order_transition_invalid",
                 "Public order intent is no longer operational",
             )
-        OrderAcceptanceService.ensure_production_task(
-            session,
-            organization_id=str(intent["organization_id"]),
-            branch_id=str(intent["branch_id"]),
-            order_id=order_id,
-            line=materialized_line,
-            created_at=now,
-        )
+        if any(
+            modifier.get("effect_type") == "product_component"
+            for modifier in snapshot.get("modifiers", [])
+        ):
+            session.execute(models.production_tasks.insert(), _production_tasks_for_priced_line(
+                branch_id=str(intent["branch_id"]),
+                order_id=order_id,
+                order_line_id=line_id,
+                product={
+                    "name": source["product_name"],
+                    "station": source["station"],
+                },
+                quantity=int(source["quantity"]),
+                snapshot=dict(snapshot),
+                created_at=now,
+            ))
+        else:
+            OrderAcceptanceService.ensure_production_task(
+                session,
+                organization_id=str(intent["organization_id"]),
+                branch_id=str(intent["branch_id"]),
+                order_id=order_id,
+                line=materialized_line,
+                created_at=now,
+            )
         OrderAcceptanceService.reserve_captured_snapshot(
             session,
             order=order,

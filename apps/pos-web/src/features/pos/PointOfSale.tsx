@@ -146,6 +146,10 @@ const buildOrderLines = (items: CartItem[]) => items.map((item) => ({
   modifiers: item.modifiers.map((modifier) => ({
     option_id: modifier.option_id,
     text: modifier.text,
+    component_modifiers: modifier.component_modifiers?.map((child) => ({
+      option_id: child.option_id,
+      text: child.text,
+    })),
   })),
   comment_preset_ids: item.commentPresets.map((comment) => comment.id),
   ingredient_extras: item.ingredientExtras.map((extra) => ({
@@ -159,7 +163,7 @@ interface SelectedIngredientExtra extends IngredientExtra { portions: number; }
 interface SelectedOrderComment { id: string; text: string; }
 interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; component_product_id?: string; component_product_name?: string; variation_kind?: 'ingredient_extra' | 'order_comment'; variation_id?: string; action?: 'add'; }
 interface ModifierGroup { id: string; name: string; minimum_selections: number; maximum_selections: number; included_selections?: number; options: ModifierOption[]; }
-interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; }
+interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; component_modifiers?: SelectedModifier[]; }
 interface EditableOrderLine extends EditableLineSnapshot {
   id: string;
   quantity: number;
@@ -388,6 +392,10 @@ const PointOfSale = () => {
   const [activeModifierGroupId, setActiveModifierGroupId] = useState('');
   const [modifierSelections, setModifierSelections] = useState<Record<string, string[]>>({});
   const [modifierText, setModifierText] = useState<Record<string, string>>({});
+  const [componentGroups, setComponentGroups] = useState<Record<string, ModifierGroup[]>>({});
+  const [componentSelections, setComponentSelections] = useState<Record<string, string[]>>({});
+  const [componentText, setComponentText] = useState<Record<string, string>>({});
+  const [componentLoading, setComponentLoading] = useState<Record<string, boolean>>({});
   const [modifierError, setModifierError] = useState('');
   const [modifierLoadError, setModifierLoadError] = useState('');
   const [modifierQuantity, setModifierQuantity] = useState(1);
@@ -838,9 +846,17 @@ const PointOfSale = () => {
             } else {
               modifiers.push({
                 option_id: String(selected.option_id || selected.id),
-                option_name: String(selected.name || selected.kitchen_text || 'Opción'),
+                option_name: String(selected.option_name || selected.name || selected.kitchen_text || 'Opción'),
                 price_delta_cents: Number(selected.price_delta_cents || 0),
                 text: selected.text ? String(selected.text) : undefined,
+                component_modifiers: Array.isArray(selected.component_modifiers)
+                  ? selected.component_modifiers.map((child: Record<string, any>) => ({
+                    option_id: String(child.option_id || child.id),
+                    option_name: String(child.option_name || child.name || child.kitchen_text || 'Opción'),
+                    price_delta_cents: Number(child.price_delta_cents || 0),
+                    text: child.text ? String(child.text) : undefined,
+                  }))
+                  : undefined,
               });
             }
           }
@@ -1021,7 +1037,17 @@ const PointOfSale = () => {
   const activeModifierGroup = modifierGroups.find((group) => group.id === activeModifierGroupId)
     || modifierGroups[0]
     || null;
-  const modifierMinimumsMet = modifierSelectionsMeetMinimums(modifierGroups, modifierSelections);
+  const selectedComponentOptions = modifierGroups.flatMap((group) => group.options.filter(
+    (option) => option.effect_type === 'product_component'
+      && (modifierSelections[group.id] || []).includes(option.id),
+  ));
+  const componentMinimumsMet = selectedComponentOptions.every((option) => {
+    const groups = componentGroups[option.id];
+    if (!groups || componentLoading[option.id]) return false;
+    return groups.every((group) => (componentSelections[`${option.id}:${group.id}`] || []).length >= group.minimum_selections);
+  });
+  const modifierMinimumsMet = modifierSelectionsMeetMinimums(modifierGroups, modifierSelections)
+    && componentMinimumsMet;
 
   const addToCart = (product: Product, modifiers: SelectedModifier[] = [], commentPresets: SelectedOrderComment[] = [], ingredientExtras: SelectedIngredientExtra[] = [], quantity: number = 1) => {
     const safeQuantity = Math.max(1, Math.min(99, Math.trunc(quantity)));
@@ -1198,6 +1224,10 @@ const PointOfSale = () => {
     setActiveModifierGroupId('');
     setModifierSelections({});
     setModifierText({});
+    setComponentGroups({});
+    setComponentSelections({});
+    setComponentText({});
+    setComponentLoading({});
     setModifierQuantity(1);
     setModifierError('');
     setModifierLoadError('');
@@ -1353,6 +1383,8 @@ const PointOfSale = () => {
   };
 
   const toggleModifier = (group: ModifierGroup, optionId: string) => {
+    const option = group.options.find((item) => item.id === optionId);
+    const wasSelected = (modifierSelections[group.id] || []).includes(optionId);
     setModifierSelections((current) => {
       const selected = current[group.id] || [];
       if (selected.includes(optionId)) return { ...current, [group.id]: selected.filter((id) => id !== optionId) };
@@ -1360,6 +1392,30 @@ const PointOfSale = () => {
       if (group.maximum_selections === 1) return { ...current, [group.id]: [optionId] };
       if (selected.length >= group.maximum_selections) return current;
       return { ...current, [group.id]: [...selected, optionId] };
+    });
+    if (!wasSelected && option?.effect_type === 'product_component' && option.component_product_id) {
+      setComponentLoading((current) => ({ ...current, [optionId]: true }));
+      void requestOrder<ModifierGroup[]>(
+        `/products/${option.component_product_id}/modifiers?branch_id=${encodeURIComponent(branchId)}`,
+      ).then((groups) => {
+        setComponentGroups((current) => ({ ...current, [optionId]: requiredGroupsFirst(groups || []) }));
+      }).catch(() => {
+        setModifierError(`No fue posible cargar las opciones de ${option.name}.`);
+        setComponentGroups((current) => ({ ...current, [optionId]: [] }));
+      }).finally(() => {
+        setComponentLoading((current) => ({ ...current, [optionId]: false }));
+      });
+    }
+  };
+
+  const toggleComponentModifier = (parentOptionId: string, group: ModifierGroup, optionId: string) => {
+    const key = `${parentOptionId}:${group.id}`;
+    setComponentSelections((current) => {
+      const selected = current[key] || [];
+      if (selected.includes(optionId)) return { ...current, [key]: selected.filter((id) => id !== optionId) };
+      if (group.maximum_selections === 1) return { ...current, [key]: [optionId] };
+      if (selected.length >= group.maximum_selections) return current;
+      return { ...current, [key]: [...selected, optionId] };
     });
   };
 
@@ -1373,7 +1429,18 @@ const PointOfSale = () => {
     const selected = modifierGroups.flatMap((group) => (modifierSelections[group.id] || []).map((optionId, selectionIndex) => {
       const option = group.options.find((item) => item.id === optionId)!;
       const included = selectionIndex < (group.included_selections || 0);
-      return { option_id: option.id, option_name: option.name, price_delta_cents: included ? 0 : option.price_delta_cents, text: option.effect_type === 'instruction' ? modifierText[option.id] : undefined };
+      const childSelections = (componentGroups[option.id] || []).flatMap((childGroup) => (
+        componentSelections[`${option.id}:${childGroup.id}`] || []
+      ).map((childOptionId, childIndex) => {
+        const childOption = childGroup.options.find((item) => item.id === childOptionId)!;
+        return {
+          option_id: childOption.id,
+          option_name: childOption.name,
+          price_delta_cents: childIndex < (childGroup.included_selections || 0) ? 0 : childOption.price_delta_cents,
+          text: childOption.effect_type === 'instruction' ? componentText[childOption.id] : undefined,
+        };
+      }));
+      return { option_id: option.id, option_name: option.name, price_delta_cents: included ? 0 : option.price_delta_cents, text: option.effect_type === 'instruction' ? modifierText[option.id] : undefined, component_modifiers: childSelections.length ? childSelections : undefined };
     }));
     const commentOptionIds = new Set(
       modifierGroups.flatMap((group) => group.options)
@@ -1884,6 +1951,20 @@ const PointOfSale = () => {
                               {checked && option.effect_type === 'instruction' && (
                                 <input value={modifierText[option.id] || ''} onChange={(event) => setModifierText({ ...modifierText, [option.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} />
                               )}
+                              {checked && option.effect_type === 'product_component' && <div className="pos-sale-component-modifiers" aria-label={`Opciones de ${option.name}`}>
+                                {componentLoading[option.id] ? <small>Cargando opciones…</small> : (componentGroups[option.id] || []).map((childGroup) => <fieldset key={childGroup.id}>
+                                  <legend>{childGroup.name}{childGroup.minimum_selections > 0 ? ' · Obligatorio' : ''}</legend>
+                                  {childGroup.options.map((childOption) => {
+                                    const key = `${option.id}:${childGroup.id}`;
+                                    const childChecked = (componentSelections[key] || []).includes(childOption.id);
+                                    return <label key={childOption.id}>
+                                      <input type={childGroup.maximum_selections === 1 ? 'radio' : 'checkbox'} name={key} checked={childChecked} onChange={() => toggleComponentModifier(option.id, childGroup, childOption.id)} />
+                                      <span>{childOption.name}{childOption.price_delta_cents > 0 ? ` +${formatMxnCents(childOption.price_delta_cents)}` : ''}</span>
+                                      {childChecked && childOption.effect_type === 'instruction' && <input value={componentText[childOption.id] || ''} onChange={(event) => setComponentText({ ...componentText, [childOption.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} />}
+                                    </label>;
+                                  })}
+                                </fieldset>)}
+                              </div>}
                             </div>
                           );
                     })}

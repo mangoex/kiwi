@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from restaurant_os import models
 from restaurant_os.modifier_configuration import (
+    _component_candidates,
     _key,
     _normalize_groups,
     _require_corporate_catalog,
@@ -141,22 +142,6 @@ def _assert_products_support_shared_modifiers(
         )
         .limit(1)
     )
-    component_product = session.scalar(
-        sa.select(models.modifier_options.c.component_product_id)
-        .select_from(
-            models.modifier_options.join(
-                models.modifier_groups,
-                models.modifier_groups.c.id == models.modifier_options.c.group_id,
-            )
-        )
-        .where(
-            models.modifier_options.c.component_product_id.in_(product_ids),
-            models.modifier_options.c.status == "active",
-            models.modifier_groups.c.organization_id == ORGANIZATION_ID,
-            models.modifier_groups.c.status == "active",
-        )
-        .limit(1)
-    )
     fixed_combo_component = session.scalar(
         sa.select(models.product_composition_components.c.product_id)
         .select_from(
@@ -173,10 +158,10 @@ def _assert_products_support_shared_modifiers(
         )
         .limit(1)
     )
-    if fixed_combo or fixed_combo_component or component_product:
+    if fixed_combo or fixed_combo_component:
         raise BusinessError(
             "modifier_set_product_composition_conflict",
-            "Fixed combos and selectable component products keep product-specific authority",
+            "Fixed combos keep separate composition authority",
         )
 
 
@@ -420,7 +405,11 @@ def get_modifier_set_configuration(
                 },
                 "expected_version": int(row["version"]),
                 "groups": _groups_view(session, modifier_set_id),
-                "component_candidates": [],
+                "component_candidates": [
+                    candidate
+                    for candidate in _component_candidates(session, reference)
+                    if candidate["id"] not in {product["id"] for product in products}
+                ],
                 "inventory_candidates": inventory_candidates,
                 "products": products,
             }
@@ -446,19 +435,6 @@ def save_modifier_set_configuration(
     ):
         raise BusinessError("modifier_configuration_invalid", "Expected version is invalid")
     raw_groups = payload.get("groups")
-    if isinstance(raw_groups, list) and any(
-        isinstance(group, dict)
-        and isinstance(group.get("options"), list)
-        and any(
-            isinstance(option, dict) and option.get("effect_type") == "product_component"
-            for option in group["options"]
-        )
-        for group in raw_groups
-    ):
-        raise BusinessError(
-            "shared_modifier_component_forbidden",
-            "Product components remain configured on each product",
-        )
     key = _key(idempotency_key)
     request = {"operation": "configuration", "modifier_set_id": modifier_set_id, **payload}
     replay = _replay(session, actor, key, request)
@@ -472,11 +448,51 @@ def save_modifier_set_configuration(
         )
     assigned_products = _assigned_products(session, modifier_set_id)
     product_ids = [str(product["id"]) for product in assigned_products]
-    _lock_product_scope(session, product_ids)
+    requested_component_ids = sorted({
+        str(option.get("component_product_id"))
+        for group in raw_groups or []
+        if isinstance(group, dict)
+        for option in group.get("options", [])
+        if isinstance(option, dict)
+        and option.get("effect_type") == "product_component"
+        and option.get("component_product_id")
+    })
+    _lock_product_scope(session, sorted(set(product_ids + requested_component_ids)))
     products = _product_rows(session, product_ids)
     _assert_products_support_shared_modifiers(session, products)
     reference = products[0]
     normalized = _normalize_groups(session, reference, raw_groups)
+    component_ids = {
+        str(option["component_product_id"])
+        for group in normalized
+        for option in group.get("options", [])
+        if option.get("effect_type") == "product_component"
+    }
+    if component_ids.intersection(product_ids):
+        raise BusinessError(
+            "modifier_component_self_reference",
+            "A shared configuration cannot select one of its parent products",
+        )
+    if component_ids:
+        nested_parent = session.scalar(
+            sa.select(models.modifier_options.c.id)
+            .join(
+                models.modifier_groups,
+                models.modifier_groups.c.id == models.modifier_options.c.group_id,
+            )
+            .where(
+                models.modifier_options.c.component_product_id.in_(product_ids),
+                models.modifier_options.c.status == "active",
+                models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+                models.modifier_groups.c.status == "active",
+            )
+            .limit(1)
+        )
+        if nested_parent:
+            raise BusinessError(
+                "modifier_component_nested",
+                "A component product cannot select another product component",
+            )
     _assert_inventory_effects_apply_to_scope(session, products, normalized)
     existing_groups = {
         str(group["id"]): dict(group)

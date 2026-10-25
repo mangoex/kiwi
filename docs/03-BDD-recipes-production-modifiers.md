@@ -157,8 +157,8 @@ Feature: Configurar y vender un producto compuesto seleccionable
   @BDD-SC-528
   Scenario: Rechazar relaciones inseguras o anidadas
     Given un grupo de producto compuesto
-    When intenta relacionar el producto padre, un producto ajeno, local, inactivo, de otra estación,
-      sin receta efectiva, combo fijo o con grupos seleccionables propios
+    When intenta relacionar el producto padre, un producto ajeno, local, inactivo,
+      sin receta efectiva, combo fijo o con otra opción de producto componente
     Then el backend rechaza toda la configuración sin escritura parcial
     And las rutas heredadas no pueden clonar grupos con productos componentes fuera del comando versionado
     And una carrera entre configurar grupos y convertir el mismo producto en combo deja un solo modelo

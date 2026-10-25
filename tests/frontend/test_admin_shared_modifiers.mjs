@@ -24,7 +24,8 @@ assert.match(workspace, /registerWorkspaceSnapshot\(createRecoveryKey/);
 assert.match(workspace, /registerWorkspaceSnapshot\(scopeRecoveryKey/);
 assert.match(workspace, /createIntent\.current \?\?= \{/);
 assert.match(workspace, /scopeIntent\.current \?\?= \{/);
-assert.doesNotMatch(workspace, /product_component/);
+assert.match(workspace, /allowProductComponents/);
+assert.match(workspace, /allowProductComponents=\{true\}/);
 assert.doesNotMatch(
   products,
   /Modificadores \/ Producto compuesto|<ModifierManager|\/catalog\/modifier-sets/,

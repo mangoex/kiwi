@@ -381,7 +381,7 @@ export default function SharedModifierWorkspace() {
             productId={selectedSet.id}
             productName={selectedSet.name}
             endpointBase={`/catalog/modifier-sets/${selectedSet.id}/configuration`}
-            allowProductComponents={false}
+            allowProductComponents={true}
             showCompoundTools={false}
             onSaved={updateKnownVersion}
           />
