@@ -11167,6 +11167,45 @@ def _get_available_product(
     return dict(row) if row else None
 
 
+def _get_available_component_product(
+    session: Session, product_id: str, branch_id: str = BRANCH_ID
+) -> dict[str, Any] | None:
+    """Resolve an internal selectable product without requiring a standalone sale price."""
+    session = catalog_session_for(session)
+    row = (
+        session.execute(
+            sa.select(
+                models.products.c.id,
+                models.products.c.name,
+                models.products.c.station,
+                models.products.c.category_id,
+                models.product_categories.c.name.label("family_name"),
+            )
+            .select_from(
+                models.products.join(
+                    models.product_categories,
+                    models.products.c.category_id == models.product_categories.c.id,
+                ).outerjoin(
+                    models.branch_product_availability,
+                    sa.and_(
+                        models.products.c.id == models.branch_product_availability.c.product_id,
+                        models.branch_product_availability.c.branch_id == branch_id,
+                    ),
+                )
+            )
+            .where(
+                models.products.c.id == product_id,
+                models.products.c.organization_id == ORGANIZATION_ID,
+                models.products.c.status == "active",
+                sa.func.coalesce(models.branch_product_availability.c.is_available, True).is_(True),
+            )
+        )
+        .mappings()
+        .first()
+    )
+    return dict(row) if row else None
+
+
 def _get_or_create_category(
     session: Session,
     category_name: str,
@@ -11569,16 +11608,19 @@ def _build_order_consumption_snapshot(
     )
     if not components and not first_component_snapshot:
         raise BusinessError("active_recipe_required", "Product requires an active recipe")
+    if components:
+        recipe_id = components[0]["recipe_id"]
+        recipe_version = components[0]["recipe_version"]
+    else:
+        assert first_component_snapshot is not None
+        recipe_id = first_component_snapshot["component_recipe_id"]
+        recipe_version = first_component_snapshot["component_recipe_version"]
     total = sum((_cost(component["total_cost"]) for component in final_components), Decimal("0"))
     return {
         "order_line_id": order_line_id,
         "order_id": order_id,
-        "recipe_id": components[0]["recipe_id"]
-        if components
-        else first_component_snapshot["component_recipe_id"],
-        "recipe_version": components[0]["recipe_version"]
-        if components
-        else first_component_snapshot["component_recipe_version"],
+        "recipe_id": recipe_id,
+        "recipe_version": recipe_version,
         "branch_id": branch_id,
         "components": _sanitize_for_json(final_components),
         "modifiers": _sanitize_for_json(modifier_snapshots),
@@ -11791,7 +11833,9 @@ def _apply_order_modifiers(
                     "A selected component cannot select another product component",
                 )
             component_product_id = str(option.get("component_product_id") or "")
-            component_product = _get_available_product(session, component_product_id, branch_id)
+            component_product = _get_available_component_product(
+                session, component_product_id, branch_id
+            )
             if not component_product:
                 raise BusinessError(
                     "modifier_component_unavailable",
@@ -11881,19 +11925,22 @@ def _apply_order_modifiers(
                 if item_id not in components:
                     components[item_id] = dict(child_component)
                     continue
-                current = components[item_id]
-                merged_gross = _quantity(current["gross_quantity"]) + _quantity(
+                current_component = components[item_id]
+                merged_gross = _quantity(current_component["gross_quantity"]) + _quantity(
                     child_component["gross_quantity"]
                 )
-                merged_net = _quantity(current["net_quantity"]) + _quantity(
+                merged_net = _quantity(current_component["net_quantity"]) + _quantity(
                     child_component["net_quantity"]
                 )
-                current["gross_quantity"] = _sanitize_for_json(merged_gross)
-                current["net_quantity"] = _sanitize_for_json(merged_net)
-                current["total_cost"] = _sanitize_for_json(
-                    _cost(_cost(current["total_cost"]) + _cost(child_component["total_cost"]))
+                current_component["gross_quantity"] = _sanitize_for_json(merged_gross)
+                current_component["net_quantity"] = _sanitize_for_json(merged_net)
+                current_component["total_cost"] = _sanitize_for_json(
+                    _cost(
+                        _cost(current_component["total_cost"])
+                        + _cost(child_component["total_cost"])
+                    )
                 )
-                current["waste_rate"] = _sanitize_for_json(
+                current_component["waste_rate"] = _sanitize_for_json(
                     _quantity((merged_gross - merged_net) / merged_gross)
                 )
         elif option["inventory_effect"] and effect not in {"instruction", "preset_instruction"}:
@@ -20659,7 +20706,7 @@ def list_product_modifiers(
         if not catalog_view and row["branch_enabled"] is False:
             continue
         if not catalog_view and row.get("component_product_id"):
-            component_product = _get_available_product(
+            component_product = _get_available_component_product(
                 session, str(row["component_product_id"]), actual_branch_id
             )
             if not component_product or not _active_recipe_components(

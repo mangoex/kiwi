@@ -8,7 +8,7 @@ import {
   readWorkspaceSnapshot,
   registerWorkspaceSnapshot,
 } from '@restaurantos/ui';
-import { ChevronDown, ChevronRight, Layers3, Plus, Save } from 'lucide-react';
+import { ChevronDown, ChevronRight, Layers3, Pencil, Plus, Save, Trash2 } from 'lucide-react';
 import { getSessionUser } from '../../lib/branchContext';
 import { clearWorkspaceReturn, rememberWorkspaceReturn } from '../../lib/workspaceReturn';
 import { ModifierManager } from './ModifierManager';
@@ -152,6 +152,7 @@ export default function SharedModifierWorkspace() {
   const [name, setName] = useState(createDraft?.name || '');
   const [newProductIds, setNewProductIds] = useState<string[]>(createDraft?.product_ids || []);
   const [scopeProductIds, setScopeProductIds] = useState<string[]>([]);
+  const [setNameDraft, setSetNameDraft] = useState('');
   const [createValidation, setCreateValidation] = useState('');
   const [message, setMessage] = useState(
     createRecovery || scopeRecovery
@@ -160,6 +161,8 @@ export default function SharedModifierWorkspace() {
   );
   const createIntent = useRef<MutationIntent | null>(createRecovery || null);
   const scopeIntent = useRef<ScopeMutationIntent | null>(scopeRecovery || null);
+  const renameIntent = useRef<ScopeMutationIntent | null>(null);
+  const deleteIntent = useRef<ScopeMutationIntent | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const productSearchRef = useRef<HTMLInputElement>(null);
 
@@ -183,6 +186,11 @@ export default function SharedModifierWorkspace() {
     setScopeProductIds(selectedSet.products.map((product) => product.id));
     scopeIntent.current = null;
   }, [scopeDraft, selectedSet]);
+  useEffect(() => {
+    setSetNameDraft(selectedSet?.name || '');
+    renameIntent.current = null;
+    deleteIntent.current = null;
+  }, [selectedSet?.id, selectedSet?.name]);
   useEffect(() => {
     discardWorkspaceSnapshot(createRecoveryKey);
     return registerWorkspaceSnapshot(createRecoveryKey, () => createIntent.current);
@@ -260,6 +268,56 @@ export default function SharedModifierWorkspace() {
     },
     onError: (error) => setMessage(error instanceof ApiError ? error.message : 'No fue posible actualizar los productos.'),
   });
+  const renameSet = useMutation({
+    mutationFn: () => {
+      renameIntent.current ??= {
+        setId: selectedSet!.id,
+        key: crypto.randomUUID(),
+        body: JSON.stringify({
+          expected_version: selectedSet!.version,
+          name: setNameDraft.trim(),
+        }),
+      };
+      return fetchApi<ModifierSet>(`/catalog/modifier-sets/${selectedSet!.id}`, {
+        method: 'PUT',
+        headers: { 'Idempotency-Key': renameIntent.current.key },
+        body: renameIntent.current.body,
+      });
+    },
+    onSuccess: async (updated) => {
+      renameIntent.current = null;
+      setSetNameDraft(updated.name);
+      await client.invalidateQueries({ queryKey: ['modifier-sets'] });
+      await client.invalidateQueries({ queryKey: ['modifier-configuration', `/catalog/modifier-sets/${updated.id}/configuration`] });
+      setMessage('Nombre actualizado. Las ventas anteriores no cambiaron.');
+    },
+    onError: (error) => setMessage(error instanceof ApiError ? error.message : 'No fue posible cambiar el nombre.'),
+  });
+  const deleteSet = useMutation({
+    mutationFn: () => {
+      deleteIntent.current ??= {
+        setId: selectedSet!.id,
+        key: crypto.randomUUID(),
+        body: JSON.stringify({ expected_version: selectedSet!.version }),
+      };
+      const expectedVersion = JSON.parse(deleteIntent.current.body).expected_version as number;
+      return fetchApi<{
+        archived_product_count: number;
+        archived_group_count: number;
+        archived_option_count: number;
+      }>(`/catalog/modifier-sets/${selectedSet!.id}?expected_version=${encodeURIComponent(String(expectedVersion))}`, {
+        method: 'DELETE',
+        headers: { 'Idempotency-Key': deleteIntent.current.key },
+      });
+    },
+    onSuccess: async (deleted) => {
+      deleteIntent.current = null;
+      setSelectedSetId((sets.data || []).find((item) => item.id !== selectedSet!.id)?.id || '');
+      await client.invalidateQueries({ queryKey: ['modifier-sets'] });
+      setMessage(`Configuración eliminada: ${deleted.archived_group_count} grupo(s) y ${deleted.archived_option_count} opción(es). Las ventas anteriores no cambiaron.`);
+    },
+    onError: (error) => setMessage(error instanceof ApiError ? error.message : 'No fue posible eliminar la configuración.'),
+  });
 
   const updateKnownVersion = (version: number) => {
     client.setQueryData<ModifierSet[]>(['modifier-sets'], (current) => current?.map((item) => (
@@ -280,6 +338,11 @@ export default function SharedModifierWorkspace() {
     }
     setCreateValidation('');
     createSet.mutate();
+  };
+  const confirmDeleteSet = () => {
+    if (!selectedSet) return;
+    if (!window.confirm(`¿Eliminar la configuración “${selectedSet.name}” de ${selectedSet.products.length} producto(s)? Dejará de aparecer en ventas nuevas; los pedidos anteriores no cambian.`)) return;
+    deleteSet.mutate();
   };
 
   if (products.isLoading || categories.isLoading || sets.isLoading) return <p role="status">Cargando modificadores compartidos…</p>;
@@ -372,6 +435,32 @@ export default function SharedModifierWorkspace() {
           </div>
         </div>
         <main className="shared-modifier-workspace__editor">
+          <section className="shared-modifier-set-management" aria-label="Administrar configuración">
+            <label className="premium-form-group" htmlFor="shared-modifier-set-name">Nombre de la configuración
+              <Input
+                id="shared-modifier-set-name"
+                value={setNameDraft}
+                maxLength={120}
+                onChange={(event) => {
+                  renameIntent.current = null;
+                  setSetNameDraft(event.target.value);
+                }}
+              />
+            </label>
+            <div className="shared-modifier-set-management__actions">
+              <Button
+                variant="secondary"
+                disabled={!setNameDraft.trim() || setNameDraft.trim() === selectedSet.name || renameSet.isPending || deleteSet.isPending}
+                onClick={() => renameSet.mutate()}
+              ><Pencil size={16} /> {renameSet.isPending ? 'Guardando…' : 'Guardar nombre'}</Button>
+              <Button
+                variant="secondary"
+                className="shared-modifier-danger-action"
+                disabled={renameSet.isPending || deleteSet.isPending}
+                onClick={confirmDeleteSet}
+              ><Trash2 size={16} /> {deleteSet.isPending ? 'Eliminando…' : 'Eliminar configuración'}</Button>
+            </div>
+          </section>
           <div className="shared-modifier-step">
             <strong>2. Configura los modificadores</strong>
             <span>Agrega grupos, opciones, precios e instrucciones que verán los productos seleccionados.</span>

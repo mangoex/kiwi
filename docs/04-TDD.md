@@ -505,7 +505,7 @@ Ejecutar pruebas semánticas y typecheck focales al implementar cada interfaz.
 
 ## TDD-TS-161 Combos seleccionables con productos configurables
 
-PRD-FR-245/262; SDD §48.7; BDD-SC-797..799. Automatizar contrato de Admin, cotización y aceptación
+PRD-FR-245/262; SDD §48.7; BDD-SC-797..801. Automatizar contrato de Admin, cotización y aceptación
 central, snapshot histórico, precio e inventario exactos, tareas multiestación, KDS, catálogo SQLite
 y recorrido POS con modificadores hijos.
 
@@ -519,3 +519,16 @@ no se suma y receta/modificadores quedan congelados.
 
 Comprobar tarea por componente en su estación, KDS con sólo sus instrucciones, paridad del gateway
 SQLite y rechazo atómico de un hijo que contenga otra opción `product_component`.
+
+### TDD-TC-470 Componente interno sin precio independiente
+
+Retirar el `price_version` del producto hijo, conservar producto activo y receta efectiva, y comprobar
+que la proyección POS mantiene la opción, carga sus grupos y permite cotizar y aceptar usando sólo el
+precio del padre y los recargos autoritativos. Una baja de disponibilidad o receta debe seguir
+ocultando y rechazando el componente.
+
+### TDD-TC-471 Gestión completa del set compartido
+
+Renombrar con versión e idempotencia, rechazar una versión obsoleta y archivar el set completo en una
+transacción. Comprobar ausencia posterior en Admin/POS, estados archivados, auditoría, replay estable,
+historia intacta y reutilización del nombre visible.

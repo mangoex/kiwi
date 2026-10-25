@@ -3871,7 +3871,9 @@ corporativo; Productos no presenta campos locales sin una autoridad canónica vi
 mantienen nulos. El producto componente es corporativo, activo y de la misma organización; no puede
 ser el padre, combo fijo ni contener otra opción `product_component`. Puede pertenecer a otra estación
 y conservar grupos ordinarios propios. En cada sucursal la
-proyección POS oculta una opción cuyo producto o receta efectiva no estén disponibles.
+proyección POS oculta una opción cuyo producto o receta efectiva no estén disponibles. La resolución
+del componente no une `price_versions`: los productos internos sin precio de venta independiente son
+válidos y el motor usa exclusivamente el recargo de la opción y los modificadores hijos.
 
 La selección conserva el orden explícito del cajero. Python aplica `included_selections` a las
 primeras opciones de cada grupo; sólo las restantes suman su `price_delta_cents`, multiplicado por la
@@ -4641,10 +4643,11 @@ migración. La baja lógica preserva IDs usados por historia.
 
 ### 55.2 API transaccional
 
-`GET/POST /api/v1/catalog/modifier-sets`,
+`GET/POST /api/v1/catalog/modifier-sets`, `PUT/DELETE /api/v1/catalog/modifier-sets/{id}`,
 `GET/PUT /api/v1/catalog/modifier-sets/{id}/configuration` y
 `PUT /api/v1/catalog/modifier-sets/{id}/products` requieren autoridad corporativa y
-`catalog.manage`. Crear, editar el árbol o reemplazar el alcance exige `Idempotency-Key`; cada
+`catalog.manage`. Crear, renombrar, archivar, editar el árbol o reemplazar el alcance exige
+`Idempotency-Key`; cada
 respuesta persistida incluye versión. `expected_version` y bloqueo de cabecera impiden lost update.
 Producto inexistente, inactivo, no corporativo, conjunto vacío, insumo fuera de alcance o una segunda
 profundidad de `product_component` rechazan toda la transacción. La auditoría registra set, versión y
@@ -4652,6 +4655,9 @@ conteos, no payloads de inventario. Un producto relacionado con un set no puede 
 componente de combo fijo. Sí puede ser un componente seleccionable cuando el set contiene únicamente
 modificadores ordinarios. Los writers adquieren `product-composition-mode` para cabecera y componentes en orden estable, además
 de `shared-modifier-product`, para que ambos órdenes de escritura fallen cerrados sin carrera.
+Archivar cambia a estado `archived` la cabecera, sus relaciones, grupos y opciones en una sola
+transacción; el nombre almacenado recibe un sufijo técnico único para permitir una configuración
+nueva con el mismo nombre visible. Los snapshots aceptados nunca dependen de esas filas archivadas.
 
 ### 55.3 Lectura POS, precio e historia
 
@@ -4672,7 +4678,8 @@ de grupos/opciones a la derecha. Comunica estados vacío/parcial/completo, manti
 requisitos de creación y conserva el borrador ante errores. Un intento incompleto no envía el comando:
 explica el nombre o alcance faltante y dirige el foco al campo correspondiente. Es
 la única superficie administrativa visible para modificadores: el editor compartido ofrece productos
-componentes, pero oculta copia; Productos no monta pestaña, resumen, enlace ni editor de modificadores.
+componentes, permite editar el nombre y eliminar la configuración completa con confirmación, pero
+oculta copia; Productos no monta pestaña, resumen, enlace ni editor de modificadores.
 Un grupo nuevo inicia con cero selecciones incluidas para no neutralizar silenciosamente un recargo
 capturado. El editor explica que `0` cobra cada opción desde la primera y que cualquier valor mayor
 reserva, por orden de selección, opciones sin recargo. La POS comunica en la línea si la selección

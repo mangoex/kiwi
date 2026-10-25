@@ -54,11 +54,13 @@ from restaurant_os.modifier_configuration import (
     preview_modifier_selection,
 )
 from restaurant_os.shared_modifier_sets import (
+    archive_modifier_set,
     create_modifier_set,
     get_modifier_set_configuration,
     list_modifier_sets,
     replace_modifier_set_products,
     save_modifier_set_configuration,
+    update_modifier_set,
 )
 from restaurant_os.auth import create_session_token, verify_session_token
 from restaurant_os.assisted_order import (
@@ -5892,6 +5894,44 @@ def post_modifier_set(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
         lambda: create_modifier_set(session, actor_id, payload, idempotency_key or "")
+    )
+
+
+@router.put("/catalog/modifier-sets/{modifier_set_id}")
+def put_modifier_set(
+    modifier_set_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: update_modifier_set(
+            session, actor_id, modifier_set_id, payload, idempotency_key or ""
+        )
+    )
+
+
+@router.delete("/catalog/modifier-sets/{modifier_set_id}")
+def delete_modifier_set(
+    modifier_set_id: str,
+    expected_version: int,
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: archive_modifier_set(
+            session,
+            actor_id,
+            modifier_set_id,
+            expected_version,
+            idempotency_key or "",
+        )
     )
 
 
