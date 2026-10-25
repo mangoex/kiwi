@@ -1291,7 +1291,12 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   **Comentarios del pedido**, **Ingredientes adicionales** y combos fijos mantienen sus autoridades
   actuales. Una configuración compartida puede crear grupos de `product_component` para modelar
   combos elegibles y cada producto elegido conserva sus modificadores ordinarios; no se permite una
-  segunda profundidad de productos componentes. Las configuraciones históricas
+  segunda profundidad de productos componentes. Un producto interno elegido no requiere precio de
+  venta independiente: debe estar activo, disponible en la sucursal y tener receta efectiva; el
+  precio comercial continúa siendo el del combo más el recargo configurado en la opción. El
+  administrador puede renombrar la configuración o eliminarla de ventas futuras; eliminar archiva
+  atómicamente cabecera, relaciones, grupos y opciones, conserva auditoría y snapshots históricos y
+  permite reutilizar el nombre visible. Las configuraciones históricas
   por producto permanecen compatibles para lectura operativa e historia, pero **Productos** no
   muestra resumen, enlace, submenú ni editor alterno: el catálogo central es la única superficie
   administrativa visible de modificadores.

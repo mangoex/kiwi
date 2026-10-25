@@ -361,6 +361,178 @@ def create_modifier_set(
     return result
 
 
+def update_modifier_set(
+    session: Session,
+    actor_user_id: str,
+    modifier_set_id: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+) -> dict[str, Any]:
+    actor = _require_corporate_catalog(session, actor_user_id)
+    if set(payload) - {"expected_version", "name"}:
+        raise BusinessError("modifier_set_unknown_field", "Modifier set contains unknown fields")
+    expected_version = payload.get("expected_version")
+    if (
+        isinstance(expected_version, bool)
+        or not isinstance(expected_version, int)
+        or expected_version < 0
+    ):
+        raise BusinessError("modifier_configuration_invalid", "Expected version is invalid")
+    name = str(payload.get("name", "")).strip()
+    if not name or len(name) > 120:
+        raise BusinessError("modifier_set_invalid", "Modifier set name is required")
+    key = _key(idempotency_key)
+    request = {
+        "operation": "rename",
+        "modifier_set_id": modifier_set_id,
+        "expected_version": expected_version,
+        "name": name,
+    }
+    replay = _replay(session, actor, key, request)
+    if replay:
+        return replay
+    _acquire_idempotency_lock(session, "modifier-set", modifier_set_id)
+    row = _set_row(session, modifier_set_id, lock=True)
+    if int(row["version"]) != expected_version:
+        raise BusinessError(
+            "modifier_set_version_conflict", "Modifier set changed in another session"
+        )
+    duplicate = session.scalar(
+        sa.select(models.modifier_sets.c.id).where(
+            models.modifier_sets.c.organization_id == ORGANIZATION_ID,
+            models.modifier_sets.c.name == name,
+            models.modifier_sets.c.id != modifier_set_id,
+        )
+    )
+    if duplicate:
+        raise BusinessError("modifier_set_name_conflict", "Modifier set name already exists")
+    next_version = int(row["version"]) + 1
+    now = _now()
+    session.execute(
+        models.modifier_sets.update()
+        .where(models.modifier_sets.c.id == modifier_set_id)
+        .values(name=name, version=next_version, updated_by=actor, updated_at=now)
+    )
+    result = {
+        **_set_view(session, _set_row(session, modifier_set_id)),
+        "result": "applied",
+    }
+    _record_command(session, actor, modifier_set_id, key, request, result)
+    _audit(
+        session,
+        "modifier_set.renamed",
+        "modifier_set",
+        modifier_set_id,
+        {"version": next_version, "previous_name": row["name"], "name": name},
+        actor_user_id=actor,
+    )
+    session.commit()
+    return result
+
+
+def archive_modifier_set(
+    session: Session,
+    actor_user_id: str,
+    modifier_set_id: str,
+    expected_version: int,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    actor = _require_corporate_catalog(session, actor_user_id)
+    if isinstance(expected_version, bool) or expected_version < 0:
+        raise BusinessError("modifier_configuration_invalid", "Expected version is invalid")
+    key = _key(idempotency_key)
+    request = {
+        "operation": "archive",
+        "modifier_set_id": modifier_set_id,
+        "expected_version": expected_version,
+    }
+    replay = _replay(session, actor, key, request)
+    if replay:
+        return replay
+    _acquire_idempotency_lock(session, "modifier-set", modifier_set_id)
+    row = _set_row(session, modifier_set_id, lock=True)
+    if int(row["version"]) != expected_version:
+        raise BusinessError(
+            "modifier_set_version_conflict", "Modifier set changed in another session"
+        )
+    assigned_products = _assigned_products(session, modifier_set_id)
+    _lock_product_scope(session, [str(product["id"]) for product in assigned_products])
+    active_group_ids = list(session.scalars(
+        sa.select(models.modifier_groups.c.id).where(
+            models.modifier_groups.c.modifier_set_id == modifier_set_id,
+            models.modifier_groups.c.status == "active",
+        )
+    ))
+    active_option_ids = list(session.scalars(
+        sa.select(models.modifier_options.c.id).where(
+            models.modifier_options.c.group_id.in_(active_group_ids),
+            models.modifier_options.c.status == "active",
+        )
+    )) if active_group_ids else []
+    now = _now()
+    if active_option_ids:
+        session.execute(
+            models.modifier_options.update()
+            .where(models.modifier_options.c.id.in_(active_option_ids))
+            .values(status="archived", updated_at=now)
+        )
+    if active_group_ids:
+        session.execute(
+            models.modifier_groups.update()
+            .where(models.modifier_groups.c.id.in_(active_group_ids))
+            .values(status="archived", updated_at=now)
+        )
+    session.execute(
+        models.modifier_set_products.update()
+        .where(
+            models.modifier_set_products.c.modifier_set_id == modifier_set_id,
+            models.modifier_set_products.c.status == "active",
+        )
+        .values(status="archived", updated_at=now)
+    )
+    next_version = int(row["version"]) + 1
+    suffix = f" [archived:{modifier_set_id}]"
+    archived_name = f"{str(row['name'])[:120 - len(suffix)]}{suffix}"
+    session.execute(
+        models.modifier_sets.update()
+        .where(models.modifier_sets.c.id == modifier_set_id)
+        .values(
+            name=archived_name,
+            version=next_version,
+            status="archived",
+            updated_by=actor,
+            updated_at=now,
+        )
+    )
+    result = {
+        "id": modifier_set_id,
+        "name": row["name"],
+        "version": next_version,
+        "status": "archived",
+        "archived_product_count": len(assigned_products),
+        "archived_group_count": len(active_group_ids),
+        "archived_option_count": len(active_option_ids),
+        "result": "applied",
+    }
+    _record_command(session, actor, modifier_set_id, key, request, result)
+    _audit(
+        session,
+        "modifier_set.archived",
+        "modifier_set",
+        modifier_set_id,
+        {
+            "version": next_version,
+            "name": row["name"],
+            "product_count": len(assigned_products),
+            "group_count": len(active_group_ids),
+            "option_count": len(active_option_ids),
+        },
+        actor_user_id=actor,
+    )
+    session.commit()
+    return result
+
+
 def get_modifier_set_configuration(
     session: Session, actor_user_id: str, modifier_set_id: str
 ) -> dict[str, Any]:

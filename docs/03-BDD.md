@@ -408,6 +408,24 @@ Feature: Elegir productos reales dentro de un combo
     When el POS cotiza y acepta el combo sin conexión
     Then aplica las mismas cardinalidades, recargos, snapshots y tareas que la autoridad central
     And un gateway incompatible rechaza el catálogo en vez de omitir opciones
+
+  @BDD-SC-800
+  Scenario: Mostrar un producto componente interno sin precio independiente
+    Given un combo contiene una opción que referencia un producto activo con receta efectiva
+    And el producto componente no tiene precio de venta independiente
+    When el cajero abre los modificadores del combo en una sucursal donde el componente está disponible
+    Then POS muestra la opción y sus modificadores hijos
+    And cotización usa el precio del combo más los recargos configurados sin exigir precio al componente
+
+  @BDD-SC-801
+  Scenario: Renombrar y eliminar una configuración compartida
+    Given una configuración compartida activa con productos, grupos y opciones
+    When el administrador cambia su nombre con la versión vigente
+    Then el nombre nuevo aparece en Administración sin cambiar pedidos anteriores
+    When confirma eliminar la configuración con la versión vigente
+    Then cabecera, relaciones, grupos y opciones quedan archivados y desaparecen de ventas nuevas
+    And la auditoría y los snapshots históricos permanecen
+    And el nombre visible puede reutilizarse en una configuración nueva
 ```
 
 ## Regla de expansión

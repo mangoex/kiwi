@@ -4614,6 +4614,13 @@ def test_selectable_component_accepts_and_prices_its_own_required_modifiers() ->
     burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
     fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
 
+    # Selectable products can be internal combo components. Their recipe and
+    # modifier catalog are required, but a standalone sale price is not.
+    factory = _test_session_factory(client)
+    with factory() as session:
+        session.execute(price_versions.delete().where(price_versions.c.product_id == fries_id))
+        session.commit()
+
     child_configuration = client.put(
         f"/api/v1/products/{fries_id}/modifier-configuration",
         headers={**_admin_headers(), "Idempotency-Key": "component-child-modifiers"},
@@ -4661,6 +4668,17 @@ def test_selectable_component_accepts_and_prices_its_own_required_modifiers() ->
     )
     assert parent_configuration.status_code == 200, parent_configuration.text
     component_option_id = parent_configuration.json()["groups"][0]["options"][0]["id"]
+
+    visible_groups = client.get(
+        f"/api/v1/products/{burger_id}/modifiers?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    )
+    assert visible_groups.status_code == 200, visible_groups.text
+    assert any(
+        option["id"] == component_option_id
+        for group in visible_groups.json()
+        for option in group["options"]
+    )
 
     missing_child = client.post(
         "/api/v1/orders/quote",
@@ -4810,6 +4828,153 @@ def test_shared_modifier_set_is_idempotent_versioned_and_rejects_invalid_scope()
         )
         assert invalid_product.status_code == 409
         assert invalid_product.json()["detail"]["code"] == "modifier_set_product_not_found"
+
+
+def test_shared_modifier_set_can_be_renamed_and_archived_without_leaving_pos_options() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+
+    created = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-set-manage-create"},
+        json={"name": "Nombre anterior", "product_ids": [burger_id]},
+    )
+    assert created.status_code == 200, created.text
+    modifier_set_id = created.json()["id"]
+
+    rename_headers = {
+        **_admin_headers(),
+        "Idempotency-Key": "shared-set-manage-rename",
+    }
+    renamed = client.put(
+        f"/api/v1/catalog/modifier-sets/{modifier_set_id}",
+        headers=rename_headers,
+        json={"expected_version": 1, "name": "Nombre vigente"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["name"] == "Nombre vigente"
+    assert renamed.json()["version"] == 2
+    rename_replay = client.put(
+        f"/api/v1/catalog/modifier-sets/{modifier_set_id}",
+        headers=rename_headers,
+        json={"expected_version": 1, "name": "Nombre vigente"},
+    )
+    assert rename_replay.status_code == 200
+    assert rename_replay.json()["result"] == "replay"
+
+    configured = client.put(
+        f"/api/v1/catalog/modifier-sets/{modifier_set_id}/configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-set-manage-configure"},
+        json={
+            "expected_version": 2,
+            "groups": [{
+                "name": "Salsa",
+                "minimum_selections": 0,
+                "maximum_selections": 1,
+                "included_selections": 0,
+                "options": [{
+                    "name": "Chipotle",
+                    "effect_type": "instruction",
+                    "price_delta_cents": 0,
+                    "kitchen_text": "AGREGAR CHIPOTLE",
+                }],
+            }],
+        },
+    )
+    assert configured.status_code == 200, configured.text
+    option_id = configured.json()["groups"][0]["options"][0]["id"]
+    assert _open_shift(client, 10_000).status_code == 200
+    historical_order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "lines": [{
+                "product_id": burger_id,
+                "quantity": 1,
+                "modifiers": [{"option_id": option_id}],
+            }],
+        },
+    )
+    assert historical_order.status_code == 200, historical_order.text
+
+    stale_archive = client.delete(
+        f"/api/v1/catalog/modifier-sets/{modifier_set_id}?expected_version=2",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-set-manage-stale-archive"},
+    )
+    assert stale_archive.status_code == 409
+    assert stale_archive.json()["detail"]["code"] == "modifier_set_version_conflict"
+
+    archive_headers = {
+        **_admin_headers(),
+        "Idempotency-Key": "shared-set-manage-archive",
+    }
+    archived = client.delete(
+        f"/api/v1/catalog/modifier-sets/{modifier_set_id}?expected_version=3",
+        headers=archive_headers,
+    )
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["status"] == "archived"
+    assert archived.json()["version"] == 4
+    assert archived.json()["archived_product_count"] == 1
+    assert archived.json()["archived_group_count"] == 1
+    assert archived.json()["archived_option_count"] == 1
+    archive_replay = client.delete(
+        f"/api/v1/catalog/modifier-sets/{modifier_set_id}?expected_version=3",
+        headers=archive_headers,
+    )
+    assert archive_replay.status_code == 200
+    assert archive_replay.json()["result"] == "replay"
+
+    active_sets = client.get("/api/v1/catalog/modifier-sets", headers=_admin_headers())
+    assert active_sets.status_code == 200
+    assert modifier_set_id not in {item["id"] for item in active_sets.json()}
+    product_groups = client.get(
+        f"/api/v1/products/{burger_id}/modifiers?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    )
+    assert product_groups.status_code == 200
+    assert all(
+        option["id"] != option_id
+        for group in product_groups.json()
+        for option in group["options"]
+    )
+
+    factory = _test_session_factory(client)
+    with factory() as session:
+        modifier_set = session.execute(
+            models.modifier_sets.select().where(models.modifier_sets.c.id == modifier_set_id)
+        ).mappings().one()
+        assert modifier_set["status"] == "archived"
+        assert modifier_set["name"].startswith("Nombre vigente [archived:")
+        historical_line = session.execute(
+            order_lines.select().where(
+                order_lines.c.order_id == historical_order.json()["id"]
+            )
+        ).mappings().one()
+        historical_snapshot = session.execute(
+            order_line_consumption_snapshots.select().where(
+                order_line_consumption_snapshots.c.order_line_id == historical_line["id"]
+            )
+        ).mappings().one()
+        assert option_id in {
+            modifier["option_id"] for modifier in historical_snapshot["modifiers"]
+        }
+        actions = set(session.scalars(
+            sa.select(audit_events.c.action).where(
+                audit_events.c.entity_type == "modifier_set",
+                audit_events.c.entity_id == modifier_set_id,
+            )
+        ))
+        assert {"modifier_set.renamed", "modifier_set.archived"}.issubset(actions)
+
+    recreated = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-set-manage-recreate"},
+        json={"name": "Nombre vigente", "product_ids": [burger_id]},
+    )
+    assert recreated.status_code == 200, recreated.text
+    assert recreated.json()["id"] != modifier_set_id
 
 
 def test_shared_modifier_set_protects_fixed_composition_and_allows_component_modifiers(

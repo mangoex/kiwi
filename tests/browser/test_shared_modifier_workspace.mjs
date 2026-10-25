@@ -21,9 +21,12 @@ const user = { id: 'shared-modifier-qa', display_name: 'Administradora QA', perm
 const inventoryItem = { id: 'inventory-ranch', name: 'Aderezo ranch', sku: 'INS-001', unit_code: 'LITRO' };
 const state = {
   version: 1,
+  setName: 'Aderezos',
   productIds: [burger.id],
   scopeRequests: [],
   createRequests: [],
+  renameRequests: [],
+  deleteRequests: [],
   createdSet: null,
   configurationRequest: null,
 };
@@ -39,7 +42,7 @@ const group = {
 };
 const products = [burger, fries];
 const setView = () => ({
-  id: 'shared-set-1', name: 'Aderezos', version: state.version, station: 'kitchen',
+  id: 'shared-set-1', name: state.setName, version: state.version, station: 'kitchen',
   group_count: 1, products: products.filter((product) => state.productIds.includes(product.id)),
 });
 
@@ -96,6 +99,16 @@ try {
       state.version += 1;
       return route.fulfill({ json: { id: 'shared-set-1', version: state.version, products: setView().products, result: 'applied' } });
     }
+    if (path === '/catalog/modifier-sets/shared-set-1') {
+      const renameRequest = {
+        body: route.request().postDataJSON(),
+        key: route.request().headers()['idempotency-key'],
+      };
+      state.renameRequests.push(renameRequest);
+      state.setName = renameRequest.body.name;
+      state.version += 1;
+      return route.fulfill({ json: { ...setView(), result: 'applied' } });
+    }
     if (path === '/catalog/modifier-sets/shared-set-1/configuration') {
       if (route.request().method() === 'PUT') {
         state.configurationRequest = {
@@ -107,7 +120,7 @@ try {
         return route.fulfill({ json: { version: state.version, groups: state.configurationRequest.body.groups, result: 'applied' } });
       }
       return route.fulfill({ json: {
-        product: { id: 'shared-set-1', name: 'Aderezos', sku: 'COMPARTIDO', station: 'kitchen' },
+        product: { id: 'shared-set-1', name: state.setName, sku: 'COMPARTIDO', station: 'kitchen' },
         expected_version: state.version,
         groups: [group],
         component_candidates: [],
@@ -123,6 +136,18 @@ try {
         component_candidates: [],
         inventory_candidates: [],
         products: state.createdSet.products,
+      } });
+    }
+    if (path === '/catalog/modifier-sets/shared-set-created' && route.request().method() === 'DELETE') {
+      state.deleteRequests.push({
+        expectedVersion: Number(url.searchParams.get('expected_version')),
+        key: route.request().headers()['idempotency-key'],
+      });
+      state.createdSet = null;
+      return route.fulfill({ json: {
+        id: 'shared-set-created', status: 'archived', version: 2,
+        archived_product_count: 2, archived_group_count: 0, archived_option_count: 0,
+        result: 'applied',
       } });
     }
     return route.fulfill({ json: [] });
@@ -149,10 +174,18 @@ try {
   assert.equal(state.scopeRequests[0].key, state.scopeRequests[1].key);
   assert.deepEqual(state.scopeRequests[0].body, state.scopeRequests[1].body);
 
-  const editor = page.getByRole('region', { name: /Modificadores compartidos Aderezos/ });
+  await page.getByLabel('Nombre de la configuración').fill('Aderezos premium');
+  await page.getByRole('button', { name: 'Guardar nombre' }).click();
+  await page.getByText(/Nombre actualizado/).waitFor();
+  assert.equal(state.renameRequests[0].body.expected_version, 2);
+  assert.equal(state.renameRequests[0].body.name, 'Aderezos premium');
+  assert.ok(state.renameRequests[0].key);
+  assert.equal(await page.getByRole('button', { name: 'Eliminar configuración' }).isVisible(), true);
+
+  const editor = page.getByRole('region', { name: /Producto compuesto Aderezos premium/ });
   await editor.getByLabel('Precio extra MXN').fill('7.50');
   const typeOptions = await editor.getByLabel('Tipo').locator('option').allTextContents();
-  assert.equal(typeOptions.some((label) => label.includes('Producto componente')), false);
+  assert.equal(typeOptions.some((label) => label.includes('Producto componente')), true);
   assert.equal(await editor.getByLabel('Insumo', { exact: true }).inputValue(), inventoryItem.id);
   const quantity = editor.getByLabel('Cantidad a agregar');
   await quantity.fill('1000000000000');
@@ -166,8 +199,8 @@ try {
   await modifierGroup.getByLabel('Mínimo').fill('0');
   assert.equal(await modifierGroup.getByRole('checkbox', { name: 'Grupo obligatorio' }).isChecked(), false);
   await editor.getByRole('button', { name: 'Guardar configuración' }).click();
-  await page.getByText(/Configuración guardada como versión 3/).waitFor();
-  assert.equal(state.configurationRequest.body.expected_version, 2);
+  await page.getByText(/Configuración guardada como versión 4/).waitFor();
+  assert.equal(state.configurationRequest.body.expected_version, 3);
   assert.equal(state.configurationRequest.body.groups[0].options[0].price_delta_cents, 750);
   assert.equal(state.configurationRequest.body.groups[0].options[0].affected_item_id, inventoryItem.id);
   assert.equal(state.configurationRequest.body.groups[0].options[0].add_quantity, '0.050000');
@@ -201,6 +234,11 @@ try {
   await page.getByText(/Configuración compartida creada/).waitFor();
   assert.equal(state.createRequests[0].key, state.createRequests[1].key);
   assert.deepEqual(state.createRequests[0].body, state.createRequests[1].body);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Eliminar configuración' }).click();
+  await page.getByText(/Configuración eliminada/).waitFor();
+  assert.equal(state.deleteRequests[0].expectedVersion, 1);
+  assert.ok(state.deleteRequests[0].key);
 
   await page.setViewportSize({ width: 760, height: 900 });
   assert.equal(await page.locator('body').evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
