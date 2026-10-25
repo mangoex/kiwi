@@ -200,7 +200,11 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   Administración debe mostrar cuántos productos activos están asignados a cada subgrupo y advertir
   cuando un subgrupo vacío no aparecerá en POS. Desde ese estado debe ofrecer un acceso al alta de
   Productos con grupo y subgrupo preseleccionados; la navegación sólo transporta IDs canónicos y no
-  sustituye la validación transaccional del backend al guardar.
+  sustituye la validación transaccional del backend al guardar. Administración permite eliminar un
+  subgrupo sólo cuando no tiene asignaciones, retirar una configuración completa de subgrupos sólo
+  después de ocultarla en POS, y eliminar un grupo de productos sólo cuando no contiene productos.
+  Estas eliminaciones son confirmadas, transaccionales, autorizadas y auditadas; nunca eliminan
+  productos, pedidos ni sus snapshots históricos de forma implícita.
 
 ### 4.3 Pedidos
 

@@ -1621,6 +1621,312 @@ def test_category_option_simplified_admin_defaults_are_python_authoritative() ->
     ]
 
 
+def test_category_option_deletion_is_guarded_transactional_and_audited() -> None:
+    client = _client_with_seeded_database()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    food = [product for product in catalog if product["category_name"] == "Comida"]
+    group = client.post(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+        json={"code": "wrong", "name": "Quesos", "status": "inactive"},
+    ).json()
+    value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(),
+        json={"name": "QUESO PANELA"},
+    ).json()
+    empty_value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(),
+        json={"name": "QUESO CABRA"},
+    ).json()
+    assert client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{food[0]['id']}",
+        headers=_admin_headers(),
+        json={"option_value_id": value["id"]},
+    ).status_code == 200
+
+    denied = client.delete(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values/{value['id']}",
+        headers=_admin_headers(),
+    )
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "admin_catalog_corporate_scope_required"
+    with _test_session_factory(client)() as session:
+        session.execute(
+            models.role_authority_grants.insert().values(
+                role_id=ADMIN_ROLE_ID,
+                authority_kind="organization_all_permissions",
+                created_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
+
+    empty_delete = client.delete(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values/{empty_value['id']}",
+        headers=_admin_headers(),
+    )
+    assert empty_delete.status_code == 200
+    assert empty_delete.json()["deleted"] is True
+
+    assigned_delete = client.delete(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values/{value['id']}",
+        headers=_admin_headers(),
+    )
+    assert assigned_delete.status_code == 409
+    assert assigned_delete.json()["detail"]["code"] == "category_option_value_in_use"
+
+    removed = client.delete(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+    )
+    assert removed.status_code == 200
+    assert removed.json() == {
+        "id": group["id"],
+        "category_id": food[0]["category_id"],
+        "deleted_values": 1,
+        "deleted_assignments": 1,
+    }
+    coverage = client.get(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+    ).json()
+    assert coverage["group"] is None
+    assert coverage["values"] == []
+    catalog_after = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    assert any(product["id"] == food[0]["id"] for product in catalog_after)
+    replay = client.delete(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+    )
+    assert replay.status_code == 404
+    assert replay.json()["detail"]["code"] == "category_option_group_not_found"
+    with _test_session_factory(client)() as session:
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(audit_events).where(
+                audit_events.c.action == "category_option_value.deleted",
+                audit_events.c.entity_id == empty_value["id"],
+            )
+        ) == 1
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(audit_events).where(
+                audit_events.c.action == "category_option_group.deleted",
+                audit_events.c.entity_id == group["id"],
+            )
+        ) == 1
+        value_audit = session.execute(
+            audit_events.select().where(
+                audit_events.c.action == "category_option_value.deleted",
+                audit_events.c.entity_id == empty_value["id"],
+            )
+        ).mappings().one()
+        assert value_audit["branch_id"] is None
+        assert value_audit["payload"]["deleted_value"]["name"] == "QUESO CABRA"
+        group_audit = session.execute(
+            audit_events.select().where(
+                audit_events.c.action == "category_option_group.deleted",
+                audit_events.c.entity_id == group["id"],
+            )
+        ).mappings().one()
+        assert group_audit["branch_id"] is None
+        assert group_audit["payload"]["deleted_group"]["name"] == "Quesos"
+        assert group_audit["payload"]["deleted_value_rows"][0]["id"] == value["id"]
+        assert group_audit["payload"]["deleted_assignment_rows"][0]["product_id"] == food[0]["id"]
+
+
+def test_category_and_active_selection_group_deletion_fail_closed() -> None:
+    client = _client_with_seeded_database()
+    with _test_session_factory(client)() as session:
+        session.execute(
+            models.role_authority_grants.insert().values(
+                role_id=ADMIN_ROLE_ID,
+                authority_kind="organization_all_permissions",
+                created_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    food = [product for product in catalog if product["category_name"] == "Comida"]
+    group = client.post(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+        json={"name": "Tamaños", "status": "inactive"},
+    ).json()
+    value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(),
+        json={"name": "CHICO"},
+    ).json()
+    for product in food:
+        assert client.put(
+            f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{product['id']}",
+            headers=_admin_headers(),
+            json={"option_value_id": value["id"]},
+        ).status_code == 200
+    assert client.post(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+        json={"status": "active"},
+    ).status_code == 200
+
+    active_delete = client.delete(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+    )
+    assert active_delete.status_code == 409
+    assert active_delete.json()["detail"]["code"] == "category_option_group_delete_active"
+
+    populated_category_delete = client.delete(
+        f"/api/v1/categories/{food[0]['category_id']}", headers=_admin_headers()
+    )
+    assert populated_category_delete.status_code == 409
+    assert populated_category_delete.json()["detail"]["code"] == "category_delete_has_products"
+
+    created = client.post(
+        "/api/v1/categories",
+        headers=_admin_headers(),
+        json={
+            "name": "GRUPO VACÍO",
+            "display_order": 999,
+            "status": "active",
+            "classification_code": "other",
+            "expected_version": 0,
+        },
+    )
+    assert created.status_code == 200
+    empty_group = client.post(
+        f"/api/v1/categories/{created.json()['id']}/selection-group",
+        headers=_admin_headers(),
+        json={"name": "Subgrupos temporales", "status": "inactive"},
+    ).json()
+    empty_value = client.post(
+        f"/api/v1/catalog/category-option-groups/{empty_group['id']}/values",
+        headers=_admin_headers(),
+        json={"name": "TEMPORAL"},
+    ).json()
+    with _test_session_factory(client)() as session:
+        now = datetime.now(UTC)
+        session.execute(
+            models.admin_category_priority_configs.insert().values(
+                organization_id=ORGANIZATION_ID,
+                view_category_ids=[created.json()["id"]],
+                print_category_ids=[created.json()["id"]],
+                version=1,
+                created_by=ADMIN_USER_ID,
+                updated_by=ADMIN_USER_ID,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+    deleted = client.delete(
+        f"/api/v1/categories/{created.json()['id']}", headers=_admin_headers()
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["id"] == created.json()["id"]
+    assert deleted.json()["deleted"] is True
+    with _test_session_factory(client)() as session:
+        assert session.scalar(
+            sa.select(models.category_option_groups.c.id).where(
+                models.category_option_groups.c.id == empty_group["id"]
+            )
+        ) is None
+        assert session.scalar(
+            sa.select(models.category_option_values.c.id).where(
+                models.category_option_values.c.id == empty_value["id"]
+            )
+        ) is None
+        priority = session.execute(
+            sa.select(models.admin_category_priority_configs).where(
+                models.admin_category_priority_configs.c.organization_id == ORGANIZATION_ID
+            )
+        ).mappings().one()
+        assert priority["view_category_ids"] == []
+        assert priority["print_category_ids"] == []
+        assert priority["version"] == 2
+        category_audit = session.execute(
+            audit_events.select().where(
+                audit_events.c.action == "category.deleted",
+                audit_events.c.entity_id == created.json()["id"],
+            )
+        ).mappings().one()
+        assert category_audit["branch_id"] is None
+        assert category_audit["payload"]["deleted_category"]["name"] == "GRUPO VACÍO"
+        assert category_audit["payload"]["deleted_option_group_rows"][0]["id"] == empty_group["id"]
+        assert category_audit["payload"]["deleted_option_value_rows"][0]["id"] == empty_value["id"]
+        assert category_audit["payload"]["priority_configs_before"][0]["version"] == 1
+
+
+def test_category_option_group_deletion_rolls_back_if_audit_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import restaurant_os.operations as operations
+
+    client = _client_with_seeded_database()
+    with _test_session_factory(client)() as session:
+        session.execute(
+            models.role_authority_grants.insert().values(
+                role_id=ADMIN_ROLE_ID,
+                authority_kind="organization_all_permissions",
+                created_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    food = [product for product in catalog if product["category_name"] == "Comida"]
+    group = client.post(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+        json={"name": "Temporal", "status": "inactive"},
+    ).json()
+    value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(),
+        json={"name": "TEMPORAL"},
+    ).json()
+    assert client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{food[0]['id']}",
+        headers=_admin_headers(),
+        json={"option_value_id": value["id"]},
+    ).status_code == 200
+
+    original_audit = operations._audit
+
+    def fail_group_delete_audit(*args: Any, **kwargs: Any) -> None:
+        if kwargs.get("action") == "category_option_group.deleted":
+            raise RuntimeError("injected category option audit failure")
+        original_audit(*args, **kwargs)
+
+    monkeypatch.setattr(operations, "_audit", fail_group_delete_audit)
+    factory = _test_session_factory(client)
+    with factory() as session, pytest.raises(
+        RuntimeError, match="injected category option audit failure"
+    ):
+        operations.delete_category_option_group(
+            session,
+            food[0]["category_id"],
+            ADMIN_USER_ID,
+        )
+
+    with factory() as session:
+        assert session.scalar(
+            sa.select(models.category_option_groups.c.id).where(
+                models.category_option_groups.c.id == group["id"]
+            )
+        ) == group["id"]
+        assert session.scalar(
+            sa.select(models.category_option_values.c.id).where(
+                models.category_option_values.c.id == value["id"]
+            )
+        ) == value["id"]
+        assert session.scalar(
+            sa.select(models.product_option_value_assignments.c.option_value_id).where(
+                models.product_option_value_assignments.c.group_id == group["id"],
+                models.product_option_value_assignments.c.product_id == food[0]["id"],
+            )
+        ) == value["id"]
+
+
 def test_category_option_rejects_inactive_values_and_allows_same_code_per_category() -> None:
     client = _client_with_seeded_database()
     catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()

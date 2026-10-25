@@ -14704,6 +14704,9 @@ def save_product_configuration(
     """Persist the sellable core, price and subgroup assignment in one transaction."""
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    lock_classification_organization(session)
     command_type = "update" if product_id else "create"
     key = idempotency_key.strip()
     if not key or len(key) > 180:
@@ -16169,6 +16172,395 @@ def upsert_category_option_value(
     )
     _commit_category_option(session)
     return {"id": value_id, "group_id": group_id, "code": code, "name": name, "status": status}
+
+
+def delete_category_option_value(
+    session: Session,
+    group_id: str,
+    value_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    from .catalog_classification import require_category_authority
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    require_category_authority(session, actor_id)
+    try:
+        lock_classification_organization(session)
+        group = _category_option_group_row(session, group_id)
+        value = (
+            session.execute(
+                sa.select(models.category_option_values).where(
+                    models.category_option_values.c.id == value_id,
+                    models.category_option_values.c.group_id == group_id,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not value:
+            raise NotFoundError("category_option_value_not_found", "No se encontró el subgrupo")
+        assignment_count = session.scalar(
+            sa.select(sa.func.count())
+            .select_from(models.product_option_value_assignments)
+            .where(models.product_option_value_assignments.c.option_value_id == value_id)
+        ) or 0
+        if assignment_count:
+            logger.info(
+                "catalog_structure_delete",
+                extra={
+                    "operation": "category_option_value.delete",
+                    "result": "blocked",
+                    "reason": "in_use",
+                    "dependency_count": assignment_count,
+                },
+            )
+            raise BusinessError(
+                "category_option_value_in_use",
+                f"Reasigna los {assignment_count} producto(s) antes de eliminar este subgrupo",
+            )
+        session.execute(
+            models.category_option_values.delete().where(
+                models.category_option_values.c.id == value_id,
+                models.category_option_values.c.group_id == group_id,
+            )
+        )
+        _audit(
+            session,
+            action="category_option_value.deleted",
+            entity_type="category_option_value",
+            entity_id=value_id,
+            payload={
+                "group_id": group_id,
+                "category_id": group["category_id"],
+                "deleted_value": dict(value),
+            },
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+        session.commit()
+        logger.info(
+            "catalog_structure_delete",
+            extra={"operation": "category_option_value.delete", "result": "success"},
+        )
+        return {"id": value_id, "group_id": group_id, "deleted": True}
+    except Exception as exc:
+        session.rollback()
+        if not isinstance(exc, (BusinessError, NotFoundError, AuthorizationError)):
+            logger.exception(
+                "catalog_structure_delete",
+                extra={"operation": "category_option_value.delete", "result": "error"},
+            )
+        raise
+
+
+def delete_category_option_group(
+    session: Session,
+    category_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    from .catalog_classification import require_category_authority
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    require_category_authority(session, actor_id)
+    try:
+        lock_classification_organization(session)
+        category = session.scalar(
+            sa.select(models.product_categories.c.id).where(
+                models.product_categories.c.id == category_id,
+                models.product_categories.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        if not category:
+            raise NotFoundError("category_not_found", "No se encontró el grupo")
+        group = (
+            session.execute(
+                sa.select(models.category_option_groups).where(
+                    models.category_option_groups.c.category_id == category_id,
+                    models.category_option_groups.c.organization_id == ORGANIZATION_ID,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not group:
+            raise NotFoundError(
+                "category_option_group_not_found", "El grupo no tiene subgrupos configurados"
+            )
+        if group["status"] == "active":
+            logger.info(
+                "catalog_structure_delete",
+                extra={
+                    "operation": "category_option_group.delete",
+                    "result": "blocked",
+                    "reason": "active",
+                },
+            )
+            raise BusinessError(
+                "category_option_group_delete_active",
+                "Oculta los subgrupos del POS antes de eliminar esta configuración",
+            )
+        assignments = (
+            session.execute(
+                sa.select(models.product_option_value_assignments)
+                .where(models.product_option_value_assignments.c.group_id == group["id"])
+                .order_by(models.product_option_value_assignments.c.id)
+            )
+            .mappings()
+            .all()
+        )
+        values = (
+            session.execute(
+                sa.select(models.category_option_values)
+                .where(models.category_option_values.c.group_id == group["id"])
+                .order_by(
+                    models.category_option_values.c.display_order,
+                    models.category_option_values.c.id,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        assignment_count = len(assignments)
+        value_count = len(values)
+        session.execute(
+            models.product_option_value_assignments.delete().where(
+                models.product_option_value_assignments.c.group_id == group["id"]
+            )
+        )
+        session.execute(
+            models.category_option_values.delete().where(
+                models.category_option_values.c.group_id == group["id"]
+            )
+        )
+        session.execute(
+            models.category_option_groups.delete().where(
+                models.category_option_groups.c.id == group["id"]
+            )
+        )
+        _audit(
+            session,
+            action="category_option_group.deleted",
+            entity_type="category_option_group",
+            entity_id=group["id"],
+            payload={
+                "category_id": category_id,
+                "code": group["code"],
+                "name": group["name"],
+                "status": group["status"],
+                "deleted_values": value_count,
+                "deleted_assignments": assignment_count,
+                "deleted_group": dict(group),
+                "deleted_value_rows": [dict(value) for value in values],
+                "deleted_assignment_rows": [dict(assignment) for assignment in assignments],
+            },
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+        session.commit()
+        logger.info(
+            "catalog_structure_delete",
+            extra={
+                "operation": "category_option_group.delete",
+                "result": "success",
+                "deleted_values": value_count,
+                "deleted_assignments": assignment_count,
+            },
+        )
+        return {
+            "id": group["id"],
+            "category_id": category_id,
+            "deleted_values": value_count,
+            "deleted_assignments": assignment_count,
+        }
+    except Exception as exc:
+        session.rollback()
+        if not isinstance(exc, (BusinessError, NotFoundError, AuthorizationError)):
+            logger.exception(
+                "catalog_structure_delete",
+                extra={"operation": "category_option_group.delete", "result": "error"},
+            )
+        raise
+
+
+def delete_category(
+    session: Session,
+    category_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    from .catalog_classification import require_category_authority
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    require_category_authority(session, actor_id)
+    try:
+        lock_classification_organization(session)
+        category = (
+            session.execute(
+                sa.select(models.product_categories).where(
+                    models.product_categories.c.id == category_id,
+                    models.product_categories.c.organization_id == ORGANIZATION_ID,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not category:
+            raise NotFoundError("category_not_found", "No se encontró el grupo")
+        product_count = session.scalar(
+            sa.select(sa.func.count())
+            .select_from(models.products)
+            .where(
+                models.products.c.organization_id == ORGANIZATION_ID,
+                models.products.c.category_id == category_id,
+            )
+        ) or 0
+        if product_count:
+            logger.info(
+                "catalog_structure_delete",
+                extra={
+                    "operation": "category.delete",
+                    "result": "blocked",
+                    "reason": "has_products",
+                    "dependency_count": product_count,
+                },
+            )
+            raise BusinessError(
+                "category_delete_has_products",
+                f"Mueve o elimina los {product_count} producto(s) del grupo antes de eliminarlo",
+            )
+        groups = (
+            session.execute(
+                sa.select(models.category_option_groups).where(
+                    models.category_option_groups.c.organization_id == ORGANIZATION_ID,
+                    models.category_option_groups.c.category_id == category_id,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        group_ids = [group["id"] for group in groups]
+        value_count = 0
+        deleted_values: list[dict[str, Any]] = []
+        if group_ids:
+            assignment_count = session.execute(
+                sa.select(sa.func.count())
+                .select_from(models.product_option_value_assignments)
+                .where(models.product_option_value_assignments.c.group_id.in_(group_ids))
+            ).scalar_one()
+            if assignment_count:
+                logger.error(
+                    "catalog_structure_delete",
+                    extra={
+                        "operation": "category.delete",
+                        "result": "blocked",
+                        "reason": "inconsistent_assignments",
+                        "dependency_count": assignment_count,
+                    },
+                )
+                raise BusinessError(
+                    "category_delete_has_assignments",
+                    "El grupo tiene asignaciones inconsistentes y no puede eliminarse",
+                )
+            deleted_values = [
+                dict(value)
+                for value in (
+                    session.execute(
+                        sa.select(models.category_option_values)
+                        .where(models.category_option_values.c.group_id.in_(group_ids))
+                        .order_by(
+                            models.category_option_values.c.group_id,
+                            models.category_option_values.c.display_order,
+                            models.category_option_values.c.id,
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            ]
+            value_count = len(deleted_values)
+            session.execute(
+                models.category_option_values.delete().where(
+                    models.category_option_values.c.group_id.in_(group_ids)
+                )
+            )
+            session.execute(
+                models.category_option_groups.delete().where(
+                    models.category_option_groups.c.id.in_(group_ids)
+                )
+            )
+        priority_rows = (
+            session.execute(
+                sa.select(models.admin_category_priority_configs).where(
+                    models.admin_category_priority_configs.c.organization_id == ORGANIZATION_ID
+                )
+            )
+            .mappings()
+            .all()
+        )
+        now = _now()
+        changed_priorities: list[dict[str, Any]] = []
+        for priority in priority_rows:
+            view_ids = [item for item in priority["view_category_ids"] if item != category_id]
+            print_ids = [item for item in priority["print_category_ids"] if item != category_id]
+            if view_ids != priority["view_category_ids"] or print_ids != priority["print_category_ids"]:
+                changed_priorities.append(dict(priority))
+                session.execute(
+                    sa.update(models.admin_category_priority_configs)
+                    .where(
+                        models.admin_category_priority_configs.c.organization_id
+                        == ORGANIZATION_ID
+                    )
+                    .values(
+                        view_category_ids=view_ids,
+                        print_category_ids=print_ids,
+                        version=priority["version"] + 1,
+                        updated_by=actor_id,
+                        updated_at=now,
+                    )
+                )
+        session.execute(
+            models.product_categories.delete().where(
+                models.product_categories.c.id == category_id,
+                models.product_categories.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        _audit(
+            session,
+            action="category.deleted",
+            entity_type="category",
+            entity_id=category_id,
+            payload={
+                "deleted_category": dict(category),
+                "deleted_option_group_rows": [dict(group) for group in groups],
+                "deleted_option_value_rows": deleted_values,
+                "priority_configs_before": changed_priorities,
+                "deleted_option_groups": len(group_ids),
+                "deleted_option_values": value_count,
+            },
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+        session.commit()
+        logger.info(
+            "catalog_structure_delete",
+            extra={
+                "operation": "category.delete",
+                "result": "success",
+                "deleted_option_groups": len(group_ids),
+                "deleted_option_values": value_count,
+            },
+        )
+        return {"id": category_id, "deleted": True}
+    except Exception as exc:
+        session.rollback()
+        if not isinstance(exc, (BusinessError, NotFoundError, AuthorizationError)):
+            logger.exception(
+                "catalog_structure_delete",
+                extra={"operation": "category.delete", "result": "error"},
+            )
+        raise
 
 
 def assign_product_category_option(
