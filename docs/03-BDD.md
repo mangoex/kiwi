@@ -391,7 +391,11 @@ Feature: Elegir productos reales dentro de un combo
     Given un combo con un grupo compartido obligatorio "Medio baguette"
     And la opción elegida referencia un producto con grupos ordinarios de pan y queso
     When el cajero elige el producto componente
-    Then POS solicita y valida pan y queso antes de agregar la línea
+    Then POS sustituye la lista de baguettes por tarjetas de pan y queso
+    And conserva visibles arriba las tarjetas Ensalada y Baguette
+    When el cajero toca nuevamente una de esas tarjetas superiores
+    Then vuelve a los productos de ese grupo conservando las selecciones ya capturadas
+    And POS valida pan y queso antes de agregar la línea
     And Python calcula los recargos, congela ambas selecciones y aplica la receta modificada
     And producción recibe una tarea del componente en su estación con sus instrucciones
 
