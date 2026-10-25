@@ -513,7 +513,10 @@ y recorrido POS con modificadores hijos.
 
 Crear un set compartido con `product_component`, elegir un hijo con grupos requeridos y comprobar que
 sin selecciones hijas falla cerrado; con ellas, cotización y pedido coinciden, el precio propio del hijo
-no se suma y receta/modificadores quedan congelados.
+no se suma y receta/modificadores quedan congelados. En POS, elegir el hijo sustituye las opciones del
+grupo por una cuadrícula táctil de sus modificadores ordinarios; las tarjetas superiores del padre
+regresan a las opciones de Ensalada o Baguette sin perder selecciones ni alterar el payload
+`component_modifiers`.
 
 ### TDD-TC-469 Producción, offline y profundidad máxima
 

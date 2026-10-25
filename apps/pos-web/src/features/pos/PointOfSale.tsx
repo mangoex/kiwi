@@ -38,7 +38,7 @@ import {
 } from './categoryOptionFlow';
 import { productCardPresentation } from './productCardPresentation';
 import { appendDictationText, ASSISTED_DICTATION_SILENCE_MS, shouldRestartDictation } from './assistedDictation';
-import { modifierSelectionsMeetMinimums, progressiveCatalogStage } from './progressiveCatalogFlow';
+import { componentDrilldownAfterToggle, modifierSelectionsMeetMinimums, progressiveCatalogStage } from './progressiveCatalogFlow';
 import { parseCartQuantity, requiredGroupsFirst } from './cashierCapture';
 import { CashTenderFields } from './CashTenderFields';
 import { useCashTenderPreview } from './useCashTenderPreview';
@@ -396,6 +396,7 @@ const PointOfSale = () => {
   const [componentSelections, setComponentSelections] = useState<Record<string, string[]>>({});
   const [componentText, setComponentText] = useState<Record<string, string>>({});
   const [componentLoading, setComponentLoading] = useState<Record<string, boolean>>({});
+  const [activeComponentOptionId, setActiveComponentOptionId] = useState('');
   const [modifierError, setModifierError] = useState('');
   const [modifierLoadError, setModifierLoadError] = useState('');
   const [modifierQuantity, setModifierQuantity] = useState(1);
@@ -1041,6 +1042,9 @@ const PointOfSale = () => {
     (option) => option.effect_type === 'product_component'
       && (modifierSelections[group.id] || []).includes(option.id),
   ));
+  const activeComponentOption = selectedComponentOptions.find(
+    (option) => option.id === activeComponentOptionId,
+  ) || null;
   const componentMinimumsMet = selectedComponentOptions.every((option) => {
     const groups = componentGroups[option.id];
     if (!groups || componentLoading[option.id]) return false;
@@ -1228,6 +1232,7 @@ const PointOfSale = () => {
     setComponentSelections({});
     setComponentText({});
     setComponentLoading({});
+    setActiveComponentOptionId('');
     setModifierQuantity(1);
     setModifierError('');
     setModifierLoadError('');
@@ -1372,6 +1377,7 @@ const PointOfSale = () => {
       setModifierSelections({});
       setModifierQuantity(1);
       setModifierText({});
+      setActiveComponentOptionId('');
       setModifierError('');
       setModifierLoadError('');
     } catch {
@@ -1393,6 +1399,12 @@ const PointOfSale = () => {
       if (selected.length >= group.maximum_selections) return current;
       return { ...current, [group.id]: [...selected, optionId] };
     });
+    setActiveComponentOptionId(componentDrilldownAfterToggle({
+      activeOptionId: activeComponentOptionId,
+      optionId,
+      wasSelected,
+      isComponentOption: option?.effect_type === 'product_component' && Boolean(option.component_product_id),
+    }));
     if (!wasSelected && option?.effect_type === 'product_component' && option.component_product_id) {
       setComponentLoading((current) => ({ ...current, [optionId]: true }));
       void requestOrder<ModifierGroup[]>(
@@ -1406,6 +1418,12 @@ const PointOfSale = () => {
         setComponentLoading((current) => ({ ...current, [optionId]: false }));
       });
     }
+  };
+
+  const openModifierGroup = (groupId: string) => {
+    setActiveModifierGroupId(groupId);
+    setActiveComponentOptionId('');
+    setModifierError('');
   };
 
   const toggleComponentModifier = (parentOptionId: string, group: ModifierGroup, optionId: string) => {
@@ -1925,14 +1943,47 @@ const PointOfSale = () => {
                       role="tab"
                       aria-selected={activeModifierGroup?.id === group.id}
                       className={activeModifierGroup?.id === group.id ? 'active' : ''}
-                      onClick={() => setActiveModifierGroupId(group.id)}
+                      onClick={() => openModifierGroup(group.id)}
                     >
                       <strong>{group.name}</strong>
                       <small>{group.minimum_selections > 0 ? `Obligatorio · ${group.minimum_selections}-${group.maximum_selections}` : `Opcional · hasta ${group.maximum_selections}`}{(group.included_selections || 0) > 0 ? ` · ${group.included_selections} incluida(s)` : ''}</small>
                     </button>
                   ))}
                 </div>
-                {activeModifierGroup && <section className="pos-sale-complement-group-panel" role="tabpanel">
+                {activeModifierGroup && activeComponentOption ? <section className="pos-sale-complement-group-panel pos-sale-component-detail-panel" role="tabpanel" aria-label={`Opciones de ${activeComponentOption.name}`}>
+                  <div className="pos-sale-complement-group-title">
+                    <strong>Opciones de {activeComponentOption.name}</strong>
+                    <small>Toca {activeModifierGroup.name} arriba para cambiar el producto.</small>
+                  </div>
+                  <div className="pos-sale-component-modifiers">
+                    {componentLoading[activeComponentOption.id] ? <small>Cargando opciones…</small> : (componentGroups[activeComponentOption.id] || []).length === 0 ? (
+                      <p>Este producto no requiere opciones adicionales.</p>
+                    ) : (componentGroups[activeComponentOption.id] || []).map((childGroup) => {
+                      const key = `${activeComponentOption.id}:${childGroup.id}`;
+                      return <fieldset key={childGroup.id}>
+                        <legend>{childGroup.name}{childGroup.minimum_selections > 0 ? ' · Obligatorio' : ''}</legend>
+                        <div className="pos-sale-component-option-grid">
+                          {childGroup.options.map((childOption) => {
+                            const childChecked = (componentSelections[key] || []).includes(childOption.id);
+                            return <div className="pos-sale-component-option" key={childOption.id}>
+                              <button
+                                type="button"
+                                className={`pos-sale-component-option-card${childChecked ? ' active' : ''}`}
+                                aria-pressed={childChecked}
+                                onClick={() => toggleComponentModifier(activeComponentOption.id, childGroup, childOption.id)}
+                              >
+                                {childChecked && <Check size={15} />}
+                                <span>{childOption.name}</span>
+                                {childOption.price_delta_cents > 0 && <small>+{formatMxnCents(childOption.price_delta_cents)}</small>}
+                              </button>
+                              {childChecked && childOption.effect_type === 'instruction' && <input value={componentText[childOption.id] || ''} onChange={(event) => setComponentText({ ...componentText, [childOption.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} />}
+                            </div>;
+                          })}
+                        </div>
+                      </fieldset>;
+                    })}
+                  </div>
+                </section> : activeModifierGroup && <section className="pos-sale-complement-group-panel" role="tabpanel">
                   <div className="pos-sale-complement-group-title">
                     <strong>{activeModifierGroup.name}</strong>
                     <small>{activeModifierGroup.minimum_selections > 0 ? `Obligatorio · mínimo ${activeModifierGroup.minimum_selections}, máximo ${activeModifierGroup.maximum_selections}` : `Opcional · máximo ${activeModifierGroup.maximum_selections}`}{(activeModifierGroup.included_selections || 0) > 0 ? ` · ${activeModifierGroup.included_selections} selección(es) incluida(s)` : ''}</small>
@@ -1951,20 +2002,6 @@ const PointOfSale = () => {
                               {checked && option.effect_type === 'instruction' && (
                                 <input value={modifierText[option.id] || ''} onChange={(event) => setModifierText({ ...modifierText, [option.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} />
                               )}
-                              {checked && option.effect_type === 'product_component' && <div className="pos-sale-component-modifiers" aria-label={`Opciones de ${option.name}`}>
-                                {componentLoading[option.id] ? <small>Cargando opciones…</small> : (componentGroups[option.id] || []).map((childGroup) => <fieldset key={childGroup.id}>
-                                  <legend>{childGroup.name}{childGroup.minimum_selections > 0 ? ' · Obligatorio' : ''}</legend>
-                                  {childGroup.options.map((childOption) => {
-                                    const key = `${option.id}:${childGroup.id}`;
-                                    const childChecked = (componentSelections[key] || []).includes(childOption.id);
-                                    return <label key={childOption.id}>
-                                      <input type={childGroup.maximum_selections === 1 ? 'radio' : 'checkbox'} name={key} checked={childChecked} onChange={() => toggleComponentModifier(option.id, childGroup, childOption.id)} />
-                                      <span>{childOption.name}{childOption.price_delta_cents > 0 ? ` +${formatMxnCents(childOption.price_delta_cents)}` : ''}</span>
-                                      {childChecked && childOption.effect_type === 'instruction' && <input value={componentText[childOption.id] || ''} onChange={(event) => setComponentText({ ...componentText, [childOption.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} />}
-                                    </label>;
-                                  })}
-                                </fieldset>)}
-                              </div>}
                             </div>
                           );
                     })}

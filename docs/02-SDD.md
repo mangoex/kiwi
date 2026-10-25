@@ -3913,6 +3913,13 @@ hijas, precios listados/aplicados y si la selección padre fue incluida. La acep
 por componente en su estación; KDS recibe únicamente los modificadores de ese componente. La
 anidación termina allí: un modificador hijo no puede seleccionar otro producto.
 
+La presentación POS usa navegación progresiva sin cambiar ese contrato. Los grupos del padre
+permanecen visibles como tarjetas de contexto. Al elegir una opción `product_component`, la lista de
+productos de ese grupo se sustituye por las opciones ordinarias del hijo, también como tarjetas;
+tocar cualquier tarjeta superior vuelve a la lista del grupo elegido sin descartar las selecciones ya
+capturadas. Este estado es exclusivamente de interfaz: `component_modifiers`, cardinalidades, orden,
+precio y consumo continúan usando el payload y la autoridad Python existentes.
+
 La compatibilidad técnica usa `GET/PUT /api/v1/products/{product_id}/modifier-configuration`; estos
 endpoints no tienen una ruta visible en Productos. La lectura requiere
 un rol de alcance organización y `catalog.manage`; el mismo permiso asignado a un rol de sucursal no
