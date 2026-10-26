@@ -19,8 +19,11 @@ dependencia de navegador gobernada.
 
 ## Configuración
 
-El primer despliegue conserva `RESTAURANTOS_ADMIN_AI_ASSISTANT_ENABLED=false`. Para el canary se
-provisionan por separado `RESTAURANTOS_OPENROUTER_API_KEY`,
+El build normal conserva `VITE_ADMIN_AI_ASSISTANT_ENABLED` ausente o distinto de `true` y el primer
+despliegue conserva `RESTAURANTOS_ADMIN_AI_ASSISTANT_ENABLED=false`; así no existe acceso frontend
+aunque alguien construya una URL con `admin_ai_proposal`. Una reactivación gobernada requiere un
+nuevo build con `VITE_ADMIN_AI_ASSISTANT_ENABLED=true`, además de la autorización separada del
+proveedor. Para el canary se provisionan por separado `RESTAURANTOS_OPENROUTER_API_KEY`,
 `RESTAURANTOS_ADMIN_AI_OPENROUTER_MODEL` y
 `RESTAURANTOS_ADMIN_AI_OPENROUTER_TIMEOUT_SECONDS`; `RESTAURANTOS_OPENROUTER_BASE_URL` sólo cambia
 si se aprueba otro endpoint compatible. No se imprimen ni copian valores reales a la evidencia.
@@ -44,10 +47,11 @@ si se aprueba otro endpoint compatible. No se imprimen ni copian valores reales 
 
 Se aborta ante salida fuera de allowlist, escritura sin aceptación, permisos/alcance incorrectos,
 duplicidad, prompt o secreto en logs, latencia sostenida mayor al timeout, errores 5xx repetidos o
-imposibilidad de correlacionar propuesta y auditoría. El rollback inmediato es apagar el flag; se
-conservan artefacto, tabla e historia. No se ejecuta downgrade 0055 cuando existen propuestas: la
-migración lo bloquea deliberadamente. Una reversión de código y una limpieza de datos requieren
-planes y autorizaciones independientes.
+imposibilidad de correlacionar propuesta y auditoría. El rollback inmediato es apagar el flag
+backend y reconstruir el frontend sin la compuerta habilitada; se conservan artefacto, tabla e
+historia. No se ejecuta downgrade 0055 cuando existen propuestas: la migración lo bloquea
+deliberadamente. Una reversión de código y una limpieza de datos requieren planes y autorizaciones
+independientes.
 
 ## Límites antes de uso amplio
 

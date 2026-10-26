@@ -197,6 +197,14 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   configuración incompleta. El pedido, KDS, comanda y precio conservan siempre el `product_id` y
   snapshot concretos; el valor elegido no es modificador ni precio. Cambiar de categoría u opción
   sólo limpia personalización transitoria, nunca el carrito. La búsqueda no evita el selector.
+  Administración debe mostrar cuántos productos activos están asignados a cada subgrupo y advertir
+  cuando un subgrupo vacío no aparecerá en POS. Desde ese estado debe ofrecer un acceso al alta de
+  Productos con grupo y subgrupo preseleccionados; la navegación sólo transporta IDs canónicos y no
+  sustituye la validación transaccional del backend al guardar. Administración permite eliminar un
+  subgrupo sólo cuando no tiene asignaciones, retirar una configuración completa de subgrupos sólo
+  después de ocultarla en POS, y eliminar un grupo de productos sólo cuando no contiene productos.
+  Estas eliminaciones son confirmadas, transaccionales, autorizadas y auditadas; nunca eliminan
+  productos, pedidos ni sus snapshots históricos de forma implícita.
 
 ### 4.3 Pedidos
 
@@ -383,8 +391,10 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   ordenados cuyas opciones puedan referenciar productos vendibles corporativos simples. Cada grupo
   define mínimo, máximo y número de selecciones incluidas; las selecciones posteriores aplican el
   precio adicional canónico de su opción en el orden elegido por el operador. Un componente
-  seleccionable debe pertenecer a la misma organización, estar activo, compartir estación con el
-  producto padre, tener receta efectiva y no ser combo ni contener otra configuración seleccionable.
+  seleccionable debe pertenecer a la misma organización, estar activo, tener receta efectiva y no
+  ser combo ni contener a su vez otra opción `product_component`. Puede pertenecer a otra estación
+  y conservar grupos ordinarios propios; al elegirlo, POS debe solicitar esas selecciones hijas antes
+  de agregar la línea.
   La aceptación congela identidad, nombre, cantidad, precio y receta del componente, y agrega su
   consumo al snapshot de la línea sin sumar el precio propio del producto componente. El servicio
   conserva la configuración completa con versión esperada e idempotencia y no acepta una escritura ante
@@ -396,9 +406,9 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   comportamiento separado.
   - Las configuraciones existentes conservan compatibilidad de dominio y API para ventas e historia,
     pero **Productos** no ofrece un submenú ni un segundo editor de modificadores. La administración
-    visible se realiza exclusivamente desde **Catálogo y Menú > Modificadores**, cuyo alcance
-    compartido no crea `product_component`; Python permanece como única autoridad de precio,
-    selecciones incluidas, consumo y validación del catálogo.
+    visible se realiza exclusivamente desde **Catálogo y Menú > Modificadores**, incluido el alta de
+    opciones `product_component`; Python permanece como única autoridad de precio, selecciones
+    incluidas, consumo y validación del catálogo y de los modificadores hijos.
 
 ### 4.8 Compras y cuentas por pagar
 
@@ -640,7 +650,18 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   muestra su alcance antes de confirmar.
   Los comentarios no tienen disponibilidad ni excepción por sucursal. En POS se muestran como
   controles táctiles únicamente para los productos relacionados y se congelan en la línea, KDS y
-  comanda. Un comentario nunca modifica precio, receta, inventario, reserva, consumo ni costo.
+  comanda. Un comentario nunca modifica precio, receta, inventario, reserva, consumo ni costo. La
+  administración debe permitir archivar en una sola acción todos los comentarios activos cuando la
+  organización decida configurar esas instrucciones únicamente mediante Modificadores. La limpieza
+  es lógica y auditable: conserva relaciones, pedidos y snapshots históricos, oculta los archivados
+  por defecto y permite inspeccionarlos o reactivarlos de forma explícita. Un Administrador puede
+  eliminar definitivamente uno o todos los comentarios mediante una confirmación diferenciada. La
+  eliminación masiva incluye las indicaciones heredadas de los grupos históricos dedicados, retira
+  únicamente presets, opciones y relaciones del catálogo, conserva una instantánea suficiente en
+  auditoría y nunca modifica pedidos ni snapshots históricos. La siguiente renovación del catálogo
+  offline debe retirar también los presets eliminados para impedir que una sucursal desconectada los
+  siga ofreciendo. En administración, botones, selectores y tarjetas de esta superficie deben usar
+  una jerarquía visual redondeada y táctil, sin controles nativos rectangulares incongruentes.
 - `PRD-FR-200`: Debe administrar ingredientes adicionales corporativos a partir del catálogo de
   insumos, con cantidad exacta en unidad base, estación y precio de venta explícito. Un ingrediente
   adicional activo queda disponible para cualquier producto sin relación previa producto-insumo; en
@@ -917,7 +938,11 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   una receta actual nunca recalcula una operación histórica. Gastos se derivan de documentos y
   movimientos con clasificación canónica por documento, sin sumar por separado una compra y su retiro
   enlazado; los impuestos se separan. El día operativo usa inicialmente la zona horaria de sucursal,
-  de 00:00 a 23:59 local. React/TypeScript sólo presenta el resultado autoritativo.
+  de 00:00 a 23:59 local. Admin ofrece una superficie de reportes históricos con selector de una
+  sucursal autorizada o, sólo cuando el permiso de esa pestaña tiene alcance organizacional, toda la
+  organización. Una sucursal usa su día local; el consolidado histórico organizacional usa un período
+  calendario UTC explícito para no atribuir un único huso horario a toda la cadena. React/TypeScript
+  sólo presenta el resultado autoritativo.
   Al activar CORTE-CIEGO-001, toda lectura que revele agregados financieros requiere
   PRD-FR-289/300; ni estos perfiles ni el monitor de PRD-FR-218 ni asistentes o
   exportaciones conceden acceso por nombre de rol o por un permiso operativo.
@@ -962,7 +987,9 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   libro de cálculo en Excel (.xlsx) con el formato oficial de Kiwi protegido por RBAC. Consolidado
   y Excel separan saldo por apertura de turnos y actividad calendario; si algún turno carece de
   arqueo equivalente, el total contado y su diferencia permanecen nulos. La revisión gerencial
-  no certifica un conteo físico. D-01/D-02 aprobadas el 2026-10-09 mediante «Adelante».
+  no certifica un conteo físico. El alcance “todas” agrega únicamente sucursales activas autorizadas;
+  una sucursal inactiva conserva su historia pero no invalida ni participa en el consolidado vigente.
+  D-01/D-02 aprobadas el 2026-10-09 mediante «Adelante».
 - `PRD-FR-227`: Debe proveer una interfaz web responsiva de autoservicio para clientes móviles
   (`apps/mobile-web`) y endpoints públicos de consulta de catálogo y captura de pedidos en línea
   (`/api/v1/public/*`), asignando precios vigentes de catálogo sin fallbacks artificiales y registrando
@@ -1028,6 +1055,11 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   al servicio canónico de la acción con idempotencia y auditoría. Rechazar o expirar no escribe
   configuración. El MVP excluye órdenes, pagos, caja, compras, movimientos físicos de inventario,
   producción operativa, usuarios, roles y cualquier borrado o archivado automático.
+  Hasta que exista evidencia vigente de que sus respuestas se sustentan en las proyecciones
+  canónicas autorizadas, el acceso frontend permanece suspendido mediante una compuerta separada,
+  deshabilitada por defecto. En ese estado Admin no muestra el disparador, no monta el diálogo y no
+  abre una revisión por `admin_ai_proposal`; el avatar de perfil conserva su funcionamiento. La
+  suspensión no habilita acceso directo a tablas ni amplía el contexto permitido al proveedor.
 
 - `PRD-FR-231`: La ruta pública `/` debe presentar la portada institucional de Kiwi Natural en
   navegadores de escritorio y redirigir los accesos identificados como teléfono a `/menu/` antes de
@@ -1209,7 +1241,12 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   **Cobrar al entregar** usa `takeout`. El pedido nuevo inicia como recoger con cobro al entregar;
   cambiar esa modalidad no modifica una orden confirmada. La cuenta, total y siguiente acción
   permanecen visibles. Se mantienen los cinco grupos, favoritos y categorías/opciones; la búsqueda
-  puede encontrar productos concretos desde cualquier nivel sin eludir sus complementos.
+  puede encontrar productos concretos desde cualquier nivel sin eludir sus complementos. Cada
+  sugerencia de venta cruzada para el cliente seleccionado puede descartarse individualmente y el
+  bloque completo puede cerrarse desde su encabezado, sin alterar el carrito, el total ni el pedido.
+  Agregar un producto desde la sugerencia también la oculta; los descartes individual y global se
+  conservan durante la captura vigente aunque se vuelvan a solicitar recomendaciones y se reinician
+  al cambiar o limpiar el cliente.
 - `PRD-FR-254`: Cada línea permite cantidad entera positiva, eliminación previa a confirmación y
   nota de cocina de hasta 500 caracteres. Los complementos obligatorios aparecen primero y no
   pueden omitirse; extras indican recargo. Recuperar o editar conserva notas y selecciones por
@@ -1266,17 +1303,22 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   versionada, idempotente y auditada. Retirar un producto sólo afecta ventas futuras y nunca
   reescribe pedidos ni snapshots históricos.
 
-  **Comentarios del pedido**, **Ingredientes adicionales**, combos fijos y productos componentes
-  seleccionables mantienen sus autoridades actuales. Una configuración compartida no puede crear
-  `product_component`; esa composición continúa ligada al producto. Las configuraciones históricas
+  **Comentarios del pedido**, **Ingredientes adicionales** y combos fijos mantienen sus autoridades
+  actuales. Una configuración compartida puede crear grupos de `product_component` para modelar
+  combos elegibles y cada producto elegido conserva sus modificadores ordinarios; no se permite una
+  segunda profundidad de productos componentes. Un producto interno elegido no requiere precio de
+  venta independiente: debe estar activo, disponible en la sucursal y tener receta efectiva; el
+  precio comercial continúa siendo el del combo más el recargo configurado en la opción. El
+  administrador puede renombrar la configuración o eliminarla de ventas futuras; eliminar archiva
+  atómicamente cabecera, relaciones, grupos y opciones, conserva auditoría y snapshots históricos y
+  permite reutilizar el nombre visible. Las configuraciones históricas
   por producto permanecen compatibles para lectura operativa e historia, pero **Productos** no
   muestra resumen, enlace, submenú ni editor alterno: el catálogo central es la única superficie
   administrativa visible de modificadores.
 
-  Los paquetes offline v1/v2/v3 conservan las configuraciones históricas por producto. Cuando el
-  catálogo a exportar tiene asignaciones compartidas activas, su emisión o renovación se rechaza
-  explícitamente: nunca se vende omitiendo grupos requeridos o recargos. Transportar conjuntos
-  compartidos offline requiere una versión posterior del paquete; la operación central sí los admite.
+  El catálogo offline transporta los sets compartidos, sus asignaciones y opciones de producto con
+  una versión aditiva; un gateway que no entiende esa versión debe rechazarla. La venta nunca omite
+  grupos requeridos, modificadores hijos, recargos ni consumo por operar sin conexión.
 
 ### 4.25 EXP-001 — Gastos operativos sin inventario
 

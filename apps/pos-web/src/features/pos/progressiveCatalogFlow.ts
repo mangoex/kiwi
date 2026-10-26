@@ -36,3 +36,21 @@ export function modifierSelectionsMeetMinimums(
 ): boolean {
   return groups.every((group) => (selections[group.id] || []).length >= group.minimum_selections);
 }
+
+export interface ComponentDrilldownToggleInput {
+  activeOptionId: string;
+  optionId: string;
+  wasSelected: boolean;
+  isComponentOption: boolean;
+}
+
+/** Keeps component drilldown navigation independent from pricing and selection authority. */
+export function componentDrilldownAfterToggle({
+  activeOptionId,
+  optionId,
+  wasSelected,
+  isComponentOption,
+}: ComponentDrilldownToggleInput): string {
+  if (wasSelected) return activeOptionId === optionId ? '' : activeOptionId;
+  return isComponentOption ? optionId : '';
+}

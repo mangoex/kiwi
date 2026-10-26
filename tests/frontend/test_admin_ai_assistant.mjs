@@ -8,8 +8,11 @@ const items = readFileSync('apps/admin-web/src/features/inventory/ItemsList.tsx'
 const presentations = readFileSync('apps/admin-web/src/features/purchasing/PresentationsList.tsx', 'utf8');
 
 assert.match(layout, /UserRound/);
-assert.match(layout, /aria-label="Abrir asistente de configuración"/);
-assert.match(layout, /hasCatalogManage &&/);
+assert.match(layout, /aria-label="Abrir asistente de Menú y Recetas"/);
+assert.match(layout, /VITE_ADMIN_AI_ASSISTANT_ENABLED === 'true'/);
+assert.match(layout, /adminAiAssistantEnabled && hasCatalogManage &&/);
+assert.match(layout, /adminAiAssistantEnabled && <AdminAssistantPanel/);
+assert.match(layout, /adminAiAssistantEnabled && hasCatalogManage && proposalId &&/);
 assert.match(layout, /admin_ai_proposal/);
 assert.match(assistant, /AdminAiDiagnostic/);
 assert.match(assistant, /Revisar \{selectedIds\.size\}/);

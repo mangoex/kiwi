@@ -11,9 +11,9 @@ import RecipesWorkspace from '../recipes/RecipesWorkspace';
 import './CatalogAvailability.css';
 
 type Kind = 'products' | 'variations' | 'ingredient-extras';
-const resources: Record<Kind, string> = {
+type AvailabilityKind = Exclude<Kind, 'variations'>;
+const resources: Record<AvailabilityKind, string> = {
   products: 'products',
-  variations: 'variation-notes',
   'ingredient-extras': 'ingredient-variations',
 };
 
@@ -74,7 +74,7 @@ function AggregateVisibilityCheckbox({
   );
 }
 
-function BranchAvailability({ kind, standalone = false }: { kind: Kind; standalone?: boolean }) {
+function BranchAvailability({ kind, standalone = false }: { kind: AvailabilityKind; standalone?: boolean }) {
   const { session } = useAdminSession();
   const canManage = useAdminPermission('catalog.branch.manage');
   const client = useQueryClient();
@@ -343,6 +343,6 @@ export function CatalogAdministration({ kind }: { kind: Kind }) {
     {central
       ? kind === 'products' ? <ProductsList /> : kind === 'variations' ? <VariationNotes /> : <IngredientExtras />
       : kind === 'products' && recipes ? <RecipesWorkspace /> : <h1>{kind === 'products' ? 'Productos y recetas' : kind === 'variations' ? 'Comentarios del pedido' : 'Ingredientes adicionales'}</h1>}
-    {kind !== 'products' && branchAccess && branchManage && <BranchAvailability kind={kind} />}
+    {kind === 'ingredient-extras' && branchAccess && branchManage && <BranchAvailability kind={kind} />}
   </>;
 }

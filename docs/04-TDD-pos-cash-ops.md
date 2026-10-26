@@ -371,8 +371,9 @@ desconocido permanece `NULL` con contador, sin inferir IVA ni redondear en TypeS
 ## TDD-TC-126 Periodo alcance cursor y consolidado son estrictos
 
 API prueba UTC aware semiabierto, límite `1..100`, orden/cursor estable y cursor ligado a reporte,
-periodo, sucursal y filtros. Supervisor/Administrador requieren active_branch autorizada; Dueño puede omitirla
-para consolidar sólo su organización. Fecha ingenua/invertida, límite, cursor o sucursal inválidos
+periodo, sucursal y filtros. Un perfil de sucursal requiere active_branch autorizada; un rol
+organizacional con el permiso específico puede omitirla para consolidar sólo su organización, sin
+depender del nombre del rol ni recibir otras capacidades. Fecha ingenua/invertida, límite, cursor o sucursal inválidos
 fallan con código estable. La UI convierte un día local con la zona IANA de la sucursal exactamente
 una vez, incluido cambio de fecha UTC. Esta regla cubre los reportes operativos de esta suite; el
 consolidado corporativo de conciliación de PRD-FR-226 se prueba por separado con su endpoint, permiso y
@@ -382,8 +383,11 @@ scope organizacional en TDD-TS-094/TDD-TC-161..163.
 
 Prueba semántica confirma navegación/pestañas por `recipes.manage`,
 `reports.ingredient_sales.read` y `reports.expenses.read`; catálogo no autorizado oculta mutaciones
-ajenas sin usar la UI como autoridad. Estados carga, vacío, datos, incompleto, error y reintento se
-presentan en español. TypeScript estricto y builds pasan. QA visual real cubre 1440x900 y 1000x800,
+ajenas sin usar la UI como autoridad. Admin expone la ruta y tarjeta de reportes históricos, toma
+las opciones de `session.allowed_branches` y sólo ofrece toda la organización al alcance corporativo.
+Una cuenta mixta no puede prestar alcance de un rol corporativo ajeno al permiso del reporte; el período
+de una sucursal usa su zona IANA y el consolidado organizacional declara UTC.
+Estados carga, vacío, datos, incompleto, error y reintento se presentan en español. TypeScript estricto y builds pasan. QA visual real cubre 1440x900 y 1000x800,
 foco/teclado, tablas contenidas y ausencia de fórmula monetaria o Decimal de dominio en React.
 
 ## TDD-TC-128 Migración observabilidad y plan PostgreSQL

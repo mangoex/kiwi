@@ -54,11 +54,13 @@ from restaurant_os.modifier_configuration import (
     preview_modifier_selection,
 )
 from restaurant_os.shared_modifier_sets import (
+    archive_modifier_set,
     create_modifier_set,
     get_modifier_set_configuration,
     list_modifier_sets,
     replace_modifier_set_products,
     save_modifier_set_configuration,
+    update_modifier_set,
 )
 from restaurant_os.auth import create_session_token, verify_session_token
 from restaurant_os.assisted_order import (
@@ -177,6 +179,9 @@ from restaurant_os.operations import (
     create_cash_concept_version,
     create_cash_movement,
     create_customer,
+    archive_all_order_comments,
+    delete_all_order_comments,
+    delete_order_comment,
     create_driver,
     create_ingredient_variation,
     create_inventory_transfer,
@@ -206,6 +211,9 @@ from restaurant_os.operations import (
     deactivate_driver,
     decide_order_reopen_request,
     delete_branch,
+    delete_category,
+    delete_category_option_group,
+    delete_category_option_value,
     delete_product,
     delete_user,
     get_branch_context,
@@ -2826,7 +2834,10 @@ def branch_reconciliation_daily_endpoint(
     )
 
 
-@reconciliation_v2_router.get("/reports/branch-reconciliation/consolidated", dependencies=[Depends(financial_read_guard(*RECONCILIATION_DATASETS))])
+@reconciliation_v2_router.get(
+    "/reports/branch-reconciliation/consolidated",
+    dependencies=[Depends(financial_read_guard(*RECONCILIATION_DATASETS, active_only=True))],
+)
 def branch_reconciliation_consolidated_endpoint(
     date_from: str,
     date_to: str,
@@ -5113,6 +5124,17 @@ def put_category(
     )
 
 
+@router.delete("/categories/{category_id}")
+def remove_category(
+    category_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: delete_category(session, category_id, actor_id))
+
+
 @router.get("/categories/{category_id}/selection-group")
 def get_category_selection_group(
     category_id: str,
@@ -5135,6 +5157,19 @@ def post_category_selection_group(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
         lambda: upsert_category_option_group(session, category_id, payload, actor_id)
+    )
+
+
+@router.delete("/categories/{category_id}/selection-group")
+def remove_category_selection_group(
+    category_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: delete_category_option_group(session, category_id, actor_id)
     )
 
 
@@ -5177,6 +5212,20 @@ def put_category_option_value(
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(
         lambda: upsert_category_option_value(session, group_id, payload, value_id, actor_id)
+    )
+
+
+@router.delete("/catalog/category-option-groups/{group_id}/values/{value_id}")
+def remove_category_option_value(
+    group_id: str,
+    value_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: delete_category_option_value(session, group_id, value_id, actor_id)
     )
 
 
@@ -5894,6 +5943,44 @@ def post_modifier_set(
     )
 
 
+@router.put("/catalog/modifier-sets/{modifier_set_id}")
+def put_modifier_set(
+    modifier_set_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: update_modifier_set(
+            session, actor_id, modifier_set_id, payload, idempotency_key or ""
+        )
+    )
+
+
+@router.delete("/catalog/modifier-sets/{modifier_set_id}")
+def delete_modifier_set(
+    modifier_set_id: str,
+    expected_version: int,
+    session: SessionDep,
+    idempotency_key: IdempotencyKeyDep = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: archive_modifier_set(
+            session,
+            actor_id,
+            modifier_set_id,
+            expected_version,
+            idempotency_key or "",
+        )
+    )
+
+
 @router.get("/catalog/modifier-sets/{modifier_set_id}/configuration")
 def get_shared_modifier_configuration(
     modifier_set_id: str,
@@ -5961,6 +6048,37 @@ def post_order_comments_bulk(
 ) -> dict[str, Any]:
     actor_id = _required_actor_from_request(actor_user_id, authorization)
     return _business_response(lambda: bulk_order_comments(session, payload, actor_id))
+
+
+@router.post("/catalog/order-comments/archive-all")
+def post_archive_all_order_comments(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, int]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: archive_all_order_comments(session, actor_id))
+
+
+@router.delete("/catalog/order-comments/all")
+def delete_all_order_comments_endpoint(
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, int]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: delete_all_order_comments(session, actor_id))
+
+
+@router.delete("/catalog/order-comments/{comment_id}")
+def delete_order_comment_endpoint(
+    comment_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, int]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    return _business_response(lambda: delete_order_comment(session, comment_id, actor_id))
 
 
 @router.put("/catalog/order-comments/{comment_id}")

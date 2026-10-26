@@ -11,7 +11,8 @@ con scroll del carrito, sin cambios en catálogo, resumen, cobro ni fórmulas.
 Pruebas semánticas ejecutables de búsqueda global, cantidades/notas, modo recoger/cobro,
 serialización/aislamiento de borradores, fallo de almacenamiento y recuperación incierta.
 Scripts: `tests/frontend/test_pos_cashier_capture.mjs`,
-`tests/frontend/test_pos_cashier_drafts.mjs`, `test_pos_cashier_payment.mjs` y `test_pos_progressive_catalog.mjs`.
+`tests/frontend/test_pos_cashier_drafts.mjs`, `test_pos_cashier_payment.mjs`,
+`test_pos_progressive_catalog.mjs` y `test_pos_upsell_dismissal.mjs`.
 Integración navegador con API sintética: recoger y domicilio, navegar/recargar/suspender,
 modificadores, edición del mismo folio, confirmar pago una vez y acciones por permiso.
 
@@ -20,6 +21,10 @@ modificadores, edición del mismo folio, confirmar pago una vez y acciones por p
 Verificar campos completos, no confiar precios guardados, aislar usuario/sucursal/caja/transporte,
 limpiar logout, impedir suspensión de edición/checkout incierto, cuotas y datos inválidos. Borrar
 carrito no cancela orden. Notas de líneas diferentes no se fusionan. QA 1366×768 y 1024×768.
+Cada recomendación visible expone un control accesible para quitarla y el encabezado permite cerrar
+todo el bloque. Ningún descarte agrega productos ni altera el total; agregar desde la recomendación
+la descarta y las respuestas posteriores no restauran elementos ni el bloque durante el mismo
+cliente. Cambiar o limpiar el cliente reinicia ambos niveles de descarte.
 
 ## TDD-TS-127 Proyecciones y cálculo Python
 

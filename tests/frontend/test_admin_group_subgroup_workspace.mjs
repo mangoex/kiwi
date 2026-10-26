@@ -19,6 +19,18 @@ assert.doesNotMatch(categories, /Estado del nivel/, 'La UI primaria no debe expo
 assert.doesNotMatch(categories, /Guardar configuración/, 'No debe existir una segunda acción redundante para el estado del selector');
 assert.match(categories, /Mostrar subgrupos en POS/, 'La publicación debe expresarse con una sola acción operativa');
 assert.match(categories, /Nombre del subgrupo/, 'La captura primaria debe solicitar únicamente el nombre visible');
+assert.match(categories, /subgroupAssignmentCounts/, 'La estación debe derivar el conteo por subgrupo desde asignaciones canónicas');
+assert.match(categories, /productos? asignados?/, 'Cada subgrupo debe explicar cuántos productos tiene asignados');
+assert.match(categories, /No aparecerá en POS/, 'Un subgrupo vacío debe explicar por qué no aparece en POS');
+assert.match(categories, /Crear producto en/, 'Un subgrupo debe ofrecer alta contextual de producto');
+assert.match(categories, /create=1[&]category_id=/, 'El alta contextual debe transportar el ID canónico del grupo');
+assert.match(categories, /[&]subgroup_id=/, 'El alta contextual debe transportar el ID canónico del subgrupo');
+assert.match(categories, /method: 'DELETE'/, 'Las eliminaciones deben usar comandos explícitos y no simularse en memoria');
+assert.match(categories, /Eliminar grupo/, 'El detalle debe ofrecer eliminación protegida del grupo');
+assert.match(categories, /Eliminar todos los subgrupos/, 'La estación debe permitir retirar una configuración de subgrupos oculta');
+assert.match(categories, /Eliminar \$\{value\.name\}/, 'Cada subgrupo debe exponer una acción de eliminación accesible');
+assert.match(categories, /window\.confirm/, 'Toda eliminación debe exigir confirmación explícita');
+assert.match(categories, /category-option-groups\/\$\{coverage\?\.group\?\.id\}\/values\/\$\{valueId\}/, 'El subgrupo debe eliminarse por su relación canónica');
 
 assert.doesNotMatch(products, /INITIAL_SUBGROUPS/, 'Productos no debe conservar un catálogo de subgrupos simulado');
 assert.doesNotMatch(products, /setSubgroups\(/, 'Productos no debe crear subgrupos sólo en memoria');
@@ -26,6 +38,10 @@ assert.match(products, /category-option-coverage/, 'Productos debe consultar la 
 assert.match(products, /\/catalog\/product-configurations/, 'Guardar Producto debe usar el comando atómico canónico');
 assert.match(products, /subgroup_option_value_id/, 'El comando atómico debe persistir la asignación canónica');
 assert.match(products, /subgroup_value_id/, 'El formulario debe conservar el ID estable del subgrupo, no su etiqueta');
+assert.match(products, /searchParams\.get\('create'\) === '1'/, 'Productos debe reconocer la intención explícita de alta contextual');
+assert.match(products, /searchParams\.get\('category_id'\)/, 'Productos debe resolver el ID canónico del grupo solicitado');
+assert.match(products, /searchParams\.get\('subgroup_id'\)/, 'Productos debe resolver el ID canónico del subgrupo solicitado');
+assert.match(products, /subgroup_value_id: requestedSubgroupId/, 'El borrador contextual debe preseleccionar el subgrupo solicitado');
 
 assert.doesNotMatch(categoryNavigation, /label: 'Selector previo'/, 'La navegación no debe presentar un catálogo paralelo');
 assert.doesNotMatch(catalogHub, /title: 'Selector previo'/, 'El hub no debe presentar el selector integrado como otra herramienta');

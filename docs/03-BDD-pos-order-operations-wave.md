@@ -54,6 +54,32 @@ Feature: Administrar comentarios corporativos relacionados con productos
     And el downgrade restaura exactamente el status previo de cada adicional afectado
     And un nuevo upgrade vuelve a marcar needs_review los conflictos sin inventar datos
 
+  @BDD-SC-795
+  Scenario: Vaciar el catálogo opcional sin borrar historia ni mostrar controles locales heredados
+    Given un Administrador corporativo con comentarios activos y archivados
+    When abre Comentarios del pedido
+    Then ve sólo los activos y puede revelar los archivados de forma explícita
+    And no ve disponibilidad local ni opciones heredadas por sucursal
+    When confirma Archivar todos los comentarios activos
+    Then el sistema los archiva atómicamente y registra actor y conteo en auditoría
+    And una repetición responde sin cambios porque ya no quedan comentarios activos
+    And relaciones, pedidos y snapshots históricos permanecen intactos
+
+  @BDD-SC-796
+  Scenario: Eliminar definitivamente comentarios actuales y heredados sin dejar catálogo offline obsoleto
+    Given un Administrador corporativo con comentarios activos, archivados y pedidos históricos
+    And existen indicaciones heredadas en grupos dedicados de variaciones
+    When confirma eliminar un comentario o vaciar todos los comentarios
+    Then elimina presets, indicaciones heredadas y relaciones en una transacción
+    And exige alcance organizacional aunque un rol de sucursal tenga catalog.manage
+    And falla cerrado sin cambios si un grupo heredado mezcla comentarios con modificadores reales
+    And alta, edición, reasignación, archivo y borrado comparten exclusión organizacional
+    And conserva actor y snapshot de recuperación en auditoría
+    And repetir la eliminación masiva responde con cero sin reintroducir registros
+    And pedidos, KDS, comandas y snapshots históricos conservan el texto congelado
+    And la siguiente renovación offline retira esos comentarios del catálogo SQLite
+    And la pantalla presenta botones, tarjetas y selectores redondeados con foco visible
+
 ## BDD-FEAT-063 Ingredientes adicionales universales
 
 @PRD-FR-200 @PRD-FR-201 @ingredient-extras @inventory

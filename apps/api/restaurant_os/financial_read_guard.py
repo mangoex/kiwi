@@ -19,6 +19,7 @@ from restaurant_os.financial_reads import require_financial_read
 def financial_read_guard(
     *datasets: str,
     organization_scope: bool = False,
+    active_only: bool = False,
     order_resource: bool = False,
     invoice_resource: bool = False,
 ) -> Callable[..., None]:
@@ -61,7 +62,9 @@ def financial_read_guard(
                     if invoice_resource:
                         return
                     deny()
-            require_financial_read(session, actor, branch, datasets)
+            require_financial_read(
+                session, actor, branch, datasets, active_only=active_only
+            )
 
         _response(check)
 

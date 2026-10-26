@@ -22,11 +22,15 @@ RECONCILIATION_DATASETS = (
 )
 
 
-def read_branches(session: Session, branch_id: str | None) -> list[str]:
+def read_branches(
+    session: Session, branch_id: str | None, *, active_only: bool = False
+) -> list[str]:
     """An omitted filter requests the whole organization, never an allowed subset."""
     query = sa.select(models.branches.c.id).where(
-        models.branches.c.organization_id == ops.ORGANIZATION_ID
+        models.branches.c.organization_id == ops.ORGANIZATION_ID,
     )
+    if active_only:
+        query = query.where(models.branches.c.status == "active")
     if branch_id is not None:
         query = query.where(models.branches.c.id == branch_id)
     result: sa.ScalarResult[str] = session.scalars(query.order_by(models.branches.c.id))
@@ -43,6 +47,7 @@ def require_financial_read(
     datasets: Iterable[str],
     *,
     force: bool = False,
+    active_only: bool = False,
 ) -> int | None:
     """Authorize before money queries; retain the transaction until DTO materialization.
 
@@ -64,7 +69,7 @@ def require_financial_read(
     ):
         # The legacy domain retains its own scope contract before any activation.
         return None
-    branches = read_branches(session, branch_id)
+    branches = read_branches(session, branch_id, active_only=active_only)
     if not force and not any(active_revision(session, branch) is not None for branch in branches):
         return None
     if actor is None:

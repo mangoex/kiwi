@@ -212,6 +212,33 @@ def test_recipe_default_scope_does_not_expand_a_mixed_account():
     assert allowed.status_code == 200
 
 
+def test_report_capability_projects_organization_scope_from_the_same_permission():
+    client, fixture, headers = partial_account(["pos.operate", "dashboard.read"])
+    role_id = "018f6f73-2d0a-74f0-8f1c-000000009992"
+    with _test_session_factory(client)() as db:
+        db.execute(
+            sa.insert(models.roles).values(
+                id=role_id,
+                organization_id=ORGANIZATION_ID,
+                name="Unrelated corporate observer",
+                scope="organization",
+                created_at=datetime(2026, 10, 24, tzinfo=UTC),
+            )
+        )
+        db.execute(
+            sa.insert(models.user_roles).values(
+                user_id=fixture["supervisor_id"], role_id=role_id, branch_id=None
+            )
+        )
+        db.commit()
+
+    profile = client.get("/api/v1/auth/session", headers=headers).json()
+
+    assert profile["scope"]["level"] == "organization"
+    assert profile["admin_capabilities"]["dashboard.read"] is True
+    assert profile["admin_capabilities"]["dashboard.read.organization"] is False
+
+
 def test_session_branch_directory_is_limited_to_allowed_scope():
     client, fixture, headers = partial_account(["pos.operate", "purchases.read"])
     profile = client.get("/api/v1/auth/session", headers=headers).json()

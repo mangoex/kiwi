@@ -70,6 +70,17 @@ def test_backend_uses_one_fail_closed_projection_and_audited_corporate_routes() 
     assert "/catalog/category-option-groups/{group_id}/coverage" in api
 
 
+def test_product_configuration_and_category_deletion_share_organization_lock() -> None:
+    operations = _read("apps/api/restaurant_os/operations.py")
+    product_writer = operations.split("def save_product_configuration(", 1)[1].split(
+        "def get_product_pos_preview(", 1
+    )[0]
+    assert "lock_classification_organization(session)" in product_writer
+    assert product_writer.index("lock_classification_organization(session)") < product_writer.index(
+        "category = ("
+    )
+
+
 def test_pos_flow_is_pure_and_does_not_price_or_add_an_option() -> None:
     helper = _read("apps/pos-web/src/features/pos/categoryOptionFlow.ts")
     pos = _read("apps/pos-web/src/features/pos/PointOfSale.tsx")

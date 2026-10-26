@@ -14,7 +14,9 @@
 
 ### TDD-TC-161
 - Archivo: `apps/api/tests/test_branch_reconciliation_reports.py::test_multi_branch_consolidated_report`
-- Propósito: Verificar agrupación consolidada multi-sucursal por proveedor y tipo de gasto en rangos de fecha.
+- Archivo: `apps/api/tests/test_reconciliation_branch_scope.py::test_multi_branch_consolidated_report_ignores_inactive_branches`
+- Archivo: `tests/frontend/test_reconciliation_reports.mjs::testAdminHistoricalReportsRouteAndScope`
+- Propósito: Verificar agrupación consolidada multi-sucursal por proveedor y tipo de gasto en rangos de fecha, exclusión de sucursales inactivas y selección autorizada en Admin.
 
 ### TDD-TC-162
 - Archivo: `apps/api/tests/test_branch_reconciliation_reports.py::test_reconciliation_audit_status_update`

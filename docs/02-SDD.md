@@ -1716,6 +1716,40 @@ retirar relaciones no incluidas. `GET /api/v1/catalog/order-comments` lista el c
 `PUT /api/v1/catalog/order-comments/{id}/products` reemplaza el conjunto de productos sólo después
 de mostrar el impacto. Crear, editar, archivar o relacionar exige `catalog.manage`; no existe
 `branch_id` ni override local en ninguno de estos contratos. Supervisor y Cajero sólo leen y usan.
+`POST /api/v1/catalog/order-comments/archive-all` archiva atómicamente todos los comentarios activos
+de la organización, actualiza actor y timestamp, registra un único evento
+`order_comment.all_archived` con el conteo afectado y responde de forma convergente con cero cuando
+ya no quedan activos. No elimina presets, relaciones ni snapshots. La UI muestra sólo activos por
+defecto, permite revelar archivados y exige confirmación explícita antes del archivo masivo; la
+sección de comentarios no monta controles de disponibilidad local heredados.
+`DELETE /api/v1/catalog/order-comments/{id}` elimina un preset actual y
+`DELETE /api/v1/catalog/order-comments/all` elimina todos los presets actuales, además de opciones
+`preset_instruction` heredadas que pertenezcan a los grupos dedicados `Variaciones y cambios` o
+`Comentarios del pedido`. Ambos contratos exigen `catalog.manage` desde un rol de alcance
+organizacional; un rol limitado a sucursal falla cerrado aunque posea el mismo permiso. Todas las
+escrituras del catálogo —alta/reactivación, edición, reasignación, archivo y borrado— comparten un lock
+transaccional PostgreSQL por organización. Cada writer materializa su respuesta confirmada antes de
+liberar el lock con `commit`, evitando respuestas 404/500 posteriores a una escritura ya persistida.
+Dentro de la misma transacción,
+capturan en `order_comment.deleted` o `variation_note.legacy_deleted` el estado recuperable antes de
+retirar primero overrides/relaciones y después opciones, presets y grupos vacíos. Un grupo heredado se
+considera dedicado sólo si es opcional y todas sus opciones son `preset_instruction`; cualquier mezcla
+con modificadores reales aborta el lote completo. Cada grupo retirado registra además
+`variation_note.legacy_group_deleted` con su snapshot y opciones. El comando masivo registra
+`order_comment.all_deleted` con conteos de presets, relaciones, opciones y grupos, y converge a cero al
+repetirse. Los snapshots de
+líneas de pedido son JSON sin FK al catálogo y no se modifican. La renovación de catálogo offline
+reemplaza de forma acotada `order_comment_products` y `order_comment_presets` de la organización y
+retira las opciones `preset_instruction` sólo de grupos heredados dedicados antes del upsert firmado,
+para que las bajas centrales no sobrevivan como filas obsoletas en SQLite.
+La UI permite eliminar cada comentario o vaciar el catálogo completo, separa visualmente la acción destructiva y redondea
+botones, tarjetas, campos y checkboxes con foco visible y objetivos táctiles de al menos 40 px. Archivo,
+borrado individual, borrado masivo, aplicación, edición, reasignación y cambio de estado comparten un
+estado pendiente que impide lanzar dos mutaciones del catálogo desde la misma pantalla.
+Las señales mínimas son los eventos de auditoría por elemento, el resumen masivo con conteos actuales,
+heredados y relaciones, y la generación/hash del siguiente bundle firmado. Deben responder: ¿quién
+eliminó qué configuración y con qué alcance?, ¿cuántas filas y relaciones se retiraron?, ¿la repetición
+convergió a cero?, y ¿la renovación firmada eliminó las filas obsoletas de la sucursal?
 El cliente liga el preview al texto exacto y al conjunto ordenado de destinos; cambiar cualquiera de
 ellos invalida la confirmación hasta pedir un preview nuevo. Al seleccionar comentarios en POS, el
 carrito conserva y muestra sus textos elegidos, mientras que el backend conserva el snapshot final.
@@ -2042,6 +2076,34 @@ cambios se guardan por una acción explícita y pueden cancelarse; no se escribe
 perder foco. Código, orden y estado pueden seguir enviándose por API para compatibilidad, pero si se
 omiten Python los genera o conserva conforme al caso. La cobertura separa un conteo y marca de los
 incompletos, sin afirmar que toda la lista sea incompleta.
+
+La estación deriva, desde `coverage.products[].assignment.value_id`, el conteo de productos activos
+asignados a cada subgrupo. Un valor con conteo cero conserva su estado canónico, pero presenta la
+advertencia de que no aparecerá en POS y una acción **Crear producto en {subgrupo}**. La acción
+navega a `/products` con `create=1`, `category_id` y `subgroup_id`; Productos resuelve esos IDs
+contra categorías y cobertura canónicas, abre un borrador nuevo y preselecciona ambos valores. Los
+parámetros nunca crean ni asignan por sí mismos, no transportan nombre, precio o receta y se retiran
+de la URL después de hidratar el borrador para evitar reabrirlo accidentalmente.
+
+Los comandos destructivos conservan `catalog.manage`, alcance corporativo y el mismo bloqueo de
+organización que las escrituras hermanas. Eliminar un valor individual falla con
+`category_option_value_in_use` si existe cualquier asignación, incluso de un producto inactivo o
+archivado. Eliminar la configuración completa falla con `category_option_group_delete_active`
+mientras esté publicada; cuando está inactiva elimina en una sola transacción sus asignaciones,
+valores y grupo técnico. Eliminar una categoría falla con `category_delete_has_products` si existe
+cualquier producto relacionado; sólo una categoría vacía puede retirar su configuración técnica y
+su referencia de prioridades administrativas antes de borrar la fila. Cada éxito registra un
+`audit_event` append-only con identidad previa y conteos, sin nombres de productos ni datos de
+pedidos. El evento es corporativo (`branch_id = null`) y conserva las filas administrativas previas
+de categoría, selector, valores, asignaciones por ID y prioridades modificadas para permitir una
+compensación explícita; no existe una restauración automática. No hay cascada implícita hacia
+productos, recetas, precios, pedidos o inventario.
+
+Operación debe poder responder: (1) cuántas eliminaciones terminaron o fueron bloqueadas y por qué;
+(2) cuántos valores o asignaciones retiró cada limpieza completa; y (3) si ocurrió un fallo
+inesperado después de iniciar la transacción. El evento `catalog_structure_delete` registra sólo
+operación, resultado, razón estable y conteos acotados; `audit_event` conserva actor, entidad y
+snapshot administrativo del éxito. Ninguna señal incluye productos, pedidos o datos personales.
 
 La proyección pública se centraliza en Python. Un producto elegible conserva las reglas existentes:
 activo, en alcance de sucursal, disponible y con `price_cents` entero positivo. Para una categoría
@@ -2719,11 +2781,19 @@ Un movimiento sin impuesto canónico devuelve `tax_cents=NULL` y aumenta
 derivan con `Decimal` desde la fuente persistida.
 
 Ambos reportes aceptan periodo UTC semiabierto, `branch_id` explícita, límite `1..100` y cursor opaco
-ligado a filtros. Sin `branch_id`, sólo la autoridad organizacional puede solicitar consolidado; un
-perfil de sucursal debe enviar una sucursal asignada. La UI convierte una vez el día local usando la
+ligado a filtros. Sin `branch_id`, sólo un rol de alcance organizacional con el permiso específico
+del reporte puede solicitar consolidado; un perfil de sucursal debe enviar una sucursal asignada.
+Esta autoridad no se infiere del nombre Administrador o Dueño ni concede otros permisos. La UI convierte una vez el día local usando la
 zona IANA de la sucursal y React/TypeScript se limita a presentar DTO, advertencias y paginación. El
 backend emite `ingredient_sales_projection_total` y `expense_report_request_total` con resultado,
 sucursal y código de error, sin filtros completos, nombres, componentes, razones libres ni PII.
+POS y Admin consumen esos mismos endpoints. Admin obtiene el selector exclusivamente de
+`session.allowed_branches`: `branch_id=null` representa toda la organización sólo para una sesión
+organizacional cuando el mismo permiso visible de la pestaña proviene de un rol organizacional; un rol
+corporativo no relacionado no expande un permiso de sucursal. Una sesión restringida conserva su
+sucursal activa. La consulta de una sucursal muestra y usa su zona IANA; el consolidado histórico
+organizacional define y muestra un período UTC. React no mezcla días locales de zonas diferentes ni
+recalcula los agregados autoritativos de Python.
 
 La revisión `0042_recipe_reports` parte de `0041_user_cash_cuts`, agrega
 `recipe_version_commands` e índices de consulta sobre compras, movimientos y snapshots; no copia ni
@@ -3188,6 +3258,12 @@ El asistente vive exclusivamente en `apps/admin-web` y su disparador sustituye e
 `FileText` del encabezado por `UserRound`; el avatar conserva su autoridad de perfil. La UI envía
 consultas a `/api/v1/admin-ai/proposals`. Una respuesta de conocimiento queda `DRAFT`; sólo una
 salida de proveedor que supere el contrato backend puede quedar `READY_FOR_REVIEW`.
+
+El acceso frontend está además gobernado por `VITE_ADMIN_AI_ASSISTANT_ENABLED`, una compuerta de
+build separada y deshabilitada salvo valor exacto `true`. Con la compuerta apagada `AdminLayout` no
+renderiza `UserRound`, no monta `AdminAssistantPanel` y tampoco monta `AdminProposalReview` aunque
+la URL contenga `admin_ai_proposal`. El perfil permanece disponible. Esta suspensión de superficie
+no cambia permisos, persistencia ni la frontera backend y no autoriza habilitar el proveedor.
 
 `AdminAiService` separa cuatro autoridades:
 
@@ -3820,18 +3896,29 @@ corporativo; Productos no presenta campos locales sin una autoridad canónica vi
 `modifier_groups` agrega `included_selections`, entero entre cero y `maximum_selections`.
 `modifier_options` agrega `component_product_id` nullable y `component_quantity` entera positiva.
 `effect_type=product_component` exige ambos campos y prohíbe IDs de insumo; los demás efectos los
-mantienen nulos. El producto componente es corporativo, activo, de la misma organización y estación,
-no puede ser el padre, combo fijo ni producto con grupos seleccionables propios. En cada sucursal la
-proyección POS oculta una opción cuyo producto o receta efectiva no estén disponibles.
+mantienen nulos. El producto componente es corporativo, activo y de la misma organización; no puede
+ser el padre, combo fijo ni contener otra opción `product_component`. Puede pertenecer a otra estación
+y conservar grupos ordinarios propios. En cada sucursal la
+proyección POS oculta una opción cuyo producto o receta efectiva no estén disponibles. La resolución
+del componente no une `price_versions`: los productos internos sin precio de venta independiente son
+válidos y el motor usa exclusivamente el recargo de la opción y los modificadores hijos.
 
 La selección conserva el orden explícito del cajero. Python aplica `included_selections` a las
 primeras opciones de cada grupo; sólo las restantes suman su `price_delta_cents`, multiplicado por la
 cantidad de la línea. El navegador puede anticipar ese total, pero cotización y aceptación recalculan
 con el catálogo vigente. Cada producto componente expande su receta efectiva, multiplicada por
-`component_quantity` y la cantidad de la línea, dentro del snapshot de consumo del padre. El snapshot
-del modificador congela producto, nombre, cantidad, receta, precio listado, precio aplicado y si fue
-incluido. Al exigirse la misma estación, se conserva una sola tarea de producción y no se inventa una
-semántica multiestación o anidada.
+`component_quantity` y la cantidad de la línea, y después aplica sus modificadores hijos dentro del
+snapshot de consumo del padre. El snapshot congela producto, nombre, cantidad, receta, opciones
+hijas, precios listados/aplicados y si la selección padre fue incluida. La aceptación crea una tarea
+por componente en su estación; KDS recibe únicamente los modificadores de ese componente. La
+anidación termina allí: un modificador hijo no puede seleccionar otro producto.
+
+La presentación POS usa navegación progresiva sin cambiar ese contrato. Los grupos del padre
+permanecen visibles como tarjetas de contexto. Al elegir una opción `product_component`, la lista de
+productos de ese grupo se sustituye por las opciones ordinarias del hijo, también como tarjetas;
+tocar cualquier tarjeta superior vuelve a la lista del grupo elegido sin descartar las selecciones ya
+capturadas. Este estado es exclusivamente de interfaz: `component_modifiers`, cardinalidades, orden,
+precio y consumo continúan usando el payload y la autoridad Python existentes.
 
 La compatibilidad técnica usa `GET/PUT /api/v1/products/{product_id}/modifier-configuration`; estos
 endpoints no tienen una ruta visible en Productos. La lectura requiere
@@ -4594,17 +4681,21 @@ migración. La baja lógica preserva IDs usados por historia.
 
 ### 55.2 API transaccional
 
-`GET/POST /api/v1/catalog/modifier-sets`,
+`GET/POST /api/v1/catalog/modifier-sets`, `PUT/DELETE /api/v1/catalog/modifier-sets/{id}`,
 `GET/PUT /api/v1/catalog/modifier-sets/{id}/configuration` y
 `PUT /api/v1/catalog/modifier-sets/{id}/products` requieren autoridad corporativa y
-`catalog.manage`. Crear, editar el árbol o reemplazar el alcance exige `Idempotency-Key`; cada
+`catalog.manage`. Crear, renombrar, archivar, editar el árbol o reemplazar el alcance exige
+`Idempotency-Key`; cada
 respuesta persistida incluye versión. `expected_version` y bloqueo de cabecera impiden lost update.
-Producto inexistente, inactivo, no corporativo, de estación distinta, conjunto vacío, insumo fuera
-de alcance o `product_component` rechazan toda la transacción. La auditoría registra set, versión y
+Producto inexistente, inactivo, no corporativo, conjunto vacío, insumo fuera de alcance o una segunda
+profundidad de `product_component` rechazan toda la transacción. La auditoría registra set, versión y
 conteos, no payloads de inventario. Un producto relacionado con un set no puede ser cabecera ni
-componente de combo fijo o `product_component`, aun cuando el set todavía no tenga grupos. Los
-writers adquieren `product-composition-mode` para cabecera y componentes en orden estable, además
+componente de combo fijo. Sí puede ser un componente seleccionable cuando el set contiene únicamente
+modificadores ordinarios. Los writers adquieren `product-composition-mode` para cabecera y componentes en orden estable, además
 de `shared-modifier-product`, para que ambos órdenes de escritura fallen cerrados sin carrera.
+Archivar cambia a estado `archived` la cabecera, sus relaciones, grupos y opciones en una sola
+transacción; el nombre almacenado recibe un sufijo técnico único para permitir una configuración
+nueva con el mismo nombre visible. Los snapshots aceptados nunca dependen de esas filas archivadas.
 
 ### 55.3 Lectura POS, precio e historia
 
@@ -4613,7 +4704,9 @@ relación al producto siga activa. El resultado usa los mismos IDs de opción pa
 asignados y pasa por `_apply_order_modifiers`; Python vuelve a validar disponibilidad, cardinalidad,
 recargo e inventario al aceptar. Una asignación retirada desaparece de ventas nuevas. Los snapshots
 de líneas aceptadas conservan nombre, texto, precio y efecto aplicados y no se consultan de nuevo.
-Comentarios, extras universales y composición fija/selectable no cambian de autoridad.
+Comentarios, extras universales y composición fija no cambian de autoridad. Una opción seleccionable
+puede resolver grupos ordinarios del producto hijo; su payload `component_modifiers` se vuelve a
+validar y cotizar en Python y queda anidado en el snapshot de la línea.
 
 ### 55.4 Administración y operación
 
@@ -4622,8 +4715,9 @@ categoría/producto y su patrón de trabajo en dos columnas: alcance a la izquie
 de grupos/opciones a la derecha. Comunica estados vacío/parcial/completo, mantiene visibles los
 requisitos de creación y conserva el borrador ante errores. Un intento incompleto no envía el comando:
 explica el nombre o alcance faltante y dirige el foco al campo correspondiente. Es
-la única superficie administrativa visible para modificadores: el editor compartido oculta productos
-componentes y copia, y Productos no monta pestaña, resumen, enlace ni editor de modificadores.
+la única superficie administrativa visible para modificadores: el editor compartido ofrece productos
+componentes, permite editar el nombre y eliminar la configuración completa con confirmación, pero
+oculta copia; Productos no monta pestaña, resumen, enlace ni editor de modificadores.
 Un grupo nuevo inicia con cero selecciones incluidas para no neutralizar silenciosamente un recargo
 capturado. El editor explica que `0` cobra cada opción desde la primera y que cualquier valor mayor
 reserva, por orden de selección, opciones sin recargo. La POS comunica en la línea si la selección
@@ -4642,18 +4736,19 @@ separada. En release, la migración autorizada a `0075_shared_modifier_sets` deb
 publicar la UI que depende de `modifier_sets`, seguida por smoke acotado; el downgrade se bloquea
 mientras exista catálogo compartido para no perder configuración.
 
-### 55.5 Compatibilidad del catálogo offline al integrar 0075
+### 55.5 Compatibilidad del catálogo offline
 
 Los paquetes firmados v1/v2/v3 omiten `modifier_set_id` en grupos directos y el decodificador lo
 normaliza a null. SQLite existente agrega esa columna nullable sin reescribir filas; las tablas de
 sets y asignaciones vacías permiten las consultas del motor actual y los targets FK. No se importan
 tablas por recorrido indiscriminado del metadata en el catálogo de sólo lectura.
 
-El emisor comprueba exactamente los productos del snapshot y rechaza una asignación activa a set
-activo con `offline_shared_modifiers_unsupported`, incluso sin grupos. El rechazo ocurre antes de
-firmar/instalar/renovar una generación. Un paquete antiguo no puede introducir `modifier_set_id`
-no nulo. Una versión futura deberá transportar sets, asignaciones y alcance íntegros; estos paquetes
-no aparentan soportarlos con opciones omitidas. Historia y paquetes legados siguen operativos.
+El emisor comprueba exactamente los productos del snapshot. v1/v2/v3 siguen rechazando una asignación
+activa con `offline_shared_modifiers_unsupported` antes de firmar o renovar y no pueden introducir
+`modifier_set_id` no nulo. `ord-off-catalog/v4` transporta `modifier_sets`,
+`modifier_set_products`, grupos y opciones íntegros, conserva la generación/clasificación de v3 y
+se hidrata en orden FK antes de atender pedidos. Historia y paquetes legados siguen operativos; un
+gateway anterior rechaza v4 por versión en vez de vender omitiendo opciones.
 
 ## 56. EXP-001 — Conceptos de gasto y Gastos
 
@@ -4900,8 +4995,12 @@ esta acción. Esta paridad no añade grants ni modifica la autoridad del comando
 GET /api/v2/reports/branch-reconciliation/{daily,consolidated,export} conserva dashboard.read y
 alcance; audit continúa en v1. Los consumidores Admin/POS usan v2 y descarga autenticada con el
 mismo token. El export vigente es mensual y requiere sucursal explícita; Admin no sustituye
-Todas las Sucursales por la primera sucursal, y etiqueta el alcance/mes del archivo. Campos monetarios existentes siguen en pesos exactos calculados con Decimal;
-sólo contado/diferencia admiten null. En HTTP v2 el dinero usa cadenas decimales canónicas de dos
+Todas las Sucursales por la primera sucursal, y etiqueta el alcance/mes del archivo.
+El consolidado sin `branch_id` selecciona sólo sucursales activas de la organización y revalida
+permiso financiero y `dashboard.read`; una sucursal inactiva no se itera como objetivo vigente ni
+convierte una consulta corporativa válida en `permission_denied`.
+Campos monetarios existentes siguen en pesos exactos calculados con Decimal; sólo
+contado/diferencia admiten null. En HTTP v2 el dinero usa cadenas decimales canónicas de dos
 posiciones (ej. "1700.00"), nunca serialización float ni concatenación accidental. El cliente
 valida el formato y usa BigInt de centavos para sumas de presentación y formato MXN; la autoridad
 del saldo continúa en Python/Decimal. Cantidades/IDs de filas y contract_version siguen enteros.

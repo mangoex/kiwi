@@ -60,6 +60,39 @@ final result: passed
 
 ---
 
+# Design QA — Reportes históricos en Admin
+
+## Evidencia
+
+- Referencia del hub de Admin: `/var/folders/y4/bk0fl55s7vl95mxh64pm3wn80000gn/T/TemporaryItems/NSIRD_screencaptureui_zjLPxl/Captura de Pantalla 2026-10-24 a la(s) 7.08.45 a.m..png`.
+- Referencia funcional del reporte POS: `/var/folders/y4/bk0fl55s7vl95mxh64pm3wn80000gn/T/TemporaryItems/NSIRD_screencaptureui_9Ldbuu/Captura de Pantalla 2026-10-24 a la(s) 7.07.27 a.m..png`.
+- Hub renderizado: `/private/tmp/kiwi-admin-reports-hub-qa.png`, viewport 1440 × 900.
+- Reporte renderizado final: `/private/tmp/kiwi-admin-historical-reports-final-qa.png`, viewport de escritorio.
+- Reporte compacto: `/private/tmp/kiwi-admin-historical-reports-1000-qa.png`, viewport 1000 × 800.
+- Datos sintéticos locales con dos sucursales activas y una inactiva; no se consultaron ni modificaron datos productivos.
+
+## Comparación y hallazgos
+
+- El hub conserva la jerarquía, tarjetas, tipografía y espaciado existentes; la tarjeta de Reportes históricos se integra entre Cierre y Métricas sin alterar las otras rutas.
+- El reporte mantiene las tres pestañas del POS y agrega el selector de alcance solicitado en el encabezado de Admin.
+- La opción Todas las sucursales y las sucursales activas autorizadas son visibles; la sucursal inactiva no aparece ni participa en el consolidado.
+- En 1000 px no existe desbordamiento horizontal de la página (`scrollWidth` igual a `clientWidth`).
+- No se observaron errores o advertencias en consola ni reapareció el mensaje `Actor does not have access to the requested branch`.
+- En alcance corporativo, Venta por insumos y Gastos muestran `Período corporativo: UTC`; Gastos conserva las columnas Sucursal y Descuento.
+- No quedan hallazgos P0, P1 o P2. La diferencia intencional frente al POS es que Admin muestra un consolidado por período y sucursal, mientras POS conserva la conciliación diaria operativa de su sucursal.
+
+## Interacciones verificadas
+
+- Acceso desde Ventas y Reportes.
+- Cambio entre Corte y Conciliación, Venta por insumos y Gastos.
+- Cambio entre Todas las sucursales y Sucursal Norte.
+- Etiqueta de zona horaria coherente con la sucursal seleccionada y período UTC explícito para toda la organización.
+- Consolidado de todas las sucursales limitado a sucursales activas.
+
+final result: passed
+
+---
+
 # Design QA — ADMIN-CAT-007 Claridad entre familia y grupo
 
 ## Evidencia

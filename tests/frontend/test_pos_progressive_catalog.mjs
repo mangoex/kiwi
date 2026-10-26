@@ -33,6 +33,10 @@ try {
   assert.equal(flow.modifierSelectionsMeetMinimums(groups, { base: [], extras: [] }), false);
   assert.equal(flow.modifierSelectionsMeetMinimums(groups, { base: ['chicken'] }), true);
   assert.equal(flow.modifierSelectionsMeetMinimums(groups, { base: ['chicken'], extras: [] }), true);
+
+  assert.equal(flow.componentDrilldownAfterToggle({ activeOptionId: '', optionId: 'baguette-bbq', wasSelected: false, isComponentOption: true }), 'baguette-bbq');
+  assert.equal(flow.componentDrilldownAfterToggle({ activeOptionId: 'baguette-bbq', optionId: 'baguette-bbq', wasSelected: true, isComponentOption: true }), '');
+  assert.equal(flow.componentDrilldownAfterToggle({ activeOptionId: 'baguette-bbq', optionId: 'no-onion', wasSelected: false, isComponentOption: false }), '');
 } finally {
   rmSync(temporaryDirectory, { recursive: true, force: true });
 }

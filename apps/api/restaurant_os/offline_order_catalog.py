@@ -29,11 +29,13 @@ from restaurant_os.operations import BusinessError
 
 CATALOG_SCHEMA = "ord-off-catalog/v2"
 CLASSIFICATION_CATALOG_SCHEMA = "ord-off-catalog/v3"
+SHARED_MODIFIER_CATALOG_SCHEMA = "ord-off-catalog/v4"
 _CLASSIFICATION_TABLES = (
     "category_option_groups",
     "category_option_values",
     "product_option_value_assignments",
 )
+_SHARED_MODIFIER_TABLES = ("modifier_sets", "modifier_set_products")
 _LEGACY_CATALOG_SCHEMA = "ord-off-catalog/v1"
 OPERATIONAL_SEED_SCHEMA = "ord-off-operational-seed/v1"
 
@@ -52,6 +54,7 @@ _CATALOG_TABLES = (
     *_CLASSIFICATION_TABLES,
     "price_versions",
     "branch_product_availability",
+    *_SHARED_MODIFIER_TABLES,
     "modifier_groups",
     "modifier_options",
     "branch_modifier_options",
@@ -75,10 +78,9 @@ _SEED_TABLES = (
     "user_roles",
     "cash_shifts",
 )
-# SQLite requires even nullable foreign-key targets to have a table.  These
-# These carry no bundle rows. Shared modifier lookups must return no assignments
-# for legacy bundles; exporting an active shared assignment is rejected below.
-_SCHEMA_ONLY_TABLES = ("suppliers", "modifier_sets", "modifier_set_products")
+# SQLite requires even nullable foreign-key targets to have a table. Suppliers
+# carry no bundle rows because order pricing does not read their history.
+_SCHEMA_ONLY_TABLES = ("suppliers",)
 
 _installation_metadata = sa.MetaData()
 _catalog_installations = sa.Table(
@@ -186,22 +188,24 @@ def build_catalog_snapshot(
         ),
     )
     product_ids = {str(row["id"]) for row in products}
-    shared_assignment = session.scalar(
-        sa.select(models.modifier_set_products.c.product_id)
-        .join(models.modifier_sets)
-        .where(
-            models.modifier_set_products.c.product_id.in_(product_ids),
-            models.modifier_set_products.c.status == "active",
-            models.modifier_sets.c.organization_id == organization_id,
-            models.modifier_sets.c.status == "active",
-        )
-        .limit(1)
+    shared_assignments = _rows(
+        session,
+        models.modifier_set_products,
+        models.modifier_set_products.c.product_id.in_(product_ids),
+        models.modifier_set_products.c.status == "active",
     )
-    if shared_assignment is not None:
+    shared_set_ids = {str(row["modifier_set_id"]) for row in shared_assignments}
+    shared_sets = _rows(
+        session,
+        models.modifier_sets,
+        models.modifier_sets.c.id.in_(shared_set_ids),
+        models.modifier_sets.c.organization_id == organization_id,
+        models.modifier_sets.c.status == "active",
+    )
+    if shared_assignments and catalog_schema != SHARED_MODIFIER_CATALOG_SCHEMA:
         raise BusinessError(
             "offline_shared_modifiers_unsupported",
-            "El catálogo offline vigente no transporta modificadores compartidos; "
-            "no se puede emitir un catálogo incompleto.",
+            "El catálogo requiere ord-off-catalog/v4 para transportar modificadores compartidos.",
         )
     categories = _rows(
         session,
@@ -244,11 +248,15 @@ def build_catalog_snapshot(
         session,
         models.modifier_groups,
         models.modifier_groups.c.organization_id == organization_id,
-        models.modifier_groups.c.product_id.in_(product_ids),
+        sa.or_(
+            models.modifier_groups.c.product_id.in_(product_ids),
+            models.modifier_groups.c.modifier_set_id.in_(shared_set_ids),
+        ),
     )
     # Keep the signed v1/v2/v3 wire shape readable by existing gateways.
-    for group in groups:
-        group.pop("modifier_set_id")
+    if catalog_schema != SHARED_MODIFIER_CATALOG_SCHEMA:
+        for group in groups:
+            group.pop("modifier_set_id")
     group_ids = {str(row["id"]) for row in groups}
     options = _rows(
         session,
@@ -355,7 +363,10 @@ def build_catalog_snapshot(
         "product_composition_components": composition_components,
         "inventory_cost_states": costs,
     }
-    if catalog_schema == CLASSIFICATION_CATALOG_SCHEMA:
+    if catalog_schema == SHARED_MODIFIER_CATALOG_SCHEMA:
+        tables["modifier_sets"] = shared_sets
+        tables["modifier_set_products"] = shared_assignments
+    if catalog_schema in {CLASSIFICATION_CATALOG_SCHEMA, SHARED_MODIFIER_CATALOG_SCHEMA}:
         option_groups = _rows(
             session,
             models.category_option_groups,
@@ -644,21 +655,28 @@ def _decode_catalog(
 ) -> dict[str, list[dict[str, Any]]]:
     if not isinstance(catalog, Mapping):
         raise BusinessError("offline_bundle_catalog_invalid", "Bundle catalog is invalid")
-    is_v3 = catalog.get("schema_version") == CLASSIFICATION_CATALOG_SCHEMA
+    actual_schema = catalog.get("schema_version")
+    is_v4 = actual_schema == SHARED_MODIFIER_CATALOG_SCHEMA
+    is_v3 = actual_schema == CLASSIFICATION_CATALOG_SCHEMA
+    is_classified = is_v3 or is_v4
     generation, mode = _generation(manifest)
-    if is_v3 != (generation is not None):
+    if is_classified != (generation is not None):
         raise BusinessError("offline_bundle_catalog_invalid", "Catalog generation/schema mismatch")
     names = (
         _CATALOG_TABLES
-        if is_v3
-        else tuple(name for name in _CATALOG_TABLES if name not in _CLASSIFICATION_TABLES)
+        if is_v4
+        else tuple(
+            name for name in _CATALOG_TABLES
+            if name not in _SHARED_MODIFIER_TABLES
+            and (is_v3 or name not in _CLASSIFICATION_TABLES)
+        )
     )
     rows = _decode_payload(
         catalog,
-        CLASSIFICATION_CATALOG_SCHEMA,
+        SHARED_MODIFIER_CATALOG_SCHEMA,
         names,
         "catalog",
-        compatible_schemas=(CATALOG_SCHEMA, _LEGACY_CATALOG_SCHEMA),
+        compatible_schemas=(CLASSIFICATION_CATALOG_SCHEMA, CATALOG_SCHEMA, _LEGACY_CATALOG_SCHEMA),
     )
     for category in rows["product_categories"]:
         version = category.get("configuration_version")
@@ -676,7 +694,7 @@ def _decode_catalog(
         for row in rows["product_categories"]
     ):
         raise BusinessError("offline_bundle_catalog_invalid", "Active category is unclassified")
-    if is_v3:
+    if is_classified:
         groups = {row["id"]: row for row in rows["category_option_groups"]}
         values = {row["id"]: row for row in rows["category_option_values"]}
         products = {row["id"]: row for row in rows["products"]}
@@ -928,7 +946,10 @@ def _decode_payload(
                     "component_product_id": None,
                     "component_quantity": None,
                 }
-        if name == "product_categories" and actual_schema != CLASSIFICATION_CATALOG_SCHEMA:
+        if name == "product_categories" and actual_schema not in {
+            CLASSIFICATION_CATALOG_SCHEMA,
+            SHARED_MODIFIER_CATALOG_SCHEMA,
+        }:
             legacy_defaults.update(classification_code=None, configuration_version=1)
         accepted = expected - set(legacy_defaults)
         values: list[dict[str, Any]] = []
@@ -942,7 +963,11 @@ def _decode_payload(
                     "offline_bundle_catalog_invalid", f"Bundle {label} row is invalid"
                 )
             normalized = {**legacy_defaults, **raw}
-            if name == "modifier_groups" and normalized["modifier_set_id"] is not None:
+            if (
+                name == "modifier_groups"
+                and normalized["modifier_set_id"] is not None
+                and actual_schema != SHARED_MODIFIER_CATALOG_SCHEMA
+            ):
                 raise BusinessError(
                     "offline_bundle_catalog_invalid",
                     "Legacy bundles cannot contain shared modifier groups",
@@ -1000,6 +1025,7 @@ def _validate_scope(
         "inventory_items",
         "products",
         "price_versions",
+        "modifier_sets",
         "modifier_groups",
         "order_comment_presets",
         "ingredient_variations",
@@ -1176,6 +1202,57 @@ def _upsert_hydrated_rows(
     # ``user_roles`` would retain a revoked corporate role and can duplicate a
     # branch-less link on every renewal.  Replacing only the bundle's users and
     # branch leaves historical identities and all operational facts intact.
+    organization_ids = {str(row["id"]) for row in catalog_rows["organizations"]}
+    conflicting_legacy_option = sa.exists().where(
+        models.modifier_options.c.group_id == models.modifier_groups.c.id,
+        models.modifier_options.c.effect_type != "preset_instruction",
+    )
+    legacy_group_ids = sa.select(models.modifier_groups.c.id).where(
+        models.modifier_groups.c.organization_id.in_(organization_ids),
+        models.modifier_groups.c.product_id.is_not(None),
+        models.modifier_groups.c.is_required.is_(False),
+        models.modifier_groups.c.minimum_selections == 0,
+        models.modifier_groups.c.maximum_selections >= 1,
+        sa.func.lower(sa.func.trim(models.modifier_groups.c.name)).in_(
+            ("variaciones y cambios", "comentarios del pedido")
+        ),
+        ~conflicting_legacy_option,
+    )
+    legacy_option_ids = sa.select(models.modifier_options.c.id).where(
+        models.modifier_options.c.group_id.in_(legacy_group_ids),
+        models.modifier_options.c.effect_type == "preset_instruction",
+    )
+    session.execute(
+        models.branch_modifier_options.delete().where(
+            models.branch_modifier_options.c.option_id.in_(legacy_option_ids)
+        )
+    )
+    session.execute(
+        models.modifier_options.delete().where(
+            models.modifier_options.c.id.in_(legacy_option_ids)
+        )
+    )
+    session.execute(
+        models.modifier_groups.delete().where(
+            models.modifier_groups.c.id.in_(legacy_group_ids),
+            ~sa.exists().where(
+                models.modifier_options.c.group_id == models.modifier_groups.c.id
+            ),
+        )
+    )
+    local_comment_ids = sa.select(models.order_comment_presets.c.id).where(
+        models.order_comment_presets.c.organization_id.in_(organization_ids)
+    )
+    session.execute(
+        models.order_comment_products.delete().where(
+            models.order_comment_products.c.comment_preset_id.in_(local_comment_ids)
+        )
+    )
+    session.execute(
+        models.order_comment_presets.delete().where(
+            models.order_comment_presets.c.organization_id.in_(organization_ids)
+        )
+    )
     if "product_option_value_assignments" in catalog_rows:
         product_ids = {row["id"] for row in catalog_rows["products"]}
         session.execute(

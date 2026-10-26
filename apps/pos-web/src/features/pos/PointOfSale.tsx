@@ -38,7 +38,7 @@ import {
 } from './categoryOptionFlow';
 import { productCardPresentation } from './productCardPresentation';
 import { appendDictationText, ASSISTED_DICTATION_SILENCE_MS, shouldRestartDictation } from './assistedDictation';
-import { modifierSelectionsMeetMinimums, progressiveCatalogStage } from './progressiveCatalogFlow';
+import { componentDrilldownAfterToggle, modifierSelectionsMeetMinimums, progressiveCatalogStage } from './progressiveCatalogFlow';
 import { parseCartQuantity, requiredGroupsFirst } from './cashierCapture';
 import { CashTenderFields } from './CashTenderFields';
 import { useCashTenderPreview } from './useCashTenderPreview';
@@ -53,6 +53,11 @@ import {
   toggleAssistedOption,
   type AssistedOrderDraft,
 } from './assistedOrderDraft';
+import {
+  addDismissedUpsellProduct,
+  getVisibleUpsellRecommendations,
+  type UpsellRecommendation,
+} from './upsellSuggestions';
 
 const getProductIcon = (category: string, size: number = 40) => {
   const cat = (category || '').toLowerCase();
@@ -141,6 +146,10 @@ const buildOrderLines = (items: CartItem[]) => items.map((item) => ({
   modifiers: item.modifiers.map((modifier) => ({
     option_id: modifier.option_id,
     text: modifier.text,
+    component_modifiers: modifier.component_modifiers?.map((child) => ({
+      option_id: child.option_id,
+      text: child.text,
+    })),
   })),
   comment_preset_ids: item.commentPresets.map((comment) => comment.id),
   ingredient_extras: item.ingredientExtras.map((extra) => ({
@@ -154,7 +163,7 @@ interface SelectedIngredientExtra extends IngredientExtra { portions: number; }
 interface SelectedOrderComment { id: string; text: string; }
 interface ModifierOption { id: string; name: string; effect_type: string; price_delta_cents: number; kitchen_text: string; component_product_id?: string; component_product_name?: string; variation_kind?: 'ingredient_extra' | 'order_comment'; variation_id?: string; action?: 'add'; }
 interface ModifierGroup { id: string; name: string; minimum_selections: number; maximum_selections: number; included_selections?: number; options: ModifierOption[]; }
-interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; }
+interface SelectedModifier { option_id: string; option_name: string; price_delta_cents: number; text?: string; component_modifiers?: SelectedModifier[]; }
 interface EditableOrderLine extends EditableLineSnapshot {
   id: string;
   quantity: number;
@@ -383,6 +392,11 @@ const PointOfSale = () => {
   const [activeModifierGroupId, setActiveModifierGroupId] = useState('');
   const [modifierSelections, setModifierSelections] = useState<Record<string, string[]>>({});
   const [modifierText, setModifierText] = useState<Record<string, string>>({});
+  const [componentGroups, setComponentGroups] = useState<Record<string, ModifierGroup[]>>({});
+  const [componentSelections, setComponentSelections] = useState<Record<string, string[]>>({});
+  const [componentText, setComponentText] = useState<Record<string, string>>({});
+  const [componentLoading, setComponentLoading] = useState<Record<string, boolean>>({});
+  const [activeComponentOptionId, setActiveComponentOptionId] = useState('');
   const [modifierError, setModifierError] = useState('');
   const [modifierLoadError, setModifierLoadError] = useState('');
   const [modifierQuantity, setModifierQuantity] = useState(1);
@@ -431,7 +445,9 @@ const PointOfSale = () => {
   const [supervisorIdentity, setSupervisorIdentity] = useState('');
   const [pinError, setPinError] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<PosCustomer | null>(null);
-  const [upsellRecs, setUpsellRecs] = useState<Array<{ product_id: string; product_name: string; price_cents: number; reason: string }>>([]);
+  const [upsellRecs, setUpsellRecs] = useState<UpsellRecommendation[]>([]);
+  const [dismissedUpsellProductIds, setDismissedUpsellProductIds] = useState<Set<string>>(() => new Set());
+  const [upsellPanelDismissed, setUpsellPanelDismissed] = useState(false);
   const [selectedAddressId, setSelectedAddressId] = useState('');
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [availableDrivers, setAvailableDrivers] = useState<DeliveryDriver[]>([]);
@@ -502,6 +518,11 @@ const PointOfSale = () => {
     void refresh();
     return () => { active = false; window.clearInterval(interval); };
   }, [localOrderConfig, pendingOfflineCommandId]);
+
+  useEffect(() => {
+    setDismissedUpsellProductIds(new Set());
+    setUpsellPanelDismissed(false);
+  }, [selectedCustomer?.id]);
 
   useEffect(() => {
     if (!selectedCustomer) {
@@ -826,9 +847,17 @@ const PointOfSale = () => {
             } else {
               modifiers.push({
                 option_id: String(selected.option_id || selected.id),
-                option_name: String(selected.name || selected.kitchen_text || 'Opción'),
+                option_name: String(selected.option_name || selected.name || selected.kitchen_text || 'Opción'),
                 price_delta_cents: Number(selected.price_delta_cents || 0),
                 text: selected.text ? String(selected.text) : undefined,
+                component_modifiers: Array.isArray(selected.component_modifiers)
+                  ? selected.component_modifiers.map((child: Record<string, any>) => ({
+                    option_id: String(child.option_id || child.id),
+                    option_name: String(child.option_name || child.name || child.kitchen_text || 'Opción'),
+                    price_delta_cents: Number(child.price_delta_cents || 0),
+                    text: child.text ? String(child.text) : undefined,
+                  }))
+                  : undefined,
               });
             }
           }
@@ -1009,7 +1038,20 @@ const PointOfSale = () => {
   const activeModifierGroup = modifierGroups.find((group) => group.id === activeModifierGroupId)
     || modifierGroups[0]
     || null;
-  const modifierMinimumsMet = modifierSelectionsMeetMinimums(modifierGroups, modifierSelections);
+  const selectedComponentOptions = modifierGroups.flatMap((group) => group.options.filter(
+    (option) => option.effect_type === 'product_component'
+      && (modifierSelections[group.id] || []).includes(option.id),
+  ));
+  const activeComponentOption = selectedComponentOptions.find(
+    (option) => option.id === activeComponentOptionId,
+  ) || null;
+  const componentMinimumsMet = selectedComponentOptions.every((option) => {
+    const groups = componentGroups[option.id];
+    if (!groups || componentLoading[option.id]) return false;
+    return groups.every((group) => (componentSelections[`${option.id}:${group.id}`] || []).length >= group.minimum_selections);
+  });
+  const modifierMinimumsMet = modifierSelectionsMeetMinimums(modifierGroups, modifierSelections)
+    && componentMinimumsMet;
 
   const addToCart = (product: Product, modifiers: SelectedModifier[] = [], commentPresets: SelectedOrderComment[] = [], ingredientExtras: SelectedIngredientExtra[] = [], quantity: number = 1) => {
     const safeQuantity = Math.max(1, Math.min(99, Math.trunc(quantity)));
@@ -1028,6 +1070,15 @@ const PointOfSale = () => {
         notes: '',
       }];
     });
+  };
+
+  const dismissUpsellRecommendation = (productId: string) => {
+    setDismissedUpsellProductIds((current) => addDismissedUpsellProduct(current, productId));
+  };
+
+  const addUpsellRecommendationToCart = (product: Product) => {
+    addToCart(product);
+    setDismissedUpsellProductIds((current) => addDismissedUpsellProduct(current, product.id));
   };
 
   const closeAssistedCapture = () => {
@@ -1177,6 +1228,11 @@ const PointOfSale = () => {
     setActiveModifierGroupId('');
     setModifierSelections({});
     setModifierText({});
+    setComponentGroups({});
+    setComponentSelections({});
+    setComponentText({});
+    setComponentLoading({});
+    setActiveComponentOptionId('');
     setModifierQuantity(1);
     setModifierError('');
     setModifierLoadError('');
@@ -1321,6 +1377,7 @@ const PointOfSale = () => {
       setModifierSelections({});
       setModifierQuantity(1);
       setModifierText({});
+      setActiveComponentOptionId('');
       setModifierError('');
       setModifierLoadError('');
     } catch {
@@ -1332,6 +1389,8 @@ const PointOfSale = () => {
   };
 
   const toggleModifier = (group: ModifierGroup, optionId: string) => {
+    const option = group.options.find((item) => item.id === optionId);
+    const wasSelected = (modifierSelections[group.id] || []).includes(optionId);
     setModifierSelections((current) => {
       const selected = current[group.id] || [];
       if (selected.includes(optionId)) return { ...current, [group.id]: selected.filter((id) => id !== optionId) };
@@ -1339,6 +1398,42 @@ const PointOfSale = () => {
       if (group.maximum_selections === 1) return { ...current, [group.id]: [optionId] };
       if (selected.length >= group.maximum_selections) return current;
       return { ...current, [group.id]: [...selected, optionId] };
+    });
+    setActiveComponentOptionId(componentDrilldownAfterToggle({
+      activeOptionId: activeComponentOptionId,
+      optionId,
+      wasSelected,
+      isComponentOption: option?.effect_type === 'product_component' && Boolean(option.component_product_id),
+    }));
+    if (!wasSelected && option?.effect_type === 'product_component' && option.component_product_id) {
+      setComponentLoading((current) => ({ ...current, [optionId]: true }));
+      void requestOrder<ModifierGroup[]>(
+        `/products/${option.component_product_id}/modifiers?branch_id=${encodeURIComponent(branchId)}`,
+      ).then((groups) => {
+        setComponentGroups((current) => ({ ...current, [optionId]: requiredGroupsFirst(groups || []) }));
+      }).catch(() => {
+        setModifierError(`No fue posible cargar las opciones de ${option.name}.`);
+        setComponentGroups((current) => ({ ...current, [optionId]: [] }));
+      }).finally(() => {
+        setComponentLoading((current) => ({ ...current, [optionId]: false }));
+      });
+    }
+  };
+
+  const openModifierGroup = (groupId: string) => {
+    setActiveModifierGroupId(groupId);
+    setActiveComponentOptionId('');
+    setModifierError('');
+  };
+
+  const toggleComponentModifier = (parentOptionId: string, group: ModifierGroup, optionId: string) => {
+    const key = `${parentOptionId}:${group.id}`;
+    setComponentSelections((current) => {
+      const selected = current[key] || [];
+      if (selected.includes(optionId)) return { ...current, [key]: selected.filter((id) => id !== optionId) };
+      if (group.maximum_selections === 1) return { ...current, [key]: [optionId] };
+      if (selected.length >= group.maximum_selections) return current;
+      return { ...current, [key]: [...selected, optionId] };
     });
   };
 
@@ -1352,7 +1447,18 @@ const PointOfSale = () => {
     const selected = modifierGroups.flatMap((group) => (modifierSelections[group.id] || []).map((optionId, selectionIndex) => {
       const option = group.options.find((item) => item.id === optionId)!;
       const included = selectionIndex < (group.included_selections || 0);
-      return { option_id: option.id, option_name: option.name, price_delta_cents: included ? 0 : option.price_delta_cents, text: option.effect_type === 'instruction' ? modifierText[option.id] : undefined };
+      const childSelections = (componentGroups[option.id] || []).flatMap((childGroup) => (
+        componentSelections[`${option.id}:${childGroup.id}`] || []
+      ).map((childOptionId, childIndex) => {
+        const childOption = childGroup.options.find((item) => item.id === childOptionId)!;
+        return {
+          option_id: childOption.id,
+          option_name: childOption.name,
+          price_delta_cents: childIndex < (childGroup.included_selections || 0) ? 0 : childOption.price_delta_cents,
+          text: childOption.effect_type === 'instruction' ? componentText[childOption.id] : undefined,
+        };
+      }));
+      return { option_id: option.id, option_name: option.name, price_delta_cents: included ? 0 : option.price_delta_cents, text: option.effect_type === 'instruction' ? modifierText[option.id] : undefined, component_modifiers: childSelections.length ? childSelections : undefined };
     }));
     const commentOptionIds = new Set(
       modifierGroups.flatMap((group) => group.options)
@@ -1648,6 +1754,10 @@ const PointOfSale = () => {
       orderType !== 'delivery' ||
       (selectedCustomer && selectedAddressId),
   );
+  const visibleUpsellRecs = getVisibleUpsellRecommendations(
+    upsellRecs,
+    dismissedUpsellProductIds,
+  );
 
   if (!editOrderId && drafts.captureBlocked) return <div className="pos-sale-screen">
     <h1>Captura de caja</h1><p role="alert">{drafts.error}</p>
@@ -1833,14 +1943,47 @@ const PointOfSale = () => {
                       role="tab"
                       aria-selected={activeModifierGroup?.id === group.id}
                       className={activeModifierGroup?.id === group.id ? 'active' : ''}
-                      onClick={() => setActiveModifierGroupId(group.id)}
+                      onClick={() => openModifierGroup(group.id)}
                     >
                       <strong>{group.name}</strong>
                       <small>{group.minimum_selections > 0 ? `Obligatorio · ${group.minimum_selections}-${group.maximum_selections}` : `Opcional · hasta ${group.maximum_selections}`}{(group.included_selections || 0) > 0 ? ` · ${group.included_selections} incluida(s)` : ''}</small>
                     </button>
                   ))}
                 </div>
-                {activeModifierGroup && <section className="pos-sale-complement-group-panel" role="tabpanel">
+                {activeModifierGroup && activeComponentOption ? <section className="pos-sale-complement-group-panel pos-sale-component-detail-panel" role="tabpanel" aria-label={`Opciones de ${activeComponentOption.name}`}>
+                  <div className="pos-sale-complement-group-title">
+                    <strong>Opciones de {activeComponentOption.name}</strong>
+                    <small>Toca {activeModifierGroup.name} arriba para cambiar el producto.</small>
+                  </div>
+                  <div className="pos-sale-component-modifiers">
+                    {componentLoading[activeComponentOption.id] ? <small>Cargando opciones…</small> : (componentGroups[activeComponentOption.id] || []).length === 0 ? (
+                      <p>Este producto no requiere opciones adicionales.</p>
+                    ) : (componentGroups[activeComponentOption.id] || []).map((childGroup) => {
+                      const key = `${activeComponentOption.id}:${childGroup.id}`;
+                      return <fieldset key={childGroup.id}>
+                        <legend>{childGroup.name}{childGroup.minimum_selections > 0 ? ' · Obligatorio' : ''}</legend>
+                        <div className="pos-sale-component-option-grid">
+                          {childGroup.options.map((childOption) => {
+                            const childChecked = (componentSelections[key] || []).includes(childOption.id);
+                            return <div className="pos-sale-component-option" key={childOption.id}>
+                              <button
+                                type="button"
+                                className={`pos-sale-component-option-card${childChecked ? ' active' : ''}`}
+                                aria-pressed={childChecked}
+                                onClick={() => toggleComponentModifier(activeComponentOption.id, childGroup, childOption.id)}
+                              >
+                                {childChecked && <Check size={15} />}
+                                <span>{childOption.name}</span>
+                                {childOption.price_delta_cents > 0 && <small>+{formatMxnCents(childOption.price_delta_cents)}</small>}
+                              </button>
+                              {childChecked && childOption.effect_type === 'instruction' && <input value={componentText[childOption.id] || ''} onChange={(event) => setComponentText({ ...componentText, [childOption.id]: event.target.value })} placeholder="Instrucción para cocina" maxLength={240} />}
+                            </div>;
+                          })}
+                        </div>
+                      </fieldset>;
+                    })}
+                  </div>
+                </section> : activeModifierGroup && <section className="pos-sale-complement-group-panel" role="tabpanel">
                   <div className="pos-sale-complement-group-title">
                     <strong>{activeModifierGroup.name}</strong>
                     <small>{activeModifierGroup.minimum_selections > 0 ? `Obligatorio · mínimo ${activeModifierGroup.minimum_selections}, máximo ${activeModifierGroup.maximum_selections}` : `Opcional · máximo ${activeModifierGroup.maximum_selections}`}{(activeModifierGroup.included_selections || 0) > 0 ? ` · ${activeModifierGroup.included_selections} selección(es) incluida(s)` : ''}</small>
@@ -1909,31 +2052,53 @@ const PointOfSale = () => {
             <button type="button" disabled={Boolean(editingOrder) || !hasPermission('payments.confirm')} aria-pressed={orderType === 'dine-in'} onClick={() => setOrderType('dine-in')}>Cobrar ahora</button>
           </div>}
 
-          {selectedCustomer && upsellRecs.length > 0 && (
+          {selectedCustomer && !upsellPanelDismissed && visibleUpsellRecs.length > 0 && (
             <div style={{ margin: '8px 12px 0', padding: '10px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', fontSize: '0.82rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#15803d', fontWeight: 700, marginBottom: '6px' }}>
-                <Sparkles size={15} color="#16a34a" />
-                <span>Sugerencia IA para {selectedCustomer.name.split(' ')[0]}:</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', color: '#15803d', fontWeight: 700, marginBottom: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                  <Sparkles size={15} color="#16a34a" />
+                  <span>Sugerencia IA para {selectedCustomer.name.split(' ')[0]}:</span>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Ocultar todas las sugerencias"
+                  title="Ocultar todas las sugerencias"
+                  onClick={() => setUpsellPanelDismissed(true)}
+                  style={{ width: '28px', height: '28px', border: '1px solid #86efac', borderRadius: '999px', background: '#ffffff', color: '#15803d', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                >
+                  <X size={15} aria-hidden="true" />
+                </button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                {upsellRecs.slice(0, 2).map((rec) => {
+                {visibleUpsellRecs.map((rec) => {
                   const matchedProd = products.find((p) => p.id === rec.product_id);
                   return (
                     <div key={rec.product_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcfce7', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
-                      <div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
                         <strong style={{ color: '#15803d', display: 'block', fontSize: '0.85rem' }}>{rec.product_name}</strong>
                         <span style={{ color: '#64748b', fontSize: '0.75rem' }}>{rec.reason} · +{formatMxnCents(rec.price_cents)}</span>
                       </div>
-                      {matchedProd && (
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginLeft: '8px' }}>
+                        {matchedProd && (
                         <button
                           type="button"
-                          onClick={() => addToCart(matchedProd)}
+                          onClick={() => addUpsellRecommendationToCart(matchedProd)}
                           style={{ background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
                         >
                           <Plus size={13} />
                           Agregar
                         </button>
-                      )}
+                        )}
+                        <button
+                          type="button"
+                          aria-label={`Quitar sugerencia ${rec.product_name}`}
+                          title="Quitar sugerencia"
+                          onClick={() => dismissUpsellRecommendation(rec.product_id)}
+                          style={{ width: '28px', height: '28px', border: '1px solid #bbf7d0', borderRadius: '999px', background: '#ffffff', color: '#64748b', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                        >
+                          <X size={14} aria-hidden="true" />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}

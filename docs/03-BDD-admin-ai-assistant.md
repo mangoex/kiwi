@@ -3,10 +3,11 @@
 Feature: Asistente de conocimiento y configuración exclusivo del backoffice
 
   @BDD-SC-431
-  Scenario: El icono de persona abre el asistente sin sustituir el perfil
+  Scenario: El acceso frontend al asistente permanece suspendido sin sustituir el perfil
     Given un Administrador autenticado en Admin
-    When activa el icono de persona del encabezado
-    Then abre el diálogo del asistente de configuración
+    And la compuerta frontend del asistente está apagada por defecto
+    When carga el encabezado o intenta abrir una URL con admin_ai_proposal
+    Then no encuentra el icono ni se monta el diálogo o la revisión del asistente
     And el avatar conserva la edición de perfil
 
   @BDD-SC-432

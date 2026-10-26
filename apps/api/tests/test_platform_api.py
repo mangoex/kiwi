@@ -1621,6 +1621,312 @@ def test_category_option_simplified_admin_defaults_are_python_authoritative() ->
     ]
 
 
+def test_category_option_deletion_is_guarded_transactional_and_audited() -> None:
+    client = _client_with_seeded_database()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    food = [product for product in catalog if product["category_name"] == "Comida"]
+    group = client.post(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+        json={"code": "wrong", "name": "Quesos", "status": "inactive"},
+    ).json()
+    value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(),
+        json={"name": "QUESO PANELA"},
+    ).json()
+    empty_value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(),
+        json={"name": "QUESO CABRA"},
+    ).json()
+    assert client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{food[0]['id']}",
+        headers=_admin_headers(),
+        json={"option_value_id": value["id"]},
+    ).status_code == 200
+
+    denied = client.delete(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values/{value['id']}",
+        headers=_admin_headers(),
+    )
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "admin_catalog_corporate_scope_required"
+    with _test_session_factory(client)() as session:
+        session.execute(
+            models.role_authority_grants.insert().values(
+                role_id=ADMIN_ROLE_ID,
+                authority_kind="organization_all_permissions",
+                created_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
+
+    empty_delete = client.delete(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values/{empty_value['id']}",
+        headers=_admin_headers(),
+    )
+    assert empty_delete.status_code == 200
+    assert empty_delete.json()["deleted"] is True
+
+    assigned_delete = client.delete(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values/{value['id']}",
+        headers=_admin_headers(),
+    )
+    assert assigned_delete.status_code == 409
+    assert assigned_delete.json()["detail"]["code"] == "category_option_value_in_use"
+
+    removed = client.delete(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+    )
+    assert removed.status_code == 200
+    assert removed.json() == {
+        "id": group["id"],
+        "category_id": food[0]["category_id"],
+        "deleted_values": 1,
+        "deleted_assignments": 1,
+    }
+    coverage = client.get(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+    ).json()
+    assert coverage["group"] is None
+    assert coverage["values"] == []
+    catalog_after = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    assert any(product["id"] == food[0]["id"] for product in catalog_after)
+    replay = client.delete(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+    )
+    assert replay.status_code == 404
+    assert replay.json()["detail"]["code"] == "category_option_group_not_found"
+    with _test_session_factory(client)() as session:
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(audit_events).where(
+                audit_events.c.action == "category_option_value.deleted",
+                audit_events.c.entity_id == empty_value["id"],
+            )
+        ) == 1
+        assert session.scalar(
+            sa.select(sa.func.count()).select_from(audit_events).where(
+                audit_events.c.action == "category_option_group.deleted",
+                audit_events.c.entity_id == group["id"],
+            )
+        ) == 1
+        value_audit = session.execute(
+            audit_events.select().where(
+                audit_events.c.action == "category_option_value.deleted",
+                audit_events.c.entity_id == empty_value["id"],
+            )
+        ).mappings().one()
+        assert value_audit["branch_id"] is None
+        assert value_audit["payload"]["deleted_value"]["name"] == "QUESO CABRA"
+        group_audit = session.execute(
+            audit_events.select().where(
+                audit_events.c.action == "category_option_group.deleted",
+                audit_events.c.entity_id == group["id"],
+            )
+        ).mappings().one()
+        assert group_audit["branch_id"] is None
+        assert group_audit["payload"]["deleted_group"]["name"] == "Quesos"
+        assert group_audit["payload"]["deleted_value_rows"][0]["id"] == value["id"]
+        assert group_audit["payload"]["deleted_assignment_rows"][0]["product_id"] == food[0]["id"]
+
+
+def test_category_and_active_selection_group_deletion_fail_closed() -> None:
+    client = _client_with_seeded_database()
+    with _test_session_factory(client)() as session:
+        session.execute(
+            models.role_authority_grants.insert().values(
+                role_id=ADMIN_ROLE_ID,
+                authority_kind="organization_all_permissions",
+                created_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    food = [product for product in catalog if product["category_name"] == "Comida"]
+    group = client.post(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+        json={"name": "Tamaños", "status": "inactive"},
+    ).json()
+    value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(),
+        json={"name": "CHICO"},
+    ).json()
+    for product in food:
+        assert client.put(
+            f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{product['id']}",
+            headers=_admin_headers(),
+            json={"option_value_id": value["id"]},
+        ).status_code == 200
+    assert client.post(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+        json={"status": "active"},
+    ).status_code == 200
+
+    active_delete = client.delete(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+    )
+    assert active_delete.status_code == 409
+    assert active_delete.json()["detail"]["code"] == "category_option_group_delete_active"
+
+    populated_category_delete = client.delete(
+        f"/api/v1/categories/{food[0]['category_id']}", headers=_admin_headers()
+    )
+    assert populated_category_delete.status_code == 409
+    assert populated_category_delete.json()["detail"]["code"] == "category_delete_has_products"
+
+    created = client.post(
+        "/api/v1/categories",
+        headers=_admin_headers(),
+        json={
+            "name": "GRUPO VACÍO",
+            "display_order": 999,
+            "status": "active",
+            "classification_code": "other",
+            "expected_version": 0,
+        },
+    )
+    assert created.status_code == 200
+    empty_group = client.post(
+        f"/api/v1/categories/{created.json()['id']}/selection-group",
+        headers=_admin_headers(),
+        json={"name": "Subgrupos temporales", "status": "inactive"},
+    ).json()
+    empty_value = client.post(
+        f"/api/v1/catalog/category-option-groups/{empty_group['id']}/values",
+        headers=_admin_headers(),
+        json={"name": "TEMPORAL"},
+    ).json()
+    with _test_session_factory(client)() as session:
+        now = datetime.now(UTC)
+        session.execute(
+            models.admin_category_priority_configs.insert().values(
+                organization_id=ORGANIZATION_ID,
+                view_category_ids=[created.json()["id"]],
+                print_category_ids=[created.json()["id"]],
+                version=1,
+                created_by=ADMIN_USER_ID,
+                updated_by=ADMIN_USER_ID,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+    deleted = client.delete(
+        f"/api/v1/categories/{created.json()['id']}", headers=_admin_headers()
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["id"] == created.json()["id"]
+    assert deleted.json()["deleted"] is True
+    with _test_session_factory(client)() as session:
+        assert session.scalar(
+            sa.select(models.category_option_groups.c.id).where(
+                models.category_option_groups.c.id == empty_group["id"]
+            )
+        ) is None
+        assert session.scalar(
+            sa.select(models.category_option_values.c.id).where(
+                models.category_option_values.c.id == empty_value["id"]
+            )
+        ) is None
+        priority = session.execute(
+            sa.select(models.admin_category_priority_configs).where(
+                models.admin_category_priority_configs.c.organization_id == ORGANIZATION_ID
+            )
+        ).mappings().one()
+        assert priority["view_category_ids"] == []
+        assert priority["print_category_ids"] == []
+        assert priority["version"] == 2
+        category_audit = session.execute(
+            audit_events.select().where(
+                audit_events.c.action == "category.deleted",
+                audit_events.c.entity_id == created.json()["id"],
+            )
+        ).mappings().one()
+        assert category_audit["branch_id"] is None
+        assert category_audit["payload"]["deleted_category"]["name"] == "GRUPO VACÍO"
+        assert category_audit["payload"]["deleted_option_group_rows"][0]["id"] == empty_group["id"]
+        assert category_audit["payload"]["deleted_option_value_rows"][0]["id"] == empty_value["id"]
+        assert category_audit["payload"]["priority_configs_before"][0]["version"] == 1
+
+
+def test_category_option_group_deletion_rolls_back_if_audit_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import restaurant_os.operations as operations
+
+    client = _client_with_seeded_database()
+    with _test_session_factory(client)() as session:
+        session.execute(
+            models.role_authority_grants.insert().values(
+                role_id=ADMIN_ROLE_ID,
+                authority_kind="organization_all_permissions",
+                created_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
+    catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
+    food = [product for product in catalog if product["category_name"] == "Comida"]
+    group = client.post(
+        f"/api/v1/categories/{food[0]['category_id']}/selection-group",
+        headers=_admin_headers(),
+        json={"name": "Temporal", "status": "inactive"},
+    ).json()
+    value = client.post(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/values",
+        headers=_admin_headers(),
+        json={"name": "TEMPORAL"},
+    ).json()
+    assert client.put(
+        f"/api/v1/catalog/category-option-groups/{group['id']}/assignments/{food[0]['id']}",
+        headers=_admin_headers(),
+        json={"option_value_id": value["id"]},
+    ).status_code == 200
+
+    original_audit = operations._audit
+
+    def fail_group_delete_audit(*args: Any, **kwargs: Any) -> None:
+        if kwargs.get("action") == "category_option_group.deleted":
+            raise RuntimeError("injected category option audit failure")
+        original_audit(*args, **kwargs)
+
+    monkeypatch.setattr(operations, "_audit", fail_group_delete_audit)
+    factory = _test_session_factory(client)
+    with factory() as session, pytest.raises(
+        RuntimeError, match="injected category option audit failure"
+    ):
+        operations.delete_category_option_group(
+            session,
+            food[0]["category_id"],
+            ADMIN_USER_ID,
+        )
+
+    with factory() as session:
+        assert session.scalar(
+            sa.select(models.category_option_groups.c.id).where(
+                models.category_option_groups.c.id == group["id"]
+            )
+        ) == group["id"]
+        assert session.scalar(
+            sa.select(models.category_option_values.c.id).where(
+                models.category_option_values.c.id == value["id"]
+            )
+        ) == value["id"]
+        assert session.scalar(
+            sa.select(models.product_option_value_assignments.c.option_value_id).where(
+                models.product_option_value_assignments.c.group_id == group["id"],
+                models.product_option_value_assignments.c.product_id == food[0]["id"],
+            )
+        ) == value["id"]
+
+
 def test_category_option_rejects_inactive_values_and_allows_same_code_per_category() -> None:
     client = _client_with_seeded_database()
     catalog = client.get("/api/v1/catalog/products", headers=_admin_headers()).json()
@@ -4103,7 +4409,7 @@ def test_selectable_compound_configuration_is_versioned_idempotent_and_prices_in
     assert initial.json()["groups"] == []
     candidate_ids = {item["id"] for item in initial.json()["component_candidates"]}
     assert fries_id in candidate_ids
-    assert soda_id not in candidate_ids
+    assert soda_id in candidate_ids
 
     payload = {
         "expected_version": 0,
@@ -4357,8 +4663,7 @@ def test_selectable_compound_configuration_is_versioned_idempotent_and_prices_in
             ],
         },
     )
-    assert nested.status_code == 409
-    assert nested.json()["detail"]["code"] == "modifier_component_nested"
+    assert nested.status_code == 200, nested.text
 
     duplicate_name = client.put(
         f"/api/v1/products/{burger_id}/modifier-configuration",
@@ -4383,26 +4688,25 @@ def test_selectable_compound_configuration_is_versioned_idempotent_and_prices_in
             }
         ],
     }
-    rejected = client.put(
+    cross_station = client.put(
         f"/api/v1/products/{burger_id}/modifier-configuration",
         headers={**_admin_headers(), "Idempotency-Key": "compound-config-invalid-station"},
         json=invalid_station,
     )
-    assert rejected.status_code == 409
-    assert rejected.json()["detail"]["code"] == "modifier_component_station_mismatch"
+    assert cross_station.status_code == 200, cross_station.text
     current = client.get(
         f"/api/v1/products/{burger_id}/modifier-configuration", headers=_admin_headers()
     ).json()
-    assert current["expected_version"] == 1
+    assert current["expected_version"] == 2
     assert current["groups"][0]["name"] == "Acompañamientos"
 
     cleared = client.put(
         f"/api/v1/products/{burger_id}/modifier-configuration",
         headers={**_admin_headers(), "Idempotency-Key": "compound-config-clear"},
-        json={"expected_version": 1, "groups": []},
+        json={"expected_version": 2, "groups": []},
     )
     assert cleared.status_code == 200
-    assert cleared.json()["version"] == 2
+    assert cleared.json()["version"] == 3
     with factory() as session:
         historical = session.execute(
             order_line_consumption_snapshots.select().where(
@@ -4577,9 +4881,17 @@ def test_shared_modifier_set_applies_once_to_multiple_products_and_preserves_his
     ).json()
     assert all(option["id"] != option_id for group in burger_groups for option in group["options"])
 
-    forbidden_component = client.put(
+    component_configuration = client.get(
         f"/api/v1/catalog/modifier-sets/{modifier_set['id']}/configuration",
-        headers={**_admin_headers(), "Idempotency-Key": "shared-modifier-component-forbidden"},
+        headers=_admin_headers(),
+    )
+    assert component_configuration.status_code == 200, component_configuration.text
+    assert burger_id in {
+        candidate["id"] for candidate in component_configuration.json()["component_candidates"]
+    }
+    selectable_component = client.put(
+        f"/api/v1/catalog/modifier-sets/{modifier_set['id']}/configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-modifier-component"},
         json={
             "expected_version": 4,
             "groups": [{
@@ -4597,8 +4909,136 @@ def test_shared_modifier_set_applies_once_to_multiple_products_and_preserves_his
             }],
         },
     )
-    assert forbidden_component.status_code == 409
-    assert forbidden_component.json()["detail"]["code"] == "shared_modifier_component_forbidden"
+    assert selectable_component.status_code == 200, selectable_component.text
+    assert selectable_component.json()["groups"][0]["options"][0]["effect_type"] == (
+        "product_component"
+    )
+
+
+def test_selectable_component_accepts_and_prices_its_own_required_modifiers() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+    fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
+
+    # Selectable products can be internal combo components. Their recipe and
+    # modifier catalog are required, but a standalone sale price is not.
+    factory = _test_session_factory(client)
+    with factory() as session:
+        session.execute(price_versions.delete().where(price_versions.c.product_id == fries_id))
+        session.commit()
+
+    child_configuration = client.put(
+        f"/api/v1/products/{fries_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "component-child-modifiers"},
+        json={
+            "expected_version": 0,
+            "groups": [{
+                "name": "Tipo de papa",
+                "is_required": True,
+                "minimum_selections": 1,
+                "maximum_selections": 1,
+                "included_selections": 0,
+                "options": [{
+                    "name": "Sazonada",
+                    "effect_type": "instruction",
+                    "price_delta_cents": 300,
+                    "kitchen_text": "PAPA SAZONADA",
+                }],
+            }],
+        },
+    )
+    assert child_configuration.status_code == 200, child_configuration.text
+    child_option_id = child_configuration.json()["groups"][0]["options"][0]["id"]
+
+    parent_configuration = client.put(
+        f"/api/v1/products/{burger_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "component-parent-selector"},
+        json={
+            "expected_version": 0,
+            "groups": [{
+                "name": "Acompañamiento",
+                "is_required": True,
+                "minimum_selections": 1,
+                "maximum_selections": 1,
+                "included_selections": 1,
+                "options": [{
+                    "name": "Papas",
+                    "effect_type": "product_component",
+                    "component_product_id": fries_id,
+                    "component_quantity": "1",
+                    "price_delta_cents": 0,
+                    "kitchen_text": "PREPARAR PAPAS",
+                }],
+            }],
+        },
+    )
+    assert parent_configuration.status_code == 200, parent_configuration.text
+    component_option_id = parent_configuration.json()["groups"][0]["options"][0]["id"]
+
+    visible_groups = client.get(
+        f"/api/v1/products/{burger_id}/modifiers?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    )
+    assert visible_groups.status_code == 200, visible_groups.text
+    assert any(
+        option["id"] == component_option_id
+        for group in visible_groups.json()
+        for option in group["options"]
+    )
+
+    missing_child = client.post(
+        "/api/v1/orders/quote",
+        headers=_admin_headers(),
+        json={"branch_id": BRANCH_ID, "lines": [{
+            "product_id": burger_id,
+            "quantity": 1,
+            "modifiers": [{"option_id": component_option_id}],
+        }]},
+    )
+    assert missing_child.status_code == 409
+    assert missing_child.json()["detail"]["code"] == "modifier_group_minimum_not_met"
+
+    quote = client.post(
+        "/api/v1/orders/quote",
+        headers=_admin_headers(),
+        json={"branch_id": BRANCH_ID, "lines": [{
+            "product_id": burger_id,
+            "quantity": 1,
+            "modifiers": [{
+                "option_id": component_option_id,
+                "component_modifiers": [{"option_id": child_option_id}],
+            }],
+        }]},
+    )
+    assert quote.status_code == 200, quote.text
+    assert quote.json()["lines"][0]["modifier_total_cents"] == 300
+    assert _open_shift(client, 10_000).status_code == 200
+    order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={"branch_id": BRANCH_ID, "lines": [{
+            "product_id": burger_id,
+            "quantity": 1,
+            "modifiers": [{
+                "option_id": component_option_id,
+                "component_modifiers": [{"option_id": child_option_id}],
+            }],
+        }]},
+    )
+    assert order.status_code == 200, order.text
+    selected_component = order.json()["lines"][0]["selected_modifiers"][0]
+    assert order.json()["production_tasks"][0]["product_name"] == (
+        selected_component["component_product_name"]
+    )
+    kds = client.get(f"/api/v1/kds/tasks?branch_id={BRANCH_ID}", headers=_admin_headers())
+    assert kds.status_code == 200, kds.text
+    component_task_id = order.json()["production_tasks"][0]["id"]
+    component_task = next(task for task in kds.json() if task["id"] == component_task_id)
+    assert component_task["station"] == "kitchen"
+    assert any(
+        modifier.get("kitchen_text") == "PAPA SAZONADA"
+        for modifier in component_task["selected_modifiers"]
+    )
 
 
 def test_shared_modifier_set_is_idempotent_versioned_and_rejects_invalid_scope() -> None:
@@ -4696,7 +5136,155 @@ def test_shared_modifier_set_is_idempotent_versioned_and_rejects_invalid_scope()
         assert invalid_product.json()["detail"]["code"] == "modifier_set_product_not_found"
 
 
-def test_shared_modifier_set_protects_station_and_composition_authority() -> None:
+def test_shared_modifier_set_can_be_renamed_and_archived_without_leaving_pos_options() -> None:
+    client = _client_with_seeded_database()
+    burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
+
+    created = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-set-manage-create"},
+        json={"name": "Nombre anterior", "product_ids": [burger_id]},
+    )
+    assert created.status_code == 200, created.text
+    modifier_set_id = created.json()["id"]
+
+    rename_headers = {
+        **_admin_headers(),
+        "Idempotency-Key": "shared-set-manage-rename",
+    }
+    renamed = client.put(
+        f"/api/v1/catalog/modifier-sets/{modifier_set_id}",
+        headers=rename_headers,
+        json={"expected_version": 1, "name": "Nombre vigente"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["name"] == "Nombre vigente"
+    assert renamed.json()["version"] == 2
+    rename_replay = client.put(
+        f"/api/v1/catalog/modifier-sets/{modifier_set_id}",
+        headers=rename_headers,
+        json={"expected_version": 1, "name": "Nombre vigente"},
+    )
+    assert rename_replay.status_code == 200
+    assert rename_replay.json()["result"] == "replay"
+
+    configured = client.put(
+        f"/api/v1/catalog/modifier-sets/{modifier_set_id}/configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-set-manage-configure"},
+        json={
+            "expected_version": 2,
+            "groups": [{
+                "name": "Salsa",
+                "minimum_selections": 0,
+                "maximum_selections": 1,
+                "included_selections": 0,
+                "options": [{
+                    "name": "Chipotle",
+                    "effect_type": "instruction",
+                    "price_delta_cents": 0,
+                    "kitchen_text": "AGREGAR CHIPOTLE",
+                }],
+            }],
+        },
+    )
+    assert configured.status_code == 200, configured.text
+    option_id = configured.json()["groups"][0]["options"][0]["id"]
+    assert _open_shift(client, 10_000).status_code == 200
+    historical_order = client.post(
+        "/api/v1/orders",
+        headers=_admin_headers(),
+        json={
+            "branch_id": BRANCH_ID,
+            "lines": [{
+                "product_id": burger_id,
+                "quantity": 1,
+                "modifiers": [{"option_id": option_id}],
+            }],
+        },
+    )
+    assert historical_order.status_code == 200, historical_order.text
+
+    stale_archive = client.delete(
+        f"/api/v1/catalog/modifier-sets/{modifier_set_id}?expected_version=2",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-set-manage-stale-archive"},
+    )
+    assert stale_archive.status_code == 409
+    assert stale_archive.json()["detail"]["code"] == "modifier_set_version_conflict"
+
+    archive_headers = {
+        **_admin_headers(),
+        "Idempotency-Key": "shared-set-manage-archive",
+    }
+    archived = client.delete(
+        f"/api/v1/catalog/modifier-sets/{modifier_set_id}?expected_version=3",
+        headers=archive_headers,
+    )
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["status"] == "archived"
+    assert archived.json()["version"] == 4
+    assert archived.json()["archived_product_count"] == 1
+    assert archived.json()["archived_group_count"] == 1
+    assert archived.json()["archived_option_count"] == 1
+    archive_replay = client.delete(
+        f"/api/v1/catalog/modifier-sets/{modifier_set_id}?expected_version=3",
+        headers=archive_headers,
+    )
+    assert archive_replay.status_code == 200
+    assert archive_replay.json()["result"] == "replay"
+
+    active_sets = client.get("/api/v1/catalog/modifier-sets", headers=_admin_headers())
+    assert active_sets.status_code == 200
+    assert modifier_set_id not in {item["id"] for item in active_sets.json()}
+    product_groups = client.get(
+        f"/api/v1/products/{burger_id}/modifiers?branch_id={BRANCH_ID}",
+        headers=_admin_headers(),
+    )
+    assert product_groups.status_code == 200
+    assert all(
+        option["id"] != option_id
+        for group in product_groups.json()
+        for option in group["options"]
+    )
+
+    factory = _test_session_factory(client)
+    with factory() as session:
+        modifier_set = session.execute(
+            models.modifier_sets.select().where(models.modifier_sets.c.id == modifier_set_id)
+        ).mappings().one()
+        assert modifier_set["status"] == "archived"
+        assert modifier_set["name"].startswith("Nombre vigente [archived:")
+        historical_line = session.execute(
+            order_lines.select().where(
+                order_lines.c.order_id == historical_order.json()["id"]
+            )
+        ).mappings().one()
+        historical_snapshot = session.execute(
+            order_line_consumption_snapshots.select().where(
+                order_line_consumption_snapshots.c.order_line_id == historical_line["id"]
+            )
+        ).mappings().one()
+        assert option_id in {
+            modifier["option_id"] for modifier in historical_snapshot["modifiers"]
+        }
+        actions = set(session.scalars(
+            sa.select(audit_events.c.action).where(
+                audit_events.c.entity_type == "modifier_set",
+                audit_events.c.entity_id == modifier_set_id,
+            )
+        ))
+        assert {"modifier_set.renamed", "modifier_set.archived"}.issubset(actions)
+
+    recreated = client.post(
+        "/api/v1/catalog/modifier-sets",
+        headers={**_admin_headers(), "Idempotency-Key": "shared-set-manage-recreate"},
+        json={"name": "Nombre vigente", "product_ids": [burger_id]},
+    )
+    assert recreated.status_code == 200, recreated.text
+    assert recreated.json()["id"] != modifier_set_id
+
+
+def test_shared_modifier_set_protects_fixed_composition_and_allows_component_modifiers(
+) -> None:
     client = _client_with_seeded_database()
     burger_id = "018f6f73-2d0a-74f0-8f1c-000000000111"
     fries_id = "018f6f73-2d0a-74f0-8f1c-000000000112"
@@ -4793,8 +5381,7 @@ def test_shared_modifier_set_protects_station_and_composition_authority() -> Non
             }],
         },
     )
-    assert nested_selectable.status_code == 409
-    assert nested_selectable.json()["detail"]["code"] == "modifier_component_nested"
+    assert nested_selectable.status_code == 200, nested_selectable.text
 
     client = _client_with_seeded_database()
     selectable = client.put(
@@ -4818,15 +5405,12 @@ def test_shared_modifier_set_protects_station_and_composition_authority() -> Non
         },
     )
     assert selectable.status_code == 200, selectable.text
-    rejected_selectable_component = client.post(
+    component_modifiers = client.post(
         "/api/v1/catalog/modifier-sets",
         headers={**_admin_headers(), "Idempotency-Key": "shared-reject-component"},
         json={"name": "No anidar seleccionable", "product_ids": [fries_id]},
     )
-    assert rejected_selectable_component.status_code == 409
-    assert rejected_selectable_component.json()["detail"]["code"] == (
-        "modifier_set_product_composition_conflict"
-    )
+    assert component_modifiers.status_code == 200, component_modifiers.text
 
 
 def test_shared_modifier_inventory_effect_requires_every_product_recipe() -> None:

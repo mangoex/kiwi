@@ -24,7 +24,14 @@ assert.match(workspace, /registerWorkspaceSnapshot\(createRecoveryKey/);
 assert.match(workspace, /registerWorkspaceSnapshot\(scopeRecoveryKey/);
 assert.match(workspace, /createIntent\.current \?\?= \{/);
 assert.match(workspace, /scopeIntent\.current \?\?= \{/);
-assert.doesNotMatch(workspace, /product_component/);
+assert.match(workspace, /allowProductComponents/);
+assert.match(workspace, /allowProductComponents=\{true\}/);
+assert.match(workspace, /Guardar nombre/);
+assert.match(workspace, /Eliminar configuración/);
+assert.match(workspace, /method: 'PUT'/);
+assert.match(workspace, /method: 'DELETE'/);
+assert.match(workspace, /expected_version=/);
+assert.match(workspace, /Idempotency-Key/);
 assert.doesNotMatch(
   products,
   /Modificadores \/ Producto compuesto|<ModifierManager|\/catalog\/modifier-sets/,

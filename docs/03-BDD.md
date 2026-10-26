@@ -380,6 +380,58 @@ Feature: Usar dos decimales sin perder precisión interna
     And una modificación explícita válida a 12.34 usa el nuevo valor capturado
 ```
 
+## BDD-FEAT-159 Combos seleccionables con productos configurables
+
+```gherkin
+@PRD-FR-245 @PRD-FR-262 @inventory @offline @production
+Feature: Elegir productos reales dentro de un combo
+
+  @BDD-SC-797
+  Scenario: Elegir un medio baguette y completar sus modificadores
+    Given un combo con un grupo compartido obligatorio "Medio baguette"
+    And la opción elegida referencia un producto con grupos ordinarios de pan y queso
+    When el cajero elige el producto componente
+    Then POS sustituye la lista de baguettes por tarjetas de pan y queso
+    And conserva visibles arriba las tarjetas Ensalada y Baguette
+    When el cajero toca nuevamente una de esas tarjetas superiores
+    Then vuelve a los productos de ese grupo conservando las selecciones ya capturadas
+    And POS valida pan y queso antes de agregar la línea
+    And Python calcula los recargos, congela ambas selecciones y aplica la receta modificada
+    And producción recibe una tarea del componente en su estación con sus instrucciones
+
+  @BDD-SC-798
+  Scenario: Rechazar anidación de productos o una selección hija incompleta
+    Given una opción componente cuyo producto contiene otra opción de producto o un grupo requerido
+    When se guarda la configuración o se cotiza sin completar el grupo requerido
+    Then el backend rechaza la operación con un código estable
+    And no crea pedido, reserva, tarea ni versión parcial
+
+  @BDD-SC-799
+  Scenario: Conservar el mismo contrato durante operación offline
+    Given un gateway con el catálogo compatible de sets compartidos y productos componentes
+    When el POS cotiza y acepta el combo sin conexión
+    Then aplica las mismas cardinalidades, recargos, snapshots y tareas que la autoridad central
+    And un gateway incompatible rechaza el catálogo en vez de omitir opciones
+
+  @BDD-SC-800
+  Scenario: Mostrar un producto componente interno sin precio independiente
+    Given un combo contiene una opción que referencia un producto activo con receta efectiva
+    And el producto componente no tiene precio de venta independiente
+    When el cajero abre los modificadores del combo en una sucursal donde el componente está disponible
+    Then POS muestra la opción y sus modificadores hijos
+    And cotización usa el precio del combo más los recargos configurados sin exigir precio al componente
+
+  @BDD-SC-801
+  Scenario: Renombrar y eliminar una configuración compartida
+    Given una configuración compartida activa con productos, grupos y opciones
+    When el administrador cambia su nombre con la versión vigente
+    Then el nombre nuevo aparece en Administración sin cambiar pedidos anteriores
+    When confirma eliminar la configuración con la versión vigente
+    Then cabecera, relaciones, grupos y opciones quedan archivados y desaparecen de ventas nuevas
+    And la auditoría y los snapshots históricos permanecen
+    And el nombre visible puede reutilizarse en una configuración nueva
+```
+
 ## Regla de expansión
 
 Cada historia nueva deberá incluir:

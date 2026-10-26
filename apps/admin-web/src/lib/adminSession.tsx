@@ -15,7 +15,7 @@ export interface AdminSession extends AdministrativeSession, Omit<BranchWorkspac
   scope: { level: 'branch' | 'organization'; allowed_branch_ids: string[]; assigned_branch_id: string | null; authorization_version?:number };
   active_branch: { id: string; name: string; code: string; timezone: string };
   admin_capabilities: Record<string, boolean>;
-  allowed_branches: {id:string;name:string;code:string;status:string}[];
+  allowed_branches: {id:string;name:string;code:string;status:string;timezone:string}[];
   inventory_query_capabilities?: InventoryCapabilities;
 }
 export type ConfigurationScope =

@@ -22,6 +22,11 @@ Feature: Captura clara conservando contratos
     And precio base e importe cotizado se muestran en renglones separados del nombre
     And los controles de cantidad se ordenan verticalmente: sumar, cantidad editable y restar
     And Eliminar queda separado de esos controles y se conservan notas y complementos legibles
+    And puede quitar individualmente una sugerencia sin modificar el carrito ni el total
+    And puede cerrar todo el bloque de sugerencias desde su encabezado sin modificar la cuenta
+    And agregar desde una sugerencia la oculta y una actualización de recomendaciones no la restaura
+    And una actualización tampoco restaura un bloque cerrado globalmente para el cliente actual
+    And cambiar o limpiar el cliente permite iniciar un contexto nuevo de sugerencias y reabre el bloque
     And una nota histórica mayor de 500 sólo se conserva con su fuente activa original
     And borrar o reordenar otras líneas conserva esa fuente, sin copiarla ni repetirla
 

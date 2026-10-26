@@ -113,6 +113,34 @@
   gap: 18px;
 }
 
+.shared-modifier-set-management {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.shared-modifier-set-management__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shared-modifier-danger-action.ui-button {
+  border-color: #fecaca;
+  background: #fff;
+  color: #b91c1c;
+}
+
+.shared-modifier-danger-action.ui-button:hover:not(:disabled) {
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
 .shared-modifier-step {
   display: grid;
   gap: 3px;
@@ -207,5 +235,13 @@
   .shared-modifier-workspace__targets {
     border-right: 0;
     border-bottom: 1px solid #e2e8f0;
+  }
+
+  .shared-modifier-set-management {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shared-modifier-set-management__actions .ui-button {
+    width: 100%;
   }
 }

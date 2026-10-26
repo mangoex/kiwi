@@ -3063,6 +3063,51 @@ def _price_order_line(
     }
 
 
+def _production_tasks_for_priced_line(
+    *,
+    branch_id: str,
+    order_id: str,
+    order_line_id: str,
+    product: dict[str, Any],
+    quantity: int,
+    snapshot: dict[str, Any],
+    created_at: datetime,
+) -> list[dict[str, Any]]:
+    selected_components = [
+        modifier
+        for modifier in snapshot["modifiers"]
+        if modifier.get("effect_type") == "product_component"
+    ]
+    task_products = selected_components or [{
+        "component_product_name": product["name"],
+        "component_station": product["station"],
+        "component_quantity": 1,
+    }]
+    tasks = []
+    for task_product in task_products:
+        task_quantity = Decimal(str(task_product["component_quantity"])) * quantity
+        if task_quantity != task_quantity.to_integral_value():
+            raise BusinessError(
+                "modifier_component_quantity_invalid",
+                "Component task quantity must be a whole product unit",
+            )
+        tasks.append({
+            "id": _id(),
+            "organization_id": ORGANIZATION_ID,
+            "branch_id": branch_id,
+            "order_id": order_id,
+            "order_line_id": order_line_id,
+            "station": task_product["component_station"],
+            "status": "PENDING",
+            "product_name": task_product["component_product_name"],
+            "quantity": int(task_quantity),
+            "created_at": created_at,
+            "started_at": None,
+            "completed_at": None,
+        })
+    return tasks
+
+
 def _order_cart_hash(lines: list[dict[str, Any]]) -> str:
     return hashlib.sha256(
         json.dumps(lines, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
@@ -3643,22 +3688,15 @@ def create_local_order(
             combo_lines_data.append(order_lines_data[-1])
             continue
 
-        tasks_data.append(
-            {
-                "id": _id(),
-                "organization_id": ORGANIZATION_ID,
-                "branch_id": actual_branch_id,
-                "order_id": order_id,
-                "order_line_id": order_line_id,
-                "station": product["station"],
-                "status": "PENDING",
-                "product_name": product["name"],
-                "quantity": quantity,
-                "created_at": now,
-                "started_at": None,
-                "completed_at": None,
-            }
-        )
+        tasks_data.extend(_production_tasks_for_priced_line(
+            branch_id=actual_branch_id,
+            order_id=order_id,
+            order_line_id=order_line_id,
+            product=product,
+            quantity=quantity,
+            snapshot=consumption_snapshot,
+            created_at=now,
+        ))
 
         _record_calculated_consumption_movements(
             session,
@@ -7087,23 +7125,16 @@ def _amend_order(
         if is_combo:
             combo_new_lines.append(new_line)
             continue
-        new_tasks.append(
-            {
-                "id": _id(),
-                "organization_id": ORGANIZATION_ID,
-                "branch_id": order["branch_id"],
-                "order_id": order_id,
-                "order_line_id": line_id,
-                "station": product["station"],
-                "status": "PENDING",
-                "product_name": product["name"],
-                "quantity": quantity,
-                "created_at": now,
-                "started_at": None,
-                "completed_at": None,
-            }
-        )
         assert snapshot is not None
+        new_tasks.extend(_production_tasks_for_priced_line(
+            branch_id=str(order["branch_id"]),
+            order_id=order_id,
+            order_line_id=line_id,
+            product=product,
+            quantity=quantity,
+            snapshot=snapshot,
+            created_at=now,
+        ))
         _record_calculated_consumption_movements(
             session,
             components=snapshot["components"],
@@ -9246,7 +9277,30 @@ def list_kds_tasks(session: Session, branch_id: str) -> list[dict[str, Any]]:
         .order_by(models.production_tasks.c.created_at.desc())
         .limit(100)
     ).mappings()
-    return [dict(row) for row in rows]
+    result = []
+    for row in rows:
+        item = dict(row)
+        component = next(
+            (
+                modifier
+                for modifier in item["selected_modifiers"] or []
+                if modifier.get("effect_type") == "product_component"
+                and modifier.get("component_product_name") == item["product_name"]
+                and modifier.get("component_station") == item["station"]
+            ),
+            None,
+        )
+        if component:
+            item["selected_modifiers"] = [
+                {
+                    "option_name": component.get("option_name"),
+                    "kitchen_text": component.get("kitchen_text"),
+                    "effect_type": "product_component",
+                },
+                *(component.get("component_modifiers") or []),
+            ]
+        result.append(item)
+    return result
 
 
 def advance_kds_task(
@@ -9463,8 +9517,8 @@ class ReportingProjectionService:
         if not isinstance(limit, int) or not 1 <= limit <= 100:
             raise BusinessError("report_limit_invalid", "Report limit must be between 1 and 100")
         requested_branch = raw.get("branch_id")
-        if requested_branch is None and not actor_has_organization_authority(
-            self.session, self.actor_user_id
+        if requested_branch is None and not _actor_has_organization_scope(
+            self.session, self.actor_user_id, permission
         ):
             raise AuthorizationError(
                 "report_branch_required", "A branch is required for this actor"
@@ -11113,6 +11167,45 @@ def _get_available_product(
     return dict(row) if row else None
 
 
+def _get_available_component_product(
+    session: Session, product_id: str, branch_id: str = BRANCH_ID
+) -> dict[str, Any] | None:
+    """Resolve an internal selectable product without requiring a standalone sale price."""
+    session = catalog_session_for(session)
+    row = (
+        session.execute(
+            sa.select(
+                models.products.c.id,
+                models.products.c.name,
+                models.products.c.station,
+                models.products.c.category_id,
+                models.product_categories.c.name.label("family_name"),
+            )
+            .select_from(
+                models.products.join(
+                    models.product_categories,
+                    models.products.c.category_id == models.product_categories.c.id,
+                ).outerjoin(
+                    models.branch_product_availability,
+                    sa.and_(
+                        models.products.c.id == models.branch_product_availability.c.product_id,
+                        models.branch_product_availability.c.branch_id == branch_id,
+                    ),
+                )
+            )
+            .where(
+                models.products.c.id == product_id,
+                models.products.c.organization_id == ORGANIZATION_ID,
+                models.products.c.status == "active",
+                sa.func.coalesce(models.branch_product_availability.c.is_available, True).is_(True),
+            )
+        )
+        .mappings()
+        .first()
+    )
+    return dict(row) if row else None
+
+
 def _get_or_create_category(
     session: Session,
     category_name: str,
@@ -11459,8 +11552,6 @@ def _build_order_consumption_snapshot(
 ) -> dict[str, Any]:
     catalog_session = catalog_session_for(session)
     components = _active_recipe_components(catalog_session, product_id, branch_id)
-    if not components:
-        raise BusinessError("active_recipe_required", "Product requires an active recipe")
     warehouse_id = _branch_warehouse_id(catalog_session, branch_id)
     breakdown = []
     total = Decimal("0")
@@ -11507,12 +11598,29 @@ def _build_order_consumption_snapshot(
         breakdown,
         selected_modifiers or [],
     )
+    first_component_snapshot = next(
+        (
+            modifier
+            for modifier in modifier_snapshots
+            if modifier.get("effect_type") == "product_component"
+        ),
+        None,
+    )
+    if not components and not first_component_snapshot:
+        raise BusinessError("active_recipe_required", "Product requires an active recipe")
+    if components:
+        recipe_id = components[0]["recipe_id"]
+        recipe_version = components[0]["recipe_version"]
+    else:
+        assert first_component_snapshot is not None
+        recipe_id = first_component_snapshot["component_recipe_id"]
+        recipe_version = first_component_snapshot["component_recipe_version"]
     total = sum((_cost(component["total_cost"]) for component in final_components), Decimal("0"))
     return {
         "order_line_id": order_line_id,
         "order_id": order_id,
-        "recipe_id": components[0]["recipe_id"],
-        "recipe_version": components[0]["recipe_version"],
+        "recipe_id": recipe_id,
+        "recipe_version": recipe_version,
         "branch_id": branch_id,
         "components": _sanitize_for_json(final_components),
         "modifiers": _sanitize_for_json(modifier_snapshots),
@@ -11529,6 +11637,8 @@ def _apply_order_modifiers(
     ordered_quantity: int,
     base_components: list[dict[str, Any]],
     selected_modifiers: list[dict[str, Any]],
+    *,
+    allow_product_components: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     selected_option_ids = [str(selection.get("option_id", "")) for selection in selected_modifiers]
     legacy_ingredient_option = None
@@ -11672,6 +11782,7 @@ def _apply_order_modifiers(
     warehouse_id = _branch_warehouse_id(session, branch_id)
     snapshots = []
     price_per_unit = 0
+    nested_price_total = 0
     group_selection_positions: dict[str, int] = {}
     for group, option, selection in resolved:
         effect = option["effect_type"]
@@ -11712,37 +11823,23 @@ def _apply_order_modifiers(
         component_product = None
         component_recipe = None
         component_quantity = Decimal("0")
+        component_modifier_snapshots: list[dict[str, Any]] = []
+        component_recipe_components: list[dict[str, Any]] = []
+        component_modifier_total_cents = 0
         if effect == "product_component":
+            if not allow_product_components:
+                raise BusinessError(
+                    "modifier_component_nested",
+                    "A selected component cannot select another product component",
+                )
             component_product_id = str(option.get("component_product_id") or "")
-            component_product = _get_available_product(session, component_product_id, branch_id)
+            component_product = _get_available_component_product(
+                session, component_product_id, branch_id
+            )
             if not component_product:
                 raise BusinessError(
                     "modifier_component_unavailable",
                     "Selected component product is unavailable in this branch",
-                )
-            parent_station = session.scalar(
-                sa.select(models.products.c.station).where(models.products.c.id == product_id)
-            )
-            if component_product["station"] != parent_station:
-                raise BusinessError(
-                    "modifier_component_station_mismatch",
-                    "Selected component must use the parent production station",
-                )
-            component_group_ids: sa.ScalarResult[str] = session.scalars(
-                sa.select(models.modifier_groups.c.id).where(
-                    models.modifier_groups.c.product_id == component_product_id,
-                    models.modifier_groups.c.organization_id == ORGANIZATION_ID,
-                    models.modifier_groups.c.status == "active",
-                )
-            )
-            if any(
-                not _modifier_catalog_is_managed_elsewhere(
-                    session, group_id=str(component_group_id)
-                )
-                for component_group_id in component_group_ids
-            ) or _has_active_shared_modifier_set(session, component_product_id):
-                raise BusinessError(
-                    "modifier_component_nested", "Selected component has its own modifier groups"
                 )
             from restaurant_os.combo import effective_composition
 
@@ -11770,6 +11867,15 @@ def _apply_order_modifiers(
                 "version": recipe_components[0]["recipe_version"],
             }
             factor = component_quantity * ordered_quantity
+            raw_component_modifiers = selection.get("component_modifiers", [])
+            if not isinstance(raw_component_modifiers, list) or any(
+                not isinstance(item, dict) for item in raw_component_modifiers
+            ):
+                raise BusinessError(
+                    "modifier_component_selection_invalid",
+                    "Component modifiers must be an array of selections",
+                )
+            component_base: list[dict[str, Any]] = []
             for recipe_component in recipe_components:
                 scaled_gross = _quantity(
                     Decimal(str(recipe_component["gross_quantity"]))
@@ -11781,29 +11887,68 @@ def _apply_order_modifiers(
                     / Decimal(str(recipe_component["yield_quantity"]))
                     * factor
                 )
-                prior_net = _quantity(
-                    components.get(recipe_component["item_id"], {}).get("net_quantity", 0)
-                )
-                existed = recipe_component["item_id"] in components
-                _add_modifier_component(
-                    session,
-                    components,
-                    recipe_component["item_id"],
-                    scaled_gross,
-                    branch_id,
-                    warehouse_id,
-                )
-                merged = components[recipe_component["item_id"]]
-                merged["net_quantity"] = _sanitize_for_json(prior_net + scaled_net)
-                if not existed:
-                    merged["waste_rate"] = recipe_component["waste_rate"]
-                else:
-                    merged_gross = _quantity(merged["gross_quantity"])
-                    merged_net = _quantity(merged["net_quantity"])
-                    merged["waste_rate"] = _sanitize_for_json(
-                        _quantity((merged_gross - merged_net) / merged_gross)
+                state = session.execute(
+                    sa.select(models.inventory_cost_states.c.average_unit_cost).where(
+                        models.inventory_cost_states.c.branch_id == branch_id,
+                        models.inventory_cost_states.c.warehouse_id == warehouse_id,
+                        models.inventory_cost_states.c.item_id == recipe_component["item_id"],
                     )
+                ).scalar_one_or_none()
+                unit_cost = _cost(state or 0)
+                component_base.append(_sanitize_for_json({
+                    "item_id": recipe_component["item_id"],
+                    "item_name": recipe_component["item_name"],
+                    "unit_id": recipe_component["unit_id"],
+                    "unit_code": recipe_component["unit_code"],
+                    "net_quantity": scaled_net,
+                    "gross_quantity": scaled_gross,
+                    "waste_rate": recipe_component["waste_rate"],
+                    "unit_cost": unit_cost,
+                    "total_cost": _cost(scaled_gross * unit_cost),
+                }))
+            (
+                component_recipe_components,
+                component_modifier_snapshots,
+                component_modifier_total_cents,
+            ) = _apply_order_modifiers(
+                session,
+                component_product_id,
+                branch_id,
+                int(factor),
+                component_base,
+                raw_component_modifiers,
+                allow_product_components=False,
+            )
+            nested_price_total += component_modifier_total_cents
+            for child_component in component_recipe_components:
+                item_id = str(child_component["item_id"])
+                if item_id not in components:
+                    components[item_id] = dict(child_component)
+                    continue
+                current_component = components[item_id]
+                merged_gross = _quantity(current_component["gross_quantity"]) + _quantity(
+                    child_component["gross_quantity"]
+                )
+                merged_net = _quantity(current_component["net_quantity"]) + _quantity(
+                    child_component["net_quantity"]
+                )
+                current_component["gross_quantity"] = _sanitize_for_json(merged_gross)
+                current_component["net_quantity"] = _sanitize_for_json(merged_net)
+                current_component["total_cost"] = _sanitize_for_json(
+                    _cost(
+                        _cost(current_component["total_cost"])
+                        + _cost(child_component["total_cost"])
+                    )
+                )
+                current_component["waste_rate"] = _sanitize_for_json(
+                    _quantity((merged_gross - merged_net) / merged_gross)
+                )
         elif option["inventory_effect"] and effect not in {"instruction", "preset_instruction"}:
+            if selection.get("component_modifiers"):
+                raise BusinessError(
+                    "modifier_component_selection_invalid",
+                    "Only product components accept component modifiers",
+                )
             affected_id = option["affected_item_id"]
             replacement_id = option["replacement_item_id"]
             remove_quantity = _quantity(option["remove_quantity"]) * ordered_quantity
@@ -11901,10 +12046,20 @@ def _apply_order_modifiers(
                     "component_recipe_version": component_recipe["version"]
                     if component_recipe
                     else None,
+                    "component_station": component_product["station"]
+                    if component_product
+                    else None,
+                    "component_modifiers": component_modifier_snapshots,
+                    "component_modifier_total_cents": component_modifier_total_cents,
+                    "component_recipe_components": component_recipe_components,
                 }
             )
         )
-    return list(components.values()), snapshots, price_per_unit * ordered_quantity
+    return (
+        list(components.values()),
+        snapshots,
+        price_per_unit * ordered_quantity + nested_price_total,
+    )
 
 
 def _add_modifier_component(
@@ -14549,6 +14704,9 @@ def save_product_configuration(
     """Persist the sellable core, price and subgroup assignment in one transaction."""
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    lock_classification_organization(session)
     command_type = "update" if product_id else "create"
     key = idempotency_key.strip()
     if not key or len(key) > 180:
@@ -16016,6 +16174,395 @@ def upsert_category_option_value(
     return {"id": value_id, "group_id": group_id, "code": code, "name": name, "status": status}
 
 
+def delete_category_option_value(
+    session: Session,
+    group_id: str,
+    value_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    from .catalog_classification import require_category_authority
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    require_category_authority(session, actor_id)
+    try:
+        lock_classification_organization(session)
+        group = _category_option_group_row(session, group_id)
+        value = (
+            session.execute(
+                sa.select(models.category_option_values).where(
+                    models.category_option_values.c.id == value_id,
+                    models.category_option_values.c.group_id == group_id,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not value:
+            raise NotFoundError("category_option_value_not_found", "No se encontró el subgrupo")
+        assignment_count = session.scalar(
+            sa.select(sa.func.count())
+            .select_from(models.product_option_value_assignments)
+            .where(models.product_option_value_assignments.c.option_value_id == value_id)
+        ) or 0
+        if assignment_count:
+            logger.info(
+                "catalog_structure_delete",
+                extra={
+                    "operation": "category_option_value.delete",
+                    "result": "blocked",
+                    "reason": "in_use",
+                    "dependency_count": assignment_count,
+                },
+            )
+            raise BusinessError(
+                "category_option_value_in_use",
+                f"Reasigna los {assignment_count} producto(s) antes de eliminar este subgrupo",
+            )
+        session.execute(
+            models.category_option_values.delete().where(
+                models.category_option_values.c.id == value_id,
+                models.category_option_values.c.group_id == group_id,
+            )
+        )
+        _audit(
+            session,
+            action="category_option_value.deleted",
+            entity_type="category_option_value",
+            entity_id=value_id,
+            payload={
+                "group_id": group_id,
+                "category_id": group["category_id"],
+                "deleted_value": dict(value),
+            },
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+        session.commit()
+        logger.info(
+            "catalog_structure_delete",
+            extra={"operation": "category_option_value.delete", "result": "success"},
+        )
+        return {"id": value_id, "group_id": group_id, "deleted": True}
+    except Exception as exc:
+        session.rollback()
+        if not isinstance(exc, (BusinessError, NotFoundError, AuthorizationError)):
+            logger.exception(
+                "catalog_structure_delete",
+                extra={"operation": "category_option_value.delete", "result": "error"},
+            )
+        raise
+
+
+def delete_category_option_group(
+    session: Session,
+    category_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    from .catalog_classification import require_category_authority
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    require_category_authority(session, actor_id)
+    try:
+        lock_classification_organization(session)
+        category = session.scalar(
+            sa.select(models.product_categories.c.id).where(
+                models.product_categories.c.id == category_id,
+                models.product_categories.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        if not category:
+            raise NotFoundError("category_not_found", "No se encontró el grupo")
+        group = (
+            session.execute(
+                sa.select(models.category_option_groups).where(
+                    models.category_option_groups.c.category_id == category_id,
+                    models.category_option_groups.c.organization_id == ORGANIZATION_ID,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not group:
+            raise NotFoundError(
+                "category_option_group_not_found", "El grupo no tiene subgrupos configurados"
+            )
+        if group["status"] == "active":
+            logger.info(
+                "catalog_structure_delete",
+                extra={
+                    "operation": "category_option_group.delete",
+                    "result": "blocked",
+                    "reason": "active",
+                },
+            )
+            raise BusinessError(
+                "category_option_group_delete_active",
+                "Oculta los subgrupos del POS antes de eliminar esta configuración",
+            )
+        assignments = (
+            session.execute(
+                sa.select(models.product_option_value_assignments)
+                .where(models.product_option_value_assignments.c.group_id == group["id"])
+                .order_by(models.product_option_value_assignments.c.id)
+            )
+            .mappings()
+            .all()
+        )
+        values = (
+            session.execute(
+                sa.select(models.category_option_values)
+                .where(models.category_option_values.c.group_id == group["id"])
+                .order_by(
+                    models.category_option_values.c.display_order,
+                    models.category_option_values.c.id,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        assignment_count = len(assignments)
+        value_count = len(values)
+        session.execute(
+            models.product_option_value_assignments.delete().where(
+                models.product_option_value_assignments.c.group_id == group["id"]
+            )
+        )
+        session.execute(
+            models.category_option_values.delete().where(
+                models.category_option_values.c.group_id == group["id"]
+            )
+        )
+        session.execute(
+            models.category_option_groups.delete().where(
+                models.category_option_groups.c.id == group["id"]
+            )
+        )
+        _audit(
+            session,
+            action="category_option_group.deleted",
+            entity_type="category_option_group",
+            entity_id=group["id"],
+            payload={
+                "category_id": category_id,
+                "code": group["code"],
+                "name": group["name"],
+                "status": group["status"],
+                "deleted_values": value_count,
+                "deleted_assignments": assignment_count,
+                "deleted_group": dict(group),
+                "deleted_value_rows": [dict(value) for value in values],
+                "deleted_assignment_rows": [dict(assignment) for assignment in assignments],
+            },
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+        session.commit()
+        logger.info(
+            "catalog_structure_delete",
+            extra={
+                "operation": "category_option_group.delete",
+                "result": "success",
+                "deleted_values": value_count,
+                "deleted_assignments": assignment_count,
+            },
+        )
+        return {
+            "id": group["id"],
+            "category_id": category_id,
+            "deleted_values": value_count,
+            "deleted_assignments": assignment_count,
+        }
+    except Exception as exc:
+        session.rollback()
+        if not isinstance(exc, (BusinessError, NotFoundError, AuthorizationError)):
+            logger.exception(
+                "catalog_structure_delete",
+                extra={"operation": "category_option_group.delete", "result": "error"},
+            )
+        raise
+
+
+def delete_category(
+    session: Session,
+    category_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    from .catalog_classification import require_category_authority
+    from .catalog_classification_rollout import _lock as lock_classification_organization
+
+    require_category_authority(session, actor_id)
+    try:
+        lock_classification_organization(session)
+        category = (
+            session.execute(
+                sa.select(models.product_categories).where(
+                    models.product_categories.c.id == category_id,
+                    models.product_categories.c.organization_id == ORGANIZATION_ID,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not category:
+            raise NotFoundError("category_not_found", "No se encontró el grupo")
+        product_count = session.scalar(
+            sa.select(sa.func.count())
+            .select_from(models.products)
+            .where(
+                models.products.c.organization_id == ORGANIZATION_ID,
+                models.products.c.category_id == category_id,
+            )
+        ) or 0
+        if product_count:
+            logger.info(
+                "catalog_structure_delete",
+                extra={
+                    "operation": "category.delete",
+                    "result": "blocked",
+                    "reason": "has_products",
+                    "dependency_count": product_count,
+                },
+            )
+            raise BusinessError(
+                "category_delete_has_products",
+                f"Mueve o elimina los {product_count} producto(s) del grupo antes de eliminarlo",
+            )
+        groups = (
+            session.execute(
+                sa.select(models.category_option_groups).where(
+                    models.category_option_groups.c.organization_id == ORGANIZATION_ID,
+                    models.category_option_groups.c.category_id == category_id,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        group_ids = [group["id"] for group in groups]
+        value_count = 0
+        deleted_values: list[dict[str, Any]] = []
+        if group_ids:
+            assignment_count = session.execute(
+                sa.select(sa.func.count())
+                .select_from(models.product_option_value_assignments)
+                .where(models.product_option_value_assignments.c.group_id.in_(group_ids))
+            ).scalar_one()
+            if assignment_count:
+                logger.error(
+                    "catalog_structure_delete",
+                    extra={
+                        "operation": "category.delete",
+                        "result": "blocked",
+                        "reason": "inconsistent_assignments",
+                        "dependency_count": assignment_count,
+                    },
+                )
+                raise BusinessError(
+                    "category_delete_has_assignments",
+                    "El grupo tiene asignaciones inconsistentes y no puede eliminarse",
+                )
+            deleted_values = [
+                dict(value)
+                for value in (
+                    session.execute(
+                        sa.select(models.category_option_values)
+                        .where(models.category_option_values.c.group_id.in_(group_ids))
+                        .order_by(
+                            models.category_option_values.c.group_id,
+                            models.category_option_values.c.display_order,
+                            models.category_option_values.c.id,
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            ]
+            value_count = len(deleted_values)
+            session.execute(
+                models.category_option_values.delete().where(
+                    models.category_option_values.c.group_id.in_(group_ids)
+                )
+            )
+            session.execute(
+                models.category_option_groups.delete().where(
+                    models.category_option_groups.c.id.in_(group_ids)
+                )
+            )
+        priority_rows = (
+            session.execute(
+                sa.select(models.admin_category_priority_configs).where(
+                    models.admin_category_priority_configs.c.organization_id == ORGANIZATION_ID
+                )
+            )
+            .mappings()
+            .all()
+        )
+        now = _now()
+        changed_priorities: list[dict[str, Any]] = []
+        for priority in priority_rows:
+            view_ids = [item for item in priority["view_category_ids"] if item != category_id]
+            print_ids = [item for item in priority["print_category_ids"] if item != category_id]
+            if view_ids != priority["view_category_ids"] or print_ids != priority["print_category_ids"]:
+                changed_priorities.append(dict(priority))
+                session.execute(
+                    sa.update(models.admin_category_priority_configs)
+                    .where(
+                        models.admin_category_priority_configs.c.organization_id
+                        == ORGANIZATION_ID
+                    )
+                    .values(
+                        view_category_ids=view_ids,
+                        print_category_ids=print_ids,
+                        version=priority["version"] + 1,
+                        updated_by=actor_id,
+                        updated_at=now,
+                    )
+                )
+        session.execute(
+            models.product_categories.delete().where(
+                models.product_categories.c.id == category_id,
+                models.product_categories.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+        _audit(
+            session,
+            action="category.deleted",
+            entity_type="category",
+            entity_id=category_id,
+            payload={
+                "deleted_category": dict(category),
+                "deleted_option_group_rows": [dict(group) for group in groups],
+                "deleted_option_value_rows": deleted_values,
+                "priority_configs_before": changed_priorities,
+                "deleted_option_groups": len(group_ids),
+                "deleted_option_values": value_count,
+            },
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+        session.commit()
+        logger.info(
+            "catalog_structure_delete",
+            extra={
+                "operation": "category.delete",
+                "result": "success",
+                "deleted_option_groups": len(group_ids),
+                "deleted_option_values": value_count,
+            },
+        )
+        return {"id": category_id, "deleted": True}
+    except Exception as exc:
+        session.rollback()
+        if not isinstance(exc, (BusinessError, NotFoundError, AuthorizationError)):
+            logger.exception(
+                "catalog_structure_delete",
+                extra={"operation": "category.delete", "result": "error"},
+            )
+        raise
+
+
 def assign_product_category_option(
     session: Session,
     group_id: str,
@@ -16671,26 +17218,6 @@ def _prepare_legacy_modifier_configuration_write(
             raise BusinessError(
                 "modifier_component_nested",
                 "A fixed combo cannot also contain selectable modifier groups",
-            )
-        if session.scalar(
-            sa.select(models.modifier_options.c.id)
-            .select_from(
-                models.modifier_options.join(
-                    models.modifier_groups,
-                    models.modifier_groups.c.id == models.modifier_options.c.group_id,
-                )
-            )
-            .where(
-                models.modifier_options.c.component_product_id == product_id,
-                models.modifier_options.c.status == "active",
-                models.modifier_groups.c.organization_id == ORGANIZATION_ID,
-                models.modifier_groups.c.status == "active",
-            )
-            .limit(1)
-        ):
-            raise BusinessError(
-                "modifier_component_nested",
-                "A product used as a component cannot contain selectable modifier groups",
             )
     header = (
         session.execute(
@@ -19367,13 +19894,304 @@ def list_order_comments(
     ]
 
 
+def archive_all_order_comments(
+    session: Session,
+    actor_user_id: str | None = None,
+) -> dict[str, int]:
+    actor_id = _actor_user_id(actor_user_id)
+    _require_order_comment_catalog_authority(session, actor_id)
+    _acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)
+    now = _now()
+    result = session.execute(
+        models.order_comment_presets.update()
+        .where(
+            models.order_comment_presets.c.organization_id == ORGANIZATION_ID,
+            models.order_comment_presets.c.status == "active",
+        )
+        .values(status="archived", updated_by=actor_id, updated_at=now)
+    )
+    archived_count = max(int(cast(CursorResult[Any], result).rowcount or 0), 0)
+    _audit(
+        session,
+        "order_comment.all_archived",
+        "organization",
+        ORGANIZATION_ID,
+        {"archived_count": archived_count},
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return {"archived_count": archived_count}
+
+
+def _require_order_comment_catalog_authority(session: Session, actor_id: str) -> None:
+    if not _actor_has_organization_scope(session, actor_id, "catalog.manage"):
+        _record_authorization_denied(
+            session,
+            actor_user_id=actor_id or None,
+            permission_code="catalog.manage",
+            branch_id=None,
+            reason="organization_scope_required",
+        )
+        raise AuthorizationError(
+            "permission_denied",
+            "Organization scope is required to manage corporate order comments",
+        )
+    require_permission(session, actor_id, "catalog.manage", None)
+
+
+def _delete_order_comments(
+    session: Session,
+    actor_id: str,
+    *,
+    comment_id: str | None,
+) -> dict[str, int]:
+    query = (
+        sa.select(models.order_comment_presets)
+        .where(models.order_comment_presets.c.organization_id == ORGANIZATION_ID)
+        .order_by(models.order_comment_presets.c.id)
+        .with_for_update()
+    )
+    if comment_id is not None:
+        query = query.where(models.order_comment_presets.c.id == comment_id)
+    comments = list(session.execute(query).mappings())
+    if comment_id is not None:
+        if not comments:
+            raise NotFoundError("order_comment_not_found", "Corporate order comment was not found")
+
+    comment_ids = [str(comment["id"]) for comment in comments]
+    relations = (
+        list(
+            session.execute(
+                sa.select(models.order_comment_products).where(
+                    models.order_comment_products.c.comment_preset_id.in_(comment_ids)
+                )
+            ).mappings()
+        )
+        if comment_ids
+        else []
+    )
+    product_ids_by_comment: dict[str, list[str]] = {identifier: [] for identifier in comment_ids}
+    for relation in relations:
+        product_ids_by_comment[str(relation["comment_preset_id"])].append(
+            str(relation["product_id"])
+        )
+    for comment in comments:
+        identifier = str(comment["id"])
+        product_ids = sorted(product_ids_by_comment[identifier])
+        _audit(
+            session,
+            "order_comment.deleted",
+            "order_comment_preset",
+            identifier,
+            {
+                "preset": dict(comment),
+                "relations": [
+                    dict(relation)
+                    for relation in relations
+                    if str(relation["comment_preset_id"]) == identifier
+                ],
+                "product_ids": product_ids,
+                "relation_count": len(product_ids),
+            },
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+    if comment_ids:
+        session.execute(
+            models.order_comment_products.delete().where(
+                models.order_comment_products.c.comment_preset_id.in_(comment_ids)
+            )
+        )
+        session.execute(
+            models.order_comment_presets.delete().where(
+                models.order_comment_presets.c.id.in_(comment_ids),
+                models.order_comment_presets.c.organization_id == ORGANIZATION_ID,
+            )
+        )
+    return {
+        "deleted_count": len(comment_ids),
+        "deleted_relation_count": len(relations),
+        "deleted_legacy_count": 0,
+        "deleted_legacy_group_count": 0,
+    }
+
+
+def _is_dedicated_legacy_order_comment_group(
+    session: Session, group: dict[str, Any]
+) -> bool:
+    if group["is_required"] or group["minimum_selections"] != 0:
+        return False
+    if group["maximum_selections"] < 1:
+        return False
+    effects = set(
+        session.scalars(
+            sa.select(models.modifier_options.c.effect_type).where(
+                models.modifier_options.c.group_id == group["id"]
+            )
+        )
+    )
+    return effects <= {"preset_instruction"}
+
+
+def _delete_legacy_order_comments(session: Session, actor_id: str) -> tuple[int, int]:
+    legacy_names = ("variaciones y cambios", "comentarios del pedido")
+    legacy_groups = list(
+        session.execute(
+            sa.select(models.modifier_groups)
+            .where(
+                models.modifier_groups.c.organization_id == ORGANIZATION_ID,
+                models.modifier_groups.c.product_id.is_not(None),
+                sa.func.lower(sa.func.trim(models.modifier_groups.c.name)).in_(legacy_names),
+            )
+            .order_by(models.modifier_groups.c.id)
+            .with_for_update()
+        ).mappings()
+    )
+    groups_by_id = {str(group["id"]): dict(group) for group in legacy_groups}
+    group_ids = list(groups_by_id)
+    unsafe_group = next(
+        (
+            group
+            for group in legacy_groups
+            if not _is_dedicated_legacy_order_comment_group(session, dict(group))
+        ),
+        None,
+    )
+    if unsafe_group is not None:
+        raise BusinessError(
+            "variation_group_conflict",
+            "A legacy order-comment group contains non-comment modifier configuration",
+        )
+    legacy_options = list(
+        session.execute(
+            sa.select(models.modifier_options)
+            .where(
+                models.modifier_options.c.group_id.in_(group_ids),
+                models.modifier_options.c.effect_type == "preset_instruction",
+            )
+            .order_by(models.modifier_options.c.id)
+            .with_for_update()
+        ).mappings()
+    )
+    option_ids = [str(option["id"]) for option in legacy_options]
+    branch_overrides = (
+        list(
+            session.execute(
+                sa.select(models.branch_modifier_options).where(
+                    models.branch_modifier_options.c.option_id.in_(option_ids)
+                )
+            ).mappings()
+        )
+        if option_ids
+        else []
+    )
+    for option in legacy_options:
+        option_id = str(option["id"])
+        _audit(
+            session,
+            "variation_note.legacy_deleted",
+            "modifier_option",
+            option_id,
+            {
+                "option": dict(option),
+                "group": groups_by_id[str(option["group_id"])],
+                "branch_overrides": [
+                    dict(override)
+                    for override in branch_overrides
+                    if str(override["option_id"]) == option_id
+                ],
+            },
+            branch_id=None,
+            actor_user_id=actor_id,
+        )
+    if option_ids:
+        session.execute(
+            models.branch_modifier_options.delete().where(
+                models.branch_modifier_options.c.option_id.in_(option_ids)
+            )
+        )
+        session.execute(
+            models.modifier_options.delete().where(models.modifier_options.c.id.in_(option_ids))
+        )
+    deleted_group_count = 0
+    for group_id in sorted(group_ids):
+        remaining = session.scalar(
+            sa.select(sa.func.count())
+            .select_from(models.modifier_options)
+            .where(models.modifier_options.c.group_id == group_id)
+        )
+        if not remaining:
+            _audit(
+                session,
+                "variation_note.legacy_group_deleted",
+                "modifier_group",
+                group_id,
+                {
+                    "group": groups_by_id[group_id],
+                    "deleted_option_ids": sorted(
+                        str(option["id"])
+                        for option in legacy_options
+                        if str(option["group_id"]) == group_id
+                    ),
+                },
+                branch_id=None,
+                actor_user_id=actor_id,
+            )
+            session.execute(
+                models.modifier_groups.delete().where(models.modifier_groups.c.id == group_id)
+            )
+            deleted_group_count += 1
+    return len(option_ids), deleted_group_count
+
+
+def delete_order_comment(
+    session: Session,
+    comment_id: str,
+    actor_user_id: str | None = None,
+) -> dict[str, int]:
+    actor_id = _actor_user_id(actor_user_id)
+    _require_order_comment_catalog_authority(session, actor_id)
+    _acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)
+    result = _delete_order_comments(session, actor_id, comment_id=comment_id)
+    session.commit()
+    return result
+
+
+def delete_all_order_comments(
+    session: Session,
+    actor_user_id: str | None = None,
+) -> dict[str, int]:
+    actor_id = _actor_user_id(actor_user_id)
+    _require_order_comment_catalog_authority(session, actor_id)
+    _acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)
+    result = _delete_order_comments(session, actor_id, comment_id=None)
+    deleted_legacy_count, deleted_legacy_group_count = _delete_legacy_order_comments(
+        session, actor_id
+    )
+    result["deleted_legacy_count"] = deleted_legacy_count
+    result["deleted_legacy_group_count"] = deleted_legacy_group_count
+    _audit(
+        session,
+        "order_comment.all_deleted",
+        "organization",
+        ORGANIZATION_ID,
+        result,
+        branch_id=None,
+        actor_user_id=actor_id,
+    )
+    session.commit()
+    return result
+
+
 def bulk_order_comments(
     session: Session,
     payload: dict[str, Any],
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
+    _require_order_comment_catalog_authority(session, actor_id)
+    _acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)
     _reject_global_catalog_branch_override(payload)
     raw_value = payload.get("comments", payload.get("text", ""))
     product_ids = _validate_order_comment_products(session, _order_comment_product_ids(payload))
@@ -19463,7 +20281,6 @@ def bulk_order_comments(
         branch_id=None,
         actor_user_id=actor_id,
     )
-    session.commit()
     persisted_ids = {
         row["text_normalized"]: row["id"]
         for row in session.execute(
@@ -19481,7 +20298,7 @@ def bulk_order_comments(
     persisted_items = [
         {**item, "id": persisted_ids[item["text_normalized"]]} for item in preview["items"]
     ]
-    return {
+    response = {
         **preview,
         "items": persisted_items,
         "existing": [
@@ -19490,6 +20307,8 @@ def bulk_order_comments(
         "created_ids": created_ids,
         "relation_count": relation_count,
     }
+    session.commit()
+    return response
 
 
 def update_order_comment(
@@ -19499,7 +20318,8 @@ def update_order_comment(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
+    _require_order_comment_catalog_authority(session, actor_id)
+    _acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)
     _reject_global_catalog_branch_override(payload)
     comment = (
         session.execute(
@@ -19553,8 +20373,9 @@ def update_order_comment(
         branch_id=None,
         actor_user_id=actor_id,
     )
+    response = _order_comment_payload(session, comment_id, actor_id)
     session.commit()
-    return _order_comment_payload(session, comment_id, actor_id)
+    return response
 
 
 def replace_order_comment_products(
@@ -19564,7 +20385,8 @@ def replace_order_comment_products(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    require_permission(session, actor_id, "catalog.manage")
+    _require_order_comment_catalog_authority(session, actor_id)
+    _acquire_idempotency_lock(session, "order-comment-catalog", ORGANIZATION_ID)
     _reject_global_catalog_branch_override(payload)
     _order_comment_payload(session, comment_id, actor_id)
     product_ids = _validate_order_comment_products(session, _order_comment_product_ids(payload))
@@ -19611,8 +20433,9 @@ def replace_order_comment_products(
         branch_id=None,
         actor_user_id=actor_id,
     )
+    response = _order_comment_payload(session, comment_id, actor_id)
     session.commit()
-    return _order_comment_payload(session, comment_id, actor_id)
+    return response
 
 
 PRESET_VARIATION_GROUP = "Variaciones y cambios"
@@ -20275,31 +21098,16 @@ def list_product_modifiers(
         if not catalog_view and row["branch_enabled"] is False:
             continue
         if not catalog_view and row.get("component_product_id"):
-            component_product = _get_available_product(
+            component_product = _get_available_component_product(
                 session, str(row["component_product_id"]), actual_branch_id
             )
             if not component_product or not _active_recipe_components(
                 session, str(row["component_product_id"]), actual_branch_id
             ):
                 continue
-            parent_station = session.scalar(
-                sa.select(models.products.c.station).where(models.products.c.id == product_id)
-            )
-            if component_product["station"] != parent_station:
-                continue
-            component_group_ids: sa.ScalarResult[str] = session.scalars(
-                sa.select(models.modifier_groups.c.id).where(
-                    models.modifier_groups.c.product_id == row["component_product_id"],
-                    models.modifier_groups.c.organization_id == ORGANIZATION_ID,
-                    models.modifier_groups.c.status == "active",
-                )
-            )
-            if any(
-                not _modifier_catalog_is_managed_elsewhere(
-                    session, group_id=str(component_group_id)
-                )
-                for component_group_id in component_group_ids
-            ) or _has_active_shared_modifier_set(session, str(row["component_product_id"])):
+            from restaurant_os.modifier_configuration import _has_product_component_options
+
+            if _has_product_component_options(session, str(row["component_product_id"])):
                 continue
             from restaurant_os.combo import effective_composition
 
@@ -27839,6 +28647,14 @@ def build_session_profile(
         code: _actor_has_permission(session, actor, code, active_branch_id)
         for code in capability_codes
     }
+    for code in (
+        "dashboard.read",
+        "reports.ingredient_sales.read",
+        "reports.expenses.read",
+    ):
+        admin_capabilities[f"{code}.organization"] = _actor_has_organization_scope(
+            session, actor, code
+        )
     # A fiscal branch role cannot borrow corporate scope from an unrelated role.
     admin_capabilities["invoicing.config.manage"] = _actor_has_organization_scope(
         session, actor, "invoicing.config.manage"
@@ -27867,6 +28683,7 @@ def build_session_profile(
                     models.branches.c.name,
                     models.branches.c.code,
                     models.branches.c.status,
+                    models.branches.c.timezone,
                 )
                 .where(models.branches.c.id.in_(allowed_branch_ids))
                 .order_by(models.branches.c.name, models.branches.c.id)
@@ -29638,14 +30455,31 @@ def _accept_public_order_intent(
                 "public_order_transition_invalid",
                 "Public order intent is no longer operational",
             )
-        OrderAcceptanceService.ensure_production_task(
-            session,
-            organization_id=str(intent["organization_id"]),
-            branch_id=str(intent["branch_id"]),
-            order_id=order_id,
-            line=materialized_line,
-            created_at=now,
-        )
+        if any(
+            modifier.get("effect_type") == "product_component"
+            for modifier in snapshot.get("modifiers", [])
+        ):
+            session.execute(models.production_tasks.insert(), _production_tasks_for_priced_line(
+                branch_id=str(intent["branch_id"]),
+                order_id=order_id,
+                order_line_id=line_id,
+                product={
+                    "name": source["product_name"],
+                    "station": source["station"],
+                },
+                quantity=int(source["quantity"]),
+                snapshot=dict(snapshot),
+                created_at=now,
+            ))
+        else:
+            OrderAcceptanceService.ensure_production_task(
+                session,
+                organization_id=str(intent["organization_id"]),
+                branch_id=str(intent["branch_id"]),
+                order_id=order_id,
+                line=materialized_line,
+                created_at=now,
+            )
         OrderAcceptanceService.reserve_captured_snapshot(
             session,
             order=order,

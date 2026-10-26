@@ -31,6 +31,7 @@ function testCorporateReconciliationDashboardComponent() {
 
   assert.ok(fileContent.includes('Consolidado Multi-Sucursal y Cortes'), 'Should include corporate title');
   assert.ok(fileContent.includes('selectedBranchId'), 'Should allow filtering by branch');
+  assert.ok(fileContent.includes('branches.filter((branch) => branch.id === session.active_branch.id)'), 'Should keep mixed accounts on their authorized dashboard branch');
   assert.ok(fileContent.includes('supplier_totals'), 'Should include supplier aggregated expenses');
   assert.ok(fileContent.includes('fixed_expense_totals'), 'Should include fixed expense aggregated totals');
   assert.ok(fileContent.includes('handleExportExcel'), 'Should allow exporting corporate consolidated workbook');
@@ -46,6 +47,33 @@ function testPCO007ReportsContainsReconciliationTab() {
   assert.ok(fileContent.includes('BranchDailyReconciliationReport'), 'Should render BranchDailyReconciliationReport');
 }
 
+function testAdminHistoricalReportsRouteAndScope() {
+  const reportContent = readFileSync(
+    resolve(root, 'apps', 'admin-web', 'src', 'features', 'reports', 'HistoricalReports.tsx'),
+    'utf-8'
+  );
+  const appContent = readFileSync(resolve(root, 'apps', 'admin-web', 'src', 'App.tsx'), 'utf-8');
+  const accessContent = readFileSync(resolve(root, 'packages', 'api-client', 'src', 'adminAccess.ts'), 'utf-8');
+  const hubContent = readFileSync(
+    resolve(root, 'apps', 'admin-web', 'src', 'features', 'hubs', 'ReportsHub.tsx'),
+    'utf-8'
+  );
+
+  assert.ok(reportContent.includes('Reportes históricos y de corte'), 'Should include the historical reports title');
+  assert.ok(reportContent.includes('Todas las sucursales'), 'Should expose the organization-wide option');
+  assert.ok(reportContent.includes('session.allowed_branches'), 'Should derive choices from authorized branches');
+  assert.ok(reportContent.includes("admin_capabilities[`${permission}.organization`]"), 'Should bind all-branches scope to the active report permission');
+  assert.ok(reportContent.includes("'Período corporativo: UTC'"), 'Should define an unambiguous corporate period');
+  assert.ok(reportContent.includes("'Compensación de caja'"), 'Should distinguish compensated cash movements');
+  assert.ok(reportContent.includes('discount_cents'), 'Should preserve the authoritative expense discount');
+  assert.ok(reportContent.includes('reports/ingredient-sales'), 'Should include ingredient sales');
+  assert.ok(reportContent.includes('reports/expenses'), 'Should include expenses');
+  assert.ok(reportContent.includes('CorporateReconciliationDashboard'), 'Should reuse the authoritative reconciliation view');
+  assert.match(appContent, /path="historical-reports"/);
+  assert.ok(accessContent.includes("'/historical-reports'"), 'Should guard the Admin route');
+  assert.ok(hubContent.includes("path: '/historical-reports'"), 'Should expose the report from the Admin hub');
+}
+
 function run() {
   console.log('Running testBranchDailyReconciliationReportComponent...');
   testBranchDailyReconciliationReportComponent();
@@ -53,6 +81,8 @@ function run() {
   testCorporateReconciliationDashboardComponent();
   console.log('Running testPCO007ReportsContainsReconciliationTab...');
   testPCO007ReportsContainsReconciliationTab();
+  console.log('Running testAdminHistoricalReportsRouteAndScope...');
+  testAdminHistoricalReportsRouteAndScope();
   console.log('All frontend reconciliation report assertions verified successfully!');
 }
 

@@ -50,4 +50,26 @@ Feature: Administrar y consumir grupos y subgrupos con el lenguaje operativo del
     Then la etapa siguiente se presenta como Subgrupos
     And elegir un subgrupo filtra productos concretos sin agregar una línea al carrito
     And cambiar grupo o subgrupo conserva carrito y búsqueda conforme al contrato vigente
+
+  @BDD-SC-802
+  Scenario: Explicar un subgrupo vacío y comenzar un producto en su contexto
+    Given un grupo contiene un subgrupo activo sin productos asignados
+    When el administrador revisa Grupos y subgrupos
+    Then ve el conteo cero y la advertencia de que ese subgrupo no aparecerá en POS
+    When elige Crear producto en ese subgrupo
+    Then Productos abre un borrador nuevo con grupo y subgrupo canónicos preseleccionados
+    And guardar continúa sujeto a precio, estación, estado y validación transaccional del backend
+
+  @BDD-SC-803
+  Scenario: Eliminar configuración incorrecta sin borrar productos implícitamente
+    Given un administrador corporativo con `catalog.manage`
+    And un grupo contiene una configuración incorrecta de subgrupos
+    When intenta eliminar un subgrupo con productos asignados
+    Then el comando se rechaza sin mutación parcial y exige reasignar primero
+    When oculta del POS la configuración y confirma eliminar todos los subgrupos
+    Then Python elimina atómicamente asignaciones, valores y selector técnico
+    And conserva los productos concretos del grupo
+    When intenta eliminar el grupo mientras todavía contiene productos
+    Then el comando se rechaza con un error estable
+    But un grupo vacío puede eliminarse con confirmación y auditoría
 ```

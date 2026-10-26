@@ -24,7 +24,10 @@ from test_gateway_order_runtime import (
 )
 
 
-@pytest.mark.parametrize("catalog_schema", ["ord-off-catalog/v2", "ord-off-catalog/v3"])
+@pytest.mark.parametrize(
+    "catalog_schema",
+    ["ord-off-catalog/v2", "ord-off-catalog/v3", "ord-off-catalog/v4"],
+)
 @pytest.mark.parametrize("crash", [False, True])
 def test_renewal_preserves_open_order_and_rejects_an_already_open_old_service(
     tmp_path, monkeypatch, crash, catalog_schema
@@ -48,7 +51,7 @@ def test_renewal_preserves_open_order_and_rejects_an_already_open_old_service(
         "issued_at": int(now.timestamp()),
         "expires_at": int(now.timestamp()) + 7200,
     }
-    if catalog_schema.endswith("v3"):
+    if catalog_schema.endswith(("v3", "v4")):
         manifest.update(catalog_generation=1, catalog_classification_mode="legacy")
     bundle = sign_bundle(
         {"manifest": manifest, "catalog": catalog, "operational_seed": seed}, central, kid="central"
@@ -87,7 +90,7 @@ def test_renewal_preserves_open_order_and_rejects_an_already_open_old_service(
                 "manifest": {
                     **manifest,
                     "bundle_id": str(uuid4()),
-                    **({"catalog_generation": 2} if catalog_schema.endswith("v3") else {}),
+                    **({"catalog_generation": 2} if catalog_schema.endswith(("v3", "v4")) else {}),
                 },
                 "catalog": build_catalog_snapshot(
                     source,
@@ -141,7 +144,7 @@ def test_renewal_preserves_open_order_and_rejects_an_already_open_old_service(
                 dict(row)
                 for row in session.execute(sa.select(models.inventory_movements)).mappings()
             ] == movements
-        if catalog_schema.endswith("v3"):
+        if catalog_schema.endswith(("v3", "v4")):
             from restaurant_os.operations import BusinessError
 
             with pytest.raises(BusinessError, match="Signature is invalid"):
