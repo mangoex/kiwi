@@ -8,6 +8,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 MAX_WORKSPACE_BODY_BYTES = 262_144
+MAX_PURCHASE_AI_EXTRACT_BODY_BYTES = 7_340_032
 MAX_AGENT_BODY_BYTES = 65_536
 _XML_CAPTURE_PATH = re.compile(
     r"/api/v1/purchases/xml-imports/branches/"
@@ -48,8 +49,13 @@ class WorkspaceBodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
+        is_purchase_ai_extract = path == "/api/v1/purchases/ai-extract"
         max_bytes = (
-            MAX_AGENT_BODY_BYTES if agent_covered or mobile_covered else MAX_WORKSPACE_BODY_BYTES
+            MAX_AGENT_BODY_BYTES
+            if agent_covered or mobile_covered
+            else MAX_PURCHASE_AI_EXTRACT_BODY_BYTES
+            if is_purchase_ai_extract
+            else MAX_WORKSPACE_BODY_BYTES
         )
         chunks = []
         size = 0
@@ -65,6 +71,8 @@ class WorkspaceBodyLimitMiddleware:
                     if mobile_covered
                     else "agent_schema_invalid"
                     if agent_covered
+                    else "purchase_extract_size_exceeded"
+                    if is_purchase_ai_extract
                     else "workspace_payload_too_large"
                 )
                 detail: dict[str, object] = {

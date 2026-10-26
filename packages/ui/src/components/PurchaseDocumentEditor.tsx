@@ -1,5 +1,5 @@
 import React, { useEffect, useReducer, useRef, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { Button } from './Button';
 import { Modal } from './Modal';
 import { branchLocalDate, initialPurchaseDraft, purchaseDraftReducer, purchasePayload, restorePurchaseDraft, type PurchaseDraft } from './purchaseDraft';
@@ -11,6 +11,29 @@ import { registerWorkspaceSnapshot, readWorkspaceSnapshot, discardWorkspaceSnaps
 
 export interface WorkspaceSupplier { id: string; commercial_name: string }
 export interface WorkspacePresentation { id: string; supplier_id: string; item_id: string; name: string; item_name: string; item_sku: string; supplier_name: string; last_net_price: string | number; base_unit_yield?: string | number; base_unit_code?: string }
+export interface PurchaseAiExtractResponse {
+  source_kind: string;
+  status: 'ready' | 'needs_review' | 'insufficient_data';
+  supplier_id: string;
+  supplier_name: string;
+  folio: string;
+  document_date: string;
+  delivered_by_name: string;
+  payment_method: string;
+  notes: string;
+  lines: {
+    presentation_id: string;
+    presentation_name: string;
+    item_name: string;
+    raw_description: string;
+    quantity: string;
+    unit_price: string;
+    discount: string;
+    tax: string;
+    match_status: 'matched' | 'cross_supplier' | 'unmatched';
+  }[];
+  warnings: { line_number: number; code: string; raw: string }[];
+}
 export interface PurchasePreview {
   context_fingerprint: string;
   source: 'python'; subtotal: string; discount_total: string; tax_total: string; total: string;
@@ -48,6 +71,13 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
     return registerWorkspaceSnapshot(recoveryKey, () => recoveryDraft.current.dirty || recoveryDraft.current.phase !== 'editing' ? recoveryDraft.current : null);
   }, [recoveryKey]);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiRawText, setAiRawText] = useState('');
+  const [aiFile, setAiFile] = useState<File | null>(null);
+  const [aiPending, setAiPending] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiNotice, setAiNotice] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const submitting = useRef(false);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -77,6 +107,74 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
     && (pres.supplier_id === draft.supplier_id || draft.supplier_catalog_exception)
   )));
   const close = () => { if (!locked) onClose(); };
+  const runAiExtraction = async () => {
+    if (locked || aiPending || (!aiFile && !aiRawText.trim())) return;
+    setAiPending(true);
+    setAiError('');
+    setAiNotice('');
+    try {
+      let fileBase64 = '';
+      let mimeType = '';
+      let filename = '';
+      if (aiFile) {
+        filename = aiFile.name;
+        mimeType = aiFile.type || '';
+        fileBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = () => reject(new Error('No se pudo leer el archivo seleccionado.'));
+          reader.readAsDataURL(aiFile);
+        });
+      }
+      const response = await request('/purchases/ai-extract', {
+        method: 'POST',
+        body: JSON.stringify({
+          branch_id: branchId,
+          ...(aiRawText.trim() ? { raw_text: aiRawText.trim() } : {}),
+          ...(fileBase64 ? { file_base64: fileBase64, mime_type: mimeType, filename } : {}),
+        }),
+      }) as PurchaseAiExtractResponse;
+      if (!alive.current) return;
+      if (!response.lines || response.lines.length === 0) {
+        setAiError('No se detectaron partidas válidas en el documento o lista. Verifica el archivo o texto e intenta nuevamente.');
+        return;
+      }
+      dispatch({
+        type: 'applyExtraction',
+        extraction: {
+          supplier_id: response.supplier_id,
+          folio: response.folio,
+          document_date: response.document_date,
+          delivered_by_name: response.delivered_by_name,
+          payment_method: response.payment_method,
+          notes: response.notes,
+          lines: response.lines.map(item => ({
+            id: crypto.randomUUID(),
+            presentation_id: item.presentation_id,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            discount: item.discount,
+            tax: item.tax,
+            ai_description: item.raw_description,
+            ai_match_status: item.match_status,
+          })),
+        },
+      });
+      const unmatchedCount = response.lines.filter(item => item.match_status !== 'matched').length;
+      const warningCount = response.warnings?.length || 0;
+      setAiNotice(
+        unmatchedCount > 0 || warningCount > 0
+          ? `Se cargaron ${response.lines.length} partida(s) al borrador (${unmatchedCount} por conciliar manualmente${warningCount > 0 ? `, ${warningCount} renglón(es) omitidos por formato` : ''}). Revisa antes de guardar.`
+          : `Se autocompletaron ${response.lines.length} partida(s) conciliadas con el catálogo. Revisa los importes antes de guardar.`
+      );
+    } catch (cause) {
+      if (alive.current) {
+        setAiError(cause instanceof Error ? cause.message : 'No fue posible extraer los datos del comprobante.');
+      }
+    } finally {
+      if (alive.current) setAiPending(false);
+    }
+  };
   const submit = async () => {
     if (submitting.current || (!preview.data && draft.phase !== 'uncertain')) return;
     submitting.current = true;
@@ -102,6 +200,57 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
     <div className="purchase-workspace">
       {draft.message && <p role="alert">{draft.message}</p>}
       {draft.phase === 'uncertain' && <p role="status">La respuesta no se confirmó. Recupera la misma nota antes de continuar; conserva esta ventana abierta.</p>}
+      <section className="purchase-ai-box" aria-label="Asistente de autocompletado de compra">
+        <div className="purchase-ai-header">
+          <div>
+            <strong><Sparkles size={15} aria-hidden="true" /> Autocompletar con IA (Foto, PDF, XML o lista en papel)</strong>
+            <p className="purchase-ai-subtitle">Sube una foto/PDF/XML de tu nota o factura, o pega tu lista de compras para prellenar cabecera y partidas.</p>
+          </div>
+          <Button type="button" size="sm" variant="secondary" disabled={locked} onClick={() => setAiOpen(prev => !prev)}>
+            {aiOpen ? 'Ocultar asistente' : 'Subir archivo o pegar lista'}
+          </Button>
+        </div>
+        {aiOpen && <div className="purchase-ai-body">
+          <div className="purchase-ai-inputs">
+            <label>Archivo de factura, nota o foto (JPG, PNG, WEBP, PDF o XML CFDI)
+              <input
+                ref={fileInputRef}
+                type="file"
+                disabled={locked || aiPending}
+                accept="image/jpeg,image/png,image/webp,application/pdf,application/xml,text/xml,.xml,.pdf,.png,.jpg,.jpeg,.webp"
+                onChange={e => {
+                  const selected = e.target.files?.[0] || null;
+                  setAiFile(selected);
+                  setAiError('');
+                }}
+              />
+            </label>
+            <label>Lista de compras en papel o texto del comprobante (opcional)
+              <textarea
+                rows={3}
+                disabled={locked || aiPending}
+                value={aiRawText}
+                onChange={e => { setAiRawText(e.target.value); setAiError(''); }}
+                placeholder={'Ejemplo:\nProveedor: Panadería del Pacífico\nFolio: NOTA-104\n- 2 Caja Pan Brioche x 50 $500.00'}
+              />
+            </label>
+          </div>
+          <div className="purchase-ai-actions">
+            {(aiFile || aiRawText) && <Button type="button" size="sm" variant="ghost" disabled={locked || aiPending} onClick={() => {
+              setAiFile(null);
+              setAiRawText('');
+              setAiError('');
+              setAiNotice('');
+              if (fileInputRef.current) fileInputRef.current.value = '';
+            }}>Limpiar entrada</Button>}
+            <Button type="button" size="sm" disabled={locked || aiPending || (!aiFile && !aiRawText.trim())} onClick={() => void runAiExtraction()}>
+              {aiPending ? 'Analizando comprobante…' : 'Extraer y llenar captura'}
+            </Button>
+          </div>
+        </div>}
+        {aiNotice && <p role="status" className="purchase-ai-notice">{aiNotice}</p>}
+        {aiError && <p role="alert" className="purchase-ai-error">{aiError}</p>}
+      </section>
       <fieldset disabled={locked} className="purchase-fields">
         <label>Proveedor<select value={draft.supplier_id} onChange={e => dispatch({ type: 'header', key: 'supplier_id', value: e.target.value })}><option value="">Selecciona proveedor</option>{suppliers.map(item => <option key={item.id} value={item.id}>{item.commercial_name}</option>)}</select></label>
         <label>Tipo de documento<select value={draft.document_type} onChange={e => dispatch({ type: 'header', key: 'document_type', value: e.target.value })}>{[['invoice', 'Factura'], ['ticket', 'Ticket'], ['note', 'Nota'], ['receipt', 'Recibo']].map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
@@ -135,7 +284,10 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
             <label>Presentación · renglón {index + 1}<select ref={element => { if (element) presentationRefs.current.set(line.id, element); else presentationRefs.current.delete(line.id); }} value={line.presentation_id} onChange={e => {
               dispatch({ type: 'line', id: line.id, key: 'presentation_id', value: e.target.value });
               const selected = presentations.find(item => item.id === e.target.value);
-              dispatch({ type: 'line', id: line.id, key: 'unit_price', value: selected ? String(selected.last_net_price) : '' });
+              const keepExtractedPrice = Boolean(line.ai_description && line.unit_price);
+              if (!keepExtractedPrice) {
+                dispatch({ type: 'line', id: line.id, key: 'unit_price', value: selected ? String(selected.last_net_price) : '' });
+              }
             }}><option value="">Selecciona producto y presentación</option>{mismatch && !draft.supplier_catalog_exception && <option value={line.presentation_id}>Revisar: presentación de otro proveedor</option>}{Array.from(groupedChoices.entries()).map(([itemId, group]) => <optgroup key={itemId} label={group.label}>{group.presentations.map(item => <option key={item.id} value={item.id}>{item.name} · {item.base_unit_yield} {item.base_unit_code}{draft.supplier_catalog_exception ? ` · ${item.supplier_name}` : ''}</option>)}</optgroup>)}</select></label>
             {(['quantity', 'unit_price', 'discount', 'tax'] as const).map((key, i) => <label key={key}>{['Cantidad', 'Precio por presentación antes de descuento ($)', 'Descuento ($)', 'Impuesto ($)'][i]}<input inputMode="decimal" value={line[key]} onChange={e => dispatch({ type: 'line', id: line.id, key, value: e.target.value })} /></label>)}
             <div className="purchase-line-actions" role="group" aria-label={`Acciones del renglón ${index + 1}`}>
@@ -148,6 +300,7 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
                 dispatch({ type: 'remove', id: line.id });
               }}><Trash2 size={17} aria-hidden="true" /></Button>
             </div>
+            {line.ai_description && !line.presentation_id && <p role="status" className="purchase-ai-hint">Concepto detectado en comprobante: <strong>{line.ai_description}</strong>. Selecciona su presentación del catálogo para conciliarlo.</p>}
             {mismatch && !draft.supplier_catalog_exception && <p role="alert">La presentación no pertenece al proveedor elegido. Selecciona una presentación compatible o activa la excepción.</p>}
             {mismatch && draft.supplier_catalog_exception && <p role="status">Esta partida se registrará como excepción con la presentación del proveedor de catálogo.</p>}
             {calc && <p className="purchase-conversion">Entrada: {calc.base_quantity} {calc.presentation_snapshot.base_unit_code} · costo de inventario: ${calc.inventory_cost} · costo base: ${calc.cost_per_base_unit} · importe: ${calc.line_total}</p>}

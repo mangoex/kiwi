@@ -45,8 +45,59 @@ draft = purchaseDraftReducer(draft, { type: 'resolved', message: 'Rejected witho
 draft = purchaseDraftReducer(draft, { type: 'remove', id: 'line-2' });
 assert.deepEqual(draft.lines.map(line => line.id), ['line-1', 'line-3']);
 assert.equal(draft.lines[0].unit_price, '0');
+let aiDraft = initialPurchaseDraft('branch-1:user-1', 'branch-1', '2026-09-30', 'key-ai', 'line-init');
+aiDraft = purchaseDraftReducer(aiDraft, {
+  type: 'applyExtraction',
+  extraction: {
+    supplier_id: 'supplier-1',
+    folio: 'FAC-8842',
+    document_date: '2026-10-25',
+    delivered_by_name: 'Carlos Ruiz',
+    payment_method: 'transfer',
+    notes: 'Importado desde factura',
+    lines: [
+      {
+        id: 'ai-line-1',
+        presentation_id: 'presentation-1',
+        quantity: '2.00',
+        unit_price: '250.00',
+        discount: '10.00',
+        tax: '78.40',
+        ai_description: 'Caja Pan Brioche x 50',
+        ai_match_status: 'matched',
+      },
+      {
+        id: 'ai-line-2',
+        presentation_id: '',
+        quantity: '3.00',
+        unit_price: '45.50',
+        discount: '0.00',
+        tax: '0.00',
+        ai_description: 'Bolsa Hielo Gourmet 5kg',
+        ai_match_status: 'unmatched',
+      },
+    ],
+  },
+});
+assert.equal(aiDraft.dirty, true);
+assert.equal(aiDraft.supplier_id, 'supplier-1');
+assert.equal(aiDraft.folio, 'FAC-8842');
+assert.equal(aiDraft.document_date, '2026-10-25');
+assert.equal(aiDraft.delivered_by_name, 'Carlos Ruiz');
+assert.equal(aiDraft.payment_method, 'transfer');
+assert.equal(aiDraft.paid_from_cash, false);
+assert.equal(aiDraft.lines.length, 2);
+assert.equal(aiDraft.lines[1].ai_description, 'Bolsa Hielo Gourmet 5kg');
+assert.equal(aiDraft.lines[1].ai_match_status, 'unmatched');
+assert.deepEqual(
+  Object.keys(purchasePayload(aiDraft).lines[0]).sort(),
+  ['discount', 'presentation_id', 'quantity', 'tax', 'unit_price'],
+  'AI metadata must never leak into purchasePayload'
+);
 const editor = readFileSync('packages/ui/src/components/PurchaseDocumentEditor.tsx', 'utf8');
 assert.doesNotMatch(editor, /parseFloat|Math\.round|\.reduce\(/, 'Editor must not calculate domain totals');
+assert.match(editor, /\/purchases\/ai-extract/);
+assert.match(editor, /Autocompletar con IA/);
 assert.match(editor, /\/purchases\/preview/);
 assert.match(editor, /Idempotency-Key/);
 assert.match(editor, /Compra excepcional con presentación de otro proveedor/);

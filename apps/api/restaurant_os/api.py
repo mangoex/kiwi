@@ -4691,6 +4691,11 @@ def _business_response(operation: Callable[[], ResponseT]) -> ResponseT:
             "invalid_digital_menu_visibility": 422,
             "offline_reconciliation_persistence_unavailable": 503,
             "operational_command_persistence_unavailable": 503,
+            "purchase_extract_invalid_file": 422,
+            "purchase_extract_payload_invalid": 422,
+            "purchase_extract_size_exceeded": 413,
+            "purchase_ai_provider_unavailable": 503,
+            "purchase_ai_upstream_error": 502,
         }.get(exc.code, 409)
         raise HTTPException(
             status_code=status_code,
@@ -6556,6 +6561,19 @@ def post_purchase_preview(
 ) -> dict[str, Any]:
     actor = _required_actor_from_request(actor_user_id, authorization)
     return _workspace_response(lambda: preview_purchase(session, payload, actor))
+
+
+@router.post("/purchases/ai-extract")
+def post_purchase_ai_extract(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.purchase_ai_capture import extract_purchase_draft
+
+    actor = _required_actor_from_request(actor_user_id, authorization)
+    return _workspace_response(lambda: extract_purchase_draft(session, payload, actor))
 
 
 @router.get("/corporate-purchases/options")

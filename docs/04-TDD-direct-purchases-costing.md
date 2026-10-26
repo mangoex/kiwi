@@ -132,4 +132,5 @@ bloquea cuando eliminaría un nombre; PostgreSQL focal confirma el mismo DDL/rou
 la base aislada. QA visual: 1440x900, 1024x768 y ancho reducido, con teclado, foco, iconos, scroll y
 acciones finales visibles. Gates: prueba semántica, contrato, pytest/ruff focal, typecheck, migración,
 `git diff --check`, CI aplicable y auditoría independiente R3; despliegue y migración productiva
-conservan autorización separada.
+conservan autorización separada. La cobertura de autocompletado documental y multimodal del borrador
+de compra (`PUR-AI-CAPTURE-001`, `BDD-SC-795`) se registra en `TDD-TC-466` (`docs/04-TDD-procurement-assistance.md`).

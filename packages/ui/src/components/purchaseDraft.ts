@@ -7,6 +7,17 @@ export interface PurchaseDraftLine {
   unit_price: string;
   discount: string;
   tax: string;
+  ai_description?: string;
+  ai_match_status?: 'matched' | 'cross_supplier' | 'unmatched';
+}
+export interface PurchaseAiExtractionInput {
+  supplier_id?: string;
+  folio?: string;
+  document_date?: string;
+  delivered_by_name?: string;
+  payment_method?: string;
+  notes?: string;
+  lines: PurchaseDraftLine[];
 }
 export interface PurchaseDraft {
   scope: string;
@@ -34,7 +45,8 @@ export type PurchaseDraftAction =
   | { type: 'defaultDate'; value: string }
   | { type: 'cash'; value: boolean }
   | { type: 'supplierException'; value: boolean }
-  | { type: 'line'; id: string; key: Exclude<keyof PurchaseDraftLine, 'id'>; value: string }
+  | { type: 'line'; id: string; key: 'presentation_id' | 'quantity' | 'unit_price' | 'discount' | 'tax'; value: string }
+  | { type: 'applyExtraction'; extraction: PurchaseAiExtractionInput }
   | { type: 'add'; id: string; afterId?: string }
   | { type: 'remove'; id: string }
   | { type: 'submit'; fingerprint?: string }
@@ -82,7 +94,23 @@ export function purchaseDraftReducer(state: PurchaseDraft, action: PurchaseDraft
     supplier_catalog_exception_reason: action.value ? state.supplier_catalog_exception_reason : '',
     message: '',
   };
-  if (action.type === 'line') return { ...state, lines: state.lines.map(line => line.id === action.id ? { ...line, [action.key]: action.value } : line) };
+  if (action.type === 'applyExtraction') {
+    const ext = action.extraction;
+    const method = ext.payment_method || state.payment_method || 'cash';
+    return {
+      ...state,
+      supplier_id: ext.supplier_id || state.supplier_id,
+      folio: ext.folio || state.folio,
+      document_date: ext.document_date || state.document_date,
+      delivered_by_name: ext.delivered_by_name || state.delivered_by_name,
+      payment_method: method,
+      paid_from_cash: method === 'cash',
+      notes: ext.notes || state.notes,
+      lines: ext.lines.length > 0 ? ext.lines.slice(0, 200) : state.lines,
+      message: '',
+    };
+  }
+  if (action.type === 'line') return { ...state, lines: state.lines.map(line => line.id === action.id ? { ...line, [action.key]: action.value, ...(action.key === 'presentation_id' && action.value ? { ai_match_status: 'matched' as const } : {}) } : line) };
   if (action.type === 'add' && state.lines.length < 200) {
     const index = action.afterId ? state.lines.findIndex(line => line.id === action.afterId) : -1;
     const lines = [...state.lines];
@@ -101,6 +129,12 @@ export function purchasePayload(draft: PurchaseDraft): PurchaseCreateInputV1 {
     supplier_catalog_exception: Boolean(draft.supplier_catalog_exception),
     supplier_catalog_exception_reason: draft.supplier_catalog_exception_reason || '',
     notes: draft.notes, evidence_url: draft.evidence_url,
-    lines: draft.lines.map(({ id: _id, ...line }) => line),
+    lines: draft.lines.map(line => ({
+      presentation_id: line.presentation_id,
+      quantity: line.quantity,
+      unit_price: line.unit_price,
+      discount: line.discount,
+      tax: line.tax,
+    })),
   };
 }

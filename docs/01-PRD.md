@@ -414,9 +414,12 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
 - `PRD-FR-104`: Debe mapear conceptos de proveedor a productos internos.
 - `PRD-FR-275`: La asistencia de compras y merma debe exigir un actor activo, permisos vigentes
   de compras o inventario según los datos consultados y una sucursal activa autorizada. La extracción
-  de facturas es un borrador para revisión humana: no inventa proveedor, folio, cantidades ni precios;
-  conserva cantidades decimales exactas e importes en centavos, y reporta entradas insuficientes o
-  inválidas. La extracción no confirma compras ni genera inventario, caja, deuda o efectos fiscales.
+  de facturas, notas, listas escritas o documentos de compra (texto, XML CFDI, PDF o imagen multimodal)
+  es un borrador para revisión humana: no inventa proveedor, folio, cantidades ni precios;
+  conserva cantidades decimales exactas e importes en centavos, concilia sugerencias contra el catálogo
+  activo de proveedores y presentaciones de la sucursal sin ocultar conceptos no conciliados, y reporta
+  entradas insuficientes o inválidas. La extracción no confirma compras ni genera inventario, caja,
+  deuda o efectos fiscales.
   Las recomendaciones seguirán D05_v1 de SDD §63: consumo confirmado y calendario completo,
   plazo del proveedor explícito, seguridad configurable, pendientes residuales por ETA, reservas
   contadas una vez y empaques/mínimos con capacidad máxima comprobada. Datos desconocidos,
@@ -1165,7 +1168,11 @@ por permisos granulares persistidos y alcance, nunca por comparar nombres en la 
   el nombre de la persona externa que entrega; ese texto no sustituye al actor interno que crea,
   recibe o confirma. Cada partida ofrece agregar inmediatamente después y quitar mediante controles
   accesibles en el mismo renglón; el último renglón no puede eliminarse. El editor conserva acceso
-  por desplazamiento a toda la captura y sus acciones en alturas reducidas.
+  por desplazamiento a toda la captura y sus acciones en alturas reducidas. Desde el mismo editor
+  documental, el actor autorizado puede subir una foto/imagen, PDF o XML CFDI de nota/factura o pegar
+  una lista en papel/texto de las compras realizadas para prellenar cabecera y partidas editables
+  conforme a `PRD-FR-275`, marcando conceptos conciliados y pendientes de revisión humana antes de
+  guardar o confirmar.
 
 - `PRD-FR-250`: Las vistas previas de cantidades, conversiones, merma, importes y costos de compras,
   presentaciones, insumos y recetas deben proceder de Python con `Decimal` y fórmulas canónicas.

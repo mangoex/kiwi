@@ -4169,7 +4169,10 @@ acredita métodos de §34.7 todavía no soportados por el recorrido actual.
 La migración aditiva incorpora `purchase_documents.delivered_by_name VARCHAR(160) NULL`; documentos
 anteriores conservan `NULL`. El downgrade se permite sólo cuando no existe un nombre persistido,
 para no borrar evidencia descriptiva. Creación, recibo idempotente, detalle y listado devuelven el
-campo sin incluirlo en logs ni auditoría. No se agregan carga de archivos, OCR ni proveedor de IA.
+campo sin incluirlo en logs ni auditoría. El editor integra un asistente opcional de autocompletado
+documental y multimodal (`PUR-AI-CAPTURE-001`, §61.1) que consulta `POST /api/v1/purchases/ai-extract`
+y aplica el resultado como estado local editable (`applyExtraction`) sin persistir ni alterar el
+contrato de `POST /api/v1/purchases/preview` o `POST /api/v1/purchases`.
 
 El modal mantiene altura máxima respecto del viewport, `min-height: 0` en su cuerpo flex y
 desplazamiento vertical. Las acciones finales permanecen alcanzables por teclado y scroll; a ancho
@@ -6177,6 +6180,54 @@ reportan con número de línea y código, sin fabricar valores. `status=needs_re
 es un estado de extracción, nunca confirmación documental. Rechazos de autorización se auditan por
 las guardas canónicas. La demanda y su explicación se desarrollan en I03/I04; esta frontera no
 certifica el modelo actual de recomendaciones.
+
+### 61.1 Extracción multimodal y documental hacia el borrador de compra (`PUR-AI-CAPTURE-001`)
+
+`POST /api/v1/purchases/ai-extract` extiende la asistencia bajo `PRD-FR-249` y `PRD-FR-275` para
+autocompletar el editor `PurchaseDocumentEditor`:
+
+- **Autoridad y alcance**: exige actor autenticado activo y autorización explícita de sucursal
+  (`authorize_branch_scope(..., "purchases.manage", branch_id)`) en paridad con `POST /api/v1/purchases/preview`.
+- **Entradas acotadas**:
+  - `raw_text` opcional (hasta 10,000 caracteres) para listas en papel transcritas, notas de texto o
+    formato `concepto | cantidad | precio`.
+  - `file_base64`, `mime_type` y `filename` opcionales: XML CFDI (`application/xml`, `text/xml`, hasta
+    1 MiB decodificado, validado sin DTD/ENTITIES mediante `parse_supplier_xml`), PDF (`application/pdf`,
+    hasta 5 MiB decodificado, firma `%PDF-`) e imagen (`image/jpeg`, `image/png`, `image/webp`, hasta
+    5 MiB decodificado, firmas mágicas verificadas). El middleware `WorkspaceBodyLimitMiddleware`
+    acota `/api/v1/purchases/ai-extract` a 7 MiB de cuerpo HTTP (`purchase_extract_size_exceeded`)
+    conservando 256 KiB para el resto de `/api/v1/purchases*`.
+- **Adaptadores de extracción**:
+  - XML CFDI 3.3/4.0: extracción determinista de emisor (`rfc`, `nombre`), serie/folio, fecha y
+    conceptos (`quantity`, `unit_price`, `discount`, `tax`), con soporte opcional de extracción previa
+    de texto antes de acudir a IA.
+  - PDF: extracción determinista de texto embebido cuando es legible; si es PDF escaneado o imagen y
+    existe `OPENROUTER_API_KEY` configurada, invocación al adaptador multimodal con `temperature=0` y
+    `response_format` JSON Schema estricto (`purchase_document_extraction`). Si se solicita extracción
+    de imagen o PDF escaneado sin proveedor multimodal configurado, responde error explícito
+    (`purchase_ai_provider_unavailable`) sin inventar partidas.
+  - Texto/lista de compras: parser determinista de cabeceras (`Proveedor`, `RFC`, `Folio`, `Fecha`,
+    `Entregó`, `Pago`) y renglones con tuberías o lenguaje natural (`2 Caja Pan Brioche x 50 $500.00`,
+    `3 x Aceite Vegetal 20L a $680.00`), con fallback opcional a LLM estructurado cuando hay clave
+    configurada y existen líneas libres no estructuradas.
+- **Conciliación de catálogo y precisión**:
+  - Compara proveedor extraído por RFC exacto o similitud de nombre contra proveedores activos visibles
+    en la sucursal.
+  - Compara cada concepto contra `list_purchase_presentations(session, branch_id=branch_id)` por SKU,
+    código, nombre de presentación e insumo, clasificando `match_status` en `matched` (mismo proveedor),
+    `cross_supplier` (presentación de otro proveedor que requiere confirmar o activar excepción
+    `PRD-FR-251`) o `unmatched` (`presentation_id=""`, conservando descripción e importes extraídos
+    para que el usuario elija la presentación en el renglón).
+  - Normaliza magnitudes decimales a cadenas de dos decimales (`0.00`) compatibles con `PRD-NFR-012` y
+    `SDD-ADR-010`, rechazando cantidades `<= 0` o importes negativos hacia `warnings` sin fabricar
+    valores ni ejecutar efectos en base de datos, inventario o caja.
+- **Preguntas operativas y señales**:
+  1. ¿Qué formato de entrada o proveedor multimodal está fallando o degradándose? Señal: códigos de
+     error explícitos (`purchase_extract_invalid_file`, `purchase_extract_size_exceeded`,
+     `purchase_ai_provider_unavailable`, `purchase_ai_upstream_error`) y campo `source_kind` en respuesta.
+  2. ¿Cuántas partidas extraídas requieren intervención humana antes de poder guardar la compra? Señal:
+     `status` (`ready` vs `needs_review` vs `insufficient_data`), `match_status` por línea y lista
+     estructurada `warnings` sin registrar contenido sensible ni bytes del documento en logs.
 
 ## 62. FISCAL-001 — facturación directa con autoridad y recuperación
 
