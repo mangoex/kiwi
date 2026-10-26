@@ -19,7 +19,7 @@ Feature: Asistencia con alcance autorizado y datos fieles
     And líneas con cantidad negativa o precio inválido requieren revisión explícita
     And la extracción no genera inventario caja cuentas por pagar ni emisión fiscal
 
-  @BDD-SC-795
+  @BDD-SC-804
   Scenario: Autocompletar el borrador de nota de compra desde foto PDF XML o lista en papel
     Given una cuenta autorizada con permiso de compras abre Registrar nota de compra en su sucursal activa
     When sube una imagen PDF o XML de factura o pega una lista en papel con conceptos cantidades y precios

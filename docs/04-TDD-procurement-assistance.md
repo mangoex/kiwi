@@ -16,9 +16,9 @@ BDD-SC-678: vacío, ilegible, $19.99, medio centavo, cantidad decimal,
 Evidencia focal: `test_inventory_ai_remediation.py`, `test_inventory_ai.py`.
 La demanda I03 y el período de merma I04 requieren pruebas adicionales antes de declarar el módulo completo.
 
-### TDD-TC-466 Extracción multimodal y documental hacia el borrador de compra (`PUR-AI-CAPTURE-001`)
+### TDD-TC-474 Extracción multimodal y documental hacia el borrador de compra (`PUR-AI-CAPTURE-001`)
 
-BDD-SC-795 / BDD-SC-705: validar en `apps/api/tests/test_purchase_ai_capture.py` y
+BDD-SC-804 / BDD-SC-705: validar en `apps/api/tests/test_purchase_ai_capture.py` y
 `tests/frontend/test_purchase_workspace.mjs`:
 
 - autorización de sucursal activa y `purchases.manage` (`401`/`403` ante actor inactivo, sin permiso o sucursal ajena);
