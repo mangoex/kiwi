@@ -125,20 +125,26 @@ try {
     await operator.addInitScript(()=>localStorage.setItem('auth_token','qa-document-only'));
     const documentProfile={...session(id(3),id(10),1),permissions:[capability,capability.replace('.manage','.read')],
       admin_capabilities:{[capability]:true,[capability.replace('.manage','.read')]:true,'pos.operate':false},
+      financial_access:{schema_version:2,authorization_version:1,branches:[{
+        branch_id:id(3),policy_version:1,state:'active',capabilities:{},datasets:[],
+      }]},
       scope:{level:'branch',assigned_branch_id:id(3),allowed_branch_ids:[id(3)],authorization_version:1}};
     const documentContext='qa-document-browser-context-'+'x'.repeat(32);
     const writes=[],reads=[],documentErrors=[];
     operator.on('pageerror',error=>documentErrors.push(error.message));
-    await operator.route('**/api/v1/**',async route=>{
-      const request=route.request(),endpoint=new URL(request.url()).pathname.replace('/api/v1','');
+    await operator.route('**/api/v*/**',async route=>{
+      const request=route.request(),pathname=new URL(request.url()).pathname;
+      const endpoint=pathname.replace(/^\/api\/v[12]/,'');
       if(endpoint==='/auth/session')return route.fulfill({json:documentProfile});
       if(endpoint==='/auth/branch-context-reissues'){
         writes.push({body:request.postDataJSON(),key:request.headers()['idempotency-key']});
         return route.fulfill({json:{...documentProfile,branch_context_reissue_required:false,
           branch_workspace_context:documentContext,branch_workspace_secret_version:2}});
       }
-      reads.push({endpoint,context:request.headers()['x-branch-context']});
-      return route.fulfill({json:endpoint==='/expenses'?{items:[],next_cursor:null}:endpoint.includes('cash-context')?{open_registers:[]}:[]});
+      reads.push({endpoint,pathname,context:request.headers()['x-branch-context']});
+      return route.fulfill({json:endpoint==='/expenses'?{
+        schema_version:2,projection:'operational',policy_version:1,items:[],next_cursor:null,
+      }:endpoint.includes('cash-context')?{open_registers:[]}:[]});
     });
     await operator.goto((process.env.ADMINRETRO_BASE_URL||'http://127.0.0.1:3002/admin')+path,
       {waitUntil:'domcontentloaded',timeout:60000});
@@ -150,6 +156,10 @@ try {
     assert.ok(writes[0].key);
     assert.ok(reads.length>0);
     assert.ok(reads.every(read=>read.context===documentContext));
+    if(capability==='expenses.manage') {
+      assert.equal(reads.find(read=>read.endpoint==='/expenses')?.pathname,'/api/v2/expenses');
+      assert.deepEqual(documentProfile.financial_access.branches[0].datasets,[]);
+    }
     await operator.screenshot({path:'output/playwright/branch-workspace/document-'+capability+'-1440.png',fullPage:true});
     await operator.setViewportSize({width:390,height:844});
     await operator.getByRole('heading',{name:title,exact:true}).waitFor();

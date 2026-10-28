@@ -68,6 +68,9 @@ Regresión del Copiloto Ejecutivo: `test_branch_scope_headers.mjs` verifica el m
 sucursal y `test_admin_executive_copilot_ux.mjs` ejecuta el componente con respuestas diferidas.
 Una segunda consulta cancela la primera; desmontar cancela la pendiente; un transporte que ignore
 AbortSignal no publica resultados ni errores obsoletos. El nuevo contexto empieza sin resultados.
+`tests/browser/test_branch_scope_headers.mjs` comprueba además en navegador el selector único,
+consulta corporativa sin branch_id, limpieza del informe al cambiar a Norte y consulta nueva con
+el branch_id de Norte, conservando las guardas del actor limitado a una sucursal.
 
 API y frontend prueban `POST /auth/branch-selections`: destino válido, no autorizado/inactivo,
 versión obsoleta, replay idéntico, key con payload distinto, turno OPEN/CLOSING, comando incierto,

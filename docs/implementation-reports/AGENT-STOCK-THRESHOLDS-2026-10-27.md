@@ -110,6 +110,23 @@ compound product admin, shared modifier workspace, admin session recovery, corpo
 remediation y supplier workspace. Runtime local Playwright 1.63 con Chromium headless 1247;
 CI usa su Chromium 1243. Un intento de descarga local de 1243 agotó timeout, sin alterar el gate.
 
+CI run `40628559273` superó los bloques de Admin, conciliación, gastos, offline real,
+tracking, CRM móvil y delivery. El bloque final encontró una expectativa de filtro mensual del
+antiguo dashboard. `test_branch_scope_headers.mjs` ahora verifica el Copiloto y la navegación
+por Catálogo y Menú; añade consulta corporativa, limpieza de resultado al seleccionar Norte y
+payload con branch_id de Norte en navegador real. Conserva actor de sucursal y guardas POS.
+El fixture documental de `test_branch_workspace_recovery.mjs` se actualizó al contrato vigente:
+acceso financiero activo sin datasets y página operativa v2, comprobando versión de ruta y header
+actual sin habilitar POS ni lectura financiera. No cambió runtime para estas dos reparaciones.
+Ocho scripts locales de ese bloque pasaron: headers, workspace recovery, pilot POS/Admin,
+inventory visibility (API real), driver cash, operational intent recovery, fiscal artifacts y assistant.
+
+También pasó `test_offline_shell_real.mjs` sin cambios con Playwright 1.64 alpha/Chromium1247
+local para POS y KDS. El runtime local anterior Chromium1234 produjo un intento cloud y falló;
+se conserva ese límite de evidencia, sin tocar runtime ni aserciones para obtener verde. CI mantiene
+Playwright1.63/Chromium1243 como gate. Build POS/KDS, nueve pruebas de trazabilidad y política
+completa del repositorio aprobaron. Seguimiento Sol independiente de los dos fixtures: sin hallazgos.
+
 Gateway y migraciones no se activan. El usuario autorizó explícitamente publicación y
 despliegue en este chat, conforme a GOV-REL-001, y después indicó que él hará el redeploy.
 La navegación automatizada se detuvo sin ejecutar el despliegue. Tras CI verde, integrar y entregar
