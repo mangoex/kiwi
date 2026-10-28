@@ -100,6 +100,16 @@ Seguimiento Sol independiente de estas correcciones: sin hallazgos accionables. 
 hooks simulados no sustituye una navegación real en navegador. La regresión Python de transición
 y la integridad de trazabilidad suman 12 pruebas aprobadas tras acceder a las columnas nombradas.
 
+CI run `40627277696` aprobó los gates de tipos/lint, semántica frontend, políticas y Docker;
+el navegador falló por esperar el título anterior del dashboard. Se actualizaron sólo el título
+y color de marca en `test_admin_retro.mjs`, y se restauró `aria-hidden` en el icono decorativo
+Utensils (el test detectó su ausencia). Se refrescó la firma de ese fixture sintético existente.
+Build Admin y siete scripts browser del bloque "Verify Admin retro in browser" aprobados localmente
+contra preview compilado: Admin retro (390/768/1440 y login claro/oscuro), recipe product flow,
+compound product admin, shared modifier workspace, admin session recovery, corporate purchase
+remediation y supplier workspace. Runtime local Playwright 1.63 con Chromium headless 1247;
+CI usa su Chromium 1243. Un intento de descarga local de 1243 agotó timeout, sin alterar el gate.
+
 Gateway y migraciones no se activan. El usuario autorizó explícitamente publicación y
 despliegue en este chat, conforme a GOV-REL-001, y después indicó que él hará el redeploy.
 La navegación automatizada se detuvo sin ejecutar el despliegue. Tras CI verde, integrar y entregar

@@ -13,7 +13,7 @@ assert.doesNotMatch(app, /dataset\.adminRetro =/);
 assert.match(app, /document\.documentElement\.removeAttribute\('data-admin-retro'\)/);
 assert.match(layout, /className="admin-retro admin-layout"/);
 assert.match(layout, />Mimenu <span[^>]*>Admin<\/span>/);
-assert.match(layout, /<Utensils size=\{18\} color="#ffffff" \/>/);
+assert.match(layout, /<Utensils size=\{18\} color="#ffffff" aria-hidden="true" \/>/);
 assert.doesNotMatch(layout, /🥝/u);
 assert.match(login, /className="admin-retro admin-login"/);
 

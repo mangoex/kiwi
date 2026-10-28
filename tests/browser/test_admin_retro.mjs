@@ -141,7 +141,7 @@ async function verifyLogin(browser, colorScheme = 'light') {
   checkpoint('Login password filled');
   await page.getByRole('button', { name: 'Iniciar Sesión' }).press('Enter');
   checkpoint('Login submitted');
-  await page.getByRole('heading', { name: 'Panel administrativo' }).waitFor();
+  await page.getByRole('heading', { name: 'Copiloto Ejecutivo', exact: true }).waitFor();
   checkpoint('Login completed');
   assert.deepEqual(errors, []);
   await context.close();
@@ -182,7 +182,7 @@ async function verifyViewport(browser, viewport) {
   assert.ok((await productSelector.locator('option:checked').innerText()).includes(products[0].name));
   assert.equal(await page.locator('html').getAttribute('data-admin-modern'), 'true');
   assert.equal(await page.locator('html').getAttribute('data-admin-retro'), null);
-  assert.equal(await page.locator('.admin-sidebar-logo-icon').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(48, 48, 48)');
+  assert.equal(await page.locator('.admin-sidebar-logo-icon').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(22, 163, 74)');
   assert.equal(await page.locator('.admin-sidebar-logo-icon svg').getAttribute('aria-hidden'), 'true');
   assert.match(await productSelector.evaluate(element => getComputedStyle(element).fontFamily), /Inter|Segoe UI|Arial|sans-serif/);
   mkdirSync(screenshotDir, { recursive: true });
