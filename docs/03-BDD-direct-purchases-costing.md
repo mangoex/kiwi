@@ -113,6 +113,7 @@ Feature: Comprar con efectivo de la sucursal activa
     And más inserta después y enfoca la nueva presentación
     And papelera conserva al menos una partida y enfoca una partida vecina
     And el contenido y las acciones del modal son alcanzables mediante desplazamiento
+    And mientras falte proveedor folio o una partida completa no solicita el preview ni muestra un rechazo técnico
     And puede autocompletar cabecera y partidas desde archivo o lista mediante asistencia revisable conforme a BDD-SC-804
 
   @BDD-SC-805
