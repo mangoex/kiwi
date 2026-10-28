@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
+from fixture_metadata import create_fixture_tables
 from restaurant_os import models, operations
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
@@ -41,7 +42,7 @@ def pg_engine():
         },
     )
     try:
-        models.metadata.create_all(engine)
+        create_fixture_tables(engine)
         with Session(engine) as session:
             _seed(session)
         yield engine

@@ -46,6 +46,15 @@ Para:
 - archivos,
 - impresión simulada.
 
+Los fixtures que crean tablas PostgreSQL desde los modelos copian `MetaData` antes de emitir DDL;
+`test_fixture_metadata.py` verifica que la clave foránea de intención aceptada sigue presente en
+SQLite después. Los tests de migración histórica se separan del runtime actual: una revisión no
+soportada debe fallar cerrada, mientras las carreras del dominio se ejecutan sobre el head vigente.
+La secuencia incluye `test_agent_stock_thresholds.py` con `GROKBOT_TEST_POSTGRES_URL` antes de
+las guardas de metadatos y la regresión de FK de `test_public_order_intents.py`: un fixture que
+parametriza ambos dialectos debe conservar las restricciones SQLite aunque su archivo no termine
+en `_postgres.py`.
+
 ### 3.3 Contrato
 Para:
 
@@ -522,6 +531,9 @@ regresan a las opciones de Ensalada o Baguette sin perder selecciones ni alterar
 
 Comprobar tarea por componente en su estación, KDS con sólo sus instrucciones, paridad del gateway
 SQLite y rechazo atómico de un hijo que contenga otra opción `product_component`.
+La regresión de configuración por producto en `test_platform_api.py` también debe permitir editar
+grupos ordinarios de un hijo ya seleccionado por otro producto; intentar agregarle una segunda
+profundidad debe conservar la versión y los grupos previamente guardados.
 
 ### TDD-TC-470 Componente interno sin precio independiente
 

@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
+from fixture_metadata import create_fixture_tables
 from restaurant_os import expenses, models
 from restaurant_os.operations import BusinessError, _now
 from sqlalchemy.orm import Session
@@ -40,6 +41,11 @@ def database():
             models.user_roles,
             models.role_authority_grants,
             models.blind_cash_policy_revisions,
+            models.financial_owner_reviews,
+            models.financial_access_grants,
+            models.financial_access_grant_scopes,
+            models.financial_access_commands,
+            models.financial_access_grant_revocations,
         }
         pending = list(needed)
         while pending:
@@ -48,7 +54,7 @@ def database():
                 if parent not in needed:
                     needed.add(parent)
                     pending.append(parent)
-        models.metadata.create_all(engine, tables=list(needed))
+        create_fixture_tables(engine, tables=list(needed))
         with Session(engine) as session:
             _seed_cash_concept_scope(session)
             for code in (

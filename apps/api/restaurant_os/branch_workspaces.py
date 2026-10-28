@@ -491,9 +491,9 @@ def validate_branch_context(
 ) -> dict[str, Any]:
     """Canonical fence for scoped routes; authority is checked again in the domain."""
     _schema_required(session)
-    # SQLite takes its writer lock before reading; PostgreSQL locks this actor only.
-    if session.get_bind().dialect.name == "sqlite":
-        ops._authority_governance_lock(session)
+    # Commands and selection share governance -> actor -> domain. Acquire the
+    # exclusive mode up front; upgrading a shared lock after the actor can deadlock.
+    ops._authority_governance_lock(session)
     _lock_actor(session, actor)
     if not isinstance(secret, str) or not 32 <= len(secret) <= 128:
         raise ops.AuthorizationError(

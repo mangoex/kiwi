@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import runpy
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -12,6 +13,8 @@ from urllib.parse import urlparse
 
 import pytest
 import sqlalchemy as sa
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from restaurant_os import models
 from restaurant_os.combo import save_composition
 from restaurant_os.operations import BusinessError
@@ -179,10 +182,9 @@ def test_combo_different_keys_have_one_version_winner_on_postgresql() -> None:
 def test_combo_postgres_downgrade_blocks_accepted_snapshot_history() -> None:
     from restaurant_os.operations import create_local_order
 
-    url = _postgres_url()
-    # Current order execution needs the shared modifier schema added after 0066.
-    # Start from the pre-audit schema; fiscal identity guards are verified separately.
-    engine = _engine("0082_corporate_purchase_orders")
+    # Execute today's order domain only against today's schema. Exercise the
+    # original 0066 guard directly so later historical guards cannot mask it.
+    engine = _engine()
     try:
         _seed_scope(engine, recipes=True)
         with Session(engine) as session:
@@ -205,24 +207,30 @@ def test_combo_postgres_downgrade_blocks_accepted_snapshot_history() -> None:
                 actor_user_id=ACTOR,
                 idempotency_key="combo-postgres-order",
             )
-        # Alembic needs an exclusive DDL lock while proving the downgrade
-        # guard; dispose the pool so this test does not block its own command.
-        engine.dispose()
-        blocked = _alembic(url, "downgrade", PREVIOUS)
-        assert blocked.returncode != 0
-        assert "Cannot downgrade 0066 while combo order snapshots exist" in (
-            blocked.stdout + blocked.stderr
-        )
-        check = create_engine(url, future=True)
-        try:
-            with check.connect() as connection:
-                assert (
-                    connection.execute(
-                        sa.text("SELECT count(*) FROM order_line_component_snapshots")
-                    ).scalar_one()
-                    == 2
-                )
-        finally:
-            check.dispose()
+            before = list(session.execute(
+                sa.select(models.order_line_component_snapshots)
+                .order_by(models.order_line_component_snapshots.c.id)
+            ).mappings())
+            assert len(before) == 2
+        migration = runpy.run_path(str(
+            API_DIR / "alembic/versions/202609181000_0066_combo_compositions.py"
+        ))
+        with pytest.raises(
+            RuntimeError, match="Cannot downgrade 0066 while combo order snapshots exist"
+        ):
+            with (
+                engine.begin() as connection,
+                Operations.context(MigrationContext.configure(connection)),
+            ):
+                migration["downgrade"]()
+        with engine.connect() as connection:
+            after = list(connection.execute(
+                sa.select(models.order_line_component_snapshots)
+                .order_by(models.order_line_component_snapshots.c.id)
+            ).mappings())
+            assert after == before
+            assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == (
+                "0104_purchase_draft_edits"
+            )
     finally:
         engine.dispose()

@@ -26,6 +26,9 @@ escritura; nunca existe fallback a `active_branch` o primera sucursal.
 UI: `test_branch_scope_headers.mjs` conserva selectores del panel y rutas compatibles, y el
 browser de delivery comprueba el encabezado corporativo al abrir y al elegir una sucursal
 en el formulario. El identificador operativo de caja no cambia al editar ese formulario.
+El browser de Admin verifica el Copiloto Ejecutivo con una respuesta ya cargada y otra diferida:
+al seleccionar A→B, el resultado A desaparece y su respuesta pendiente no se instala bajo B.
+La consulta conserva `branch_id` explícito y los importes recibidos de Python.
 
 ## TDD-TC-349 Confirmación y señal visual de alcance
 
@@ -63,6 +66,10 @@ v1 compatible y error de migración previo al incremento. PostgreSQL agrega
 asignación no cruza la enumeración de un rol cuyos permisos están cambiando.
 
 ## TDD-TC-352 Cambio seguro e idempotente de sucursal
+
+El browser de recuperación de operadores de documentos usa una sesión financiera activa sin
+datasets autorizados: Gastos solicita la proyección operativa v2 y nunca la financiera v1,
+con versión de política/autoridad coherente y el contexto operativo reemitido.
 
 API y frontend prueban `POST /auth/branch-selections`: destino válido, no autorizado/inactivo,
 versión obsoleta, replay idéntico, key con payload distinto, turno OPEN/CLOSING, comando incierto,

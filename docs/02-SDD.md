@@ -4546,6 +4546,13 @@ si la transición gana, la edición falla por estado. Un fallo al reemplazar par
 guardar el recibo revierte el comando completo. Previsualizar, ver, editar o descartar un draft deja
 en cero sus movimientos de inventario y caja y no actualiza costo promedio ni precio vigente.
 
+Crear y editar adquieren el lock de identidad documental normalizada (sucursal, proveedor, tipo,
+folio) antes de bloquear presentaciones en orden de ID. Edición conserva antes su lock de sucursal
+y documento. No se espera una identidad mientras se retienen presentaciones: crear un folio y
+renombrar un borrador al mismo folio deben producir un único ganador y conflicto de identidad,
+sin deadlock ni recibos o auditorías parciales. La validación del preview permanece bajo los locks
+de presentación y el replay conserva su autorización y resultado original.
+
 **Recuperación y operación.** El editor persistido se hidrata desde el snapshot servidor y usa una
 clave de recuperación separada por organización, actor, sucursal y documento. Durante una respuesta
 incierta congela clave, versión y body; nunca transforma un timeout en una intención nueva. Logs
@@ -4688,26 +4695,18 @@ autorización separada.
 
 ### 54.1 Paleta determinista
 
-**Presentación vigente:** rige la paleta cromática clara por CatalogMenuGroupId sobre superficies
-limpias: ll usa verde Kiwi, ood coral, drinks azul, other violeta y avorites ámbar.
-Cada entrada contiene un tono sólido para su botón superior y variables pastel/borde/texto para el centro.
-La identidad proviene exclusivamente del ID canónico; nombres de categorías o productos no se interpretan para elegir color.
-
-La presentación define una paleta local por `CatalogMenuGroupId`, sin campos nuevos de catálogo ni
-persistencia: `all` usa verde Kiwi, `food` coral, `drinks` azul, `other` violeta y `favorites` ámbar.
-Cada entrada contiene un tono sólido para su botón superior y variables pastel/borde/texto para el
-centro. La identidad proviene exclusivamente del ID canónico; nombres de categorías o productos no
-se interpretan para elegir color.
+El menú superior usa botones blancos y texto oscuro, conforme a PRD-FR-260 y al cambio de marca
+Mimenu de `35e3396`. Cada `CatalogMenuGroupId` conserva icono, etiqueta y clase explícita. Las
+variables pastel del área central se derivan del ID canónico (`all`, `food`, `drinks`, `other`,
+`favorites`), sin inferir clasificación a partir de nombres ni agregar persistencia.
 
 ### 54.2 Aplicación y accesibilidad
 
-Todos los botones de `pos-sale-menu` conservan icono y etiqueta sobre su tono sólido. El grupo
-activo se distingue además por `aria-pressed`, borde interior y elevación; hover/foco no dependen de
-alterar el contenido. `pos-sale-screen` publica la clase del grupo activo y sus variables alcanzan
-sólo `pos-sale-category-panel`, tarjetas de grupo/subgrupo/producto, visuales y contexto progresivo.
-Cabecera, navegación lateral, carrito, precios, favoritos y controles funcionales no heredan la
-paleta. Los textos usan tonos oscuros predeterminados sobre pastel y blancos sobre sólidos para
-mantener contraste; el modo sin iconos de §53 conserva la misma jerarquía cromática.
+Los botones de `pos-sale-menu` conservan contraste AA de texto en reposo, hover y selección. El
+grupo activo se distingue por `aria-pressed`, borde y elevación; foco mantiene contorno visible.
+`pos-sale-screen` publica la clase de `activeMenuGroup` para las superficies centrales; sus
+variables existentes de superficie y texto conservan contraste AA. El modo sin iconos de §53
+no retira los iconos del menú superior ni altera navegación, clasificación, precios o carrito.
 
 ### 54.3 Compatibilidad
 
@@ -5232,6 +5231,12 @@ productivos.
 
 ### 58.1 Dos contextos independientes
 
+El selector de consulta del panel (`dashboardBranchId`) conserva su alcance propio. El Copiloto
+se remonta por actor y sucursal consultada: cambiar cualquiera limpia resultados, error y prompt,
+aborta la consulta anterior y descarta su resolución incluso si el transporte ya la había recibido.
+Así una respuesta financiera de A nunca se atribuye a B. Esto no cambia autorización del servidor
+ni el contexto operativo POS.
+
 El sistema conserva dos conceptos distintos:
 
 1. `configuration_scope`, usado al editar configuración en Admin;
@@ -5465,6 +5470,11 @@ token, secreto ni snapshot financiero. `prepared` bloquea transiciones desde ant
 No se resuelve por TTL ni por confirmación de ausencia aportada por el navegador. Preparación,
 ejecución, recuperación y selección usan gobernanza → actor → intención → dominio. La intención
 prepared se confirma previamente; applied y evidencia del comando de dominio se confirman juntos.
+La validación de contexto operativo toma gobernanza exclusiva antes del actor también en
+PostgreSQL. Si debe resolver primero el perfil o la lectura financiera fiscal, adquiere ese modo
+antes de cualquier lock compartido o de workspace; no asciende de compartido a exclusivo después.
+Esto serializa las transacciones operativas bajo ese fence organizacional. El acceso al PAC sigue
+fuera de la transacción y exige reautorización al regresar.
 Un commit o rollback interno del dominio rompe ese contrato y se rechaza. El downgrade 0090
 rechaza eliminar cualquier intención, incluidas las terminales, para conservar historia.
 

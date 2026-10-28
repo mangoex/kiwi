@@ -88,6 +88,8 @@ retro. Repetir login con preferencia oscura del SO para comprobar tema claro. La
 neutralidad RGB se sustituye por estos criterios por decisión del usuario (2026-10-01); no se
 eliminan recorridos funcionales, validaciones ni cobertura de teclado. Los nombres históricos
 de archivos/variables ADMINRETRO se conservan por compatibilidad con runners existentes.
+La prueba semántica de cabecera verifica la marca vigente Mimenu Admin y el icono Utensils,
+introducidos por el cambio de branding `35e3396`; no exige el texto ni SVG anteriores de KiwiPOS.
 
 El job frontend de CI ejecuta `tests/browser/test_admin_retro.mjs` contra el build servido por
 Vite preview, con Playwright 1.63.0 instalado en un directorio temporal aislado. Sus respuestas

@@ -15,6 +15,7 @@ import sqlalchemy as sa
 from restaurant_os import models
 from restaurant_os.operations import (
     BusinessError,
+    _authority_governance_lock,
     calculate_expected_cash,
     close_cash_shift_operationally,
     compensate_cash_movement,
@@ -328,6 +329,7 @@ def test_cash_writer_waits_before_shift_when_close_owns_branch(operation: str) -
 
     try:
         with Session(engine) as holder, ThreadPoolExecutor(max_workers=1) as pool:
+            _authority_governance_lock(holder)
             lock_gateway_branch(holder, organization_id=ORG_ID, branch_id=BRANCH_A)
             pending = pool.submit(writer)
             try:

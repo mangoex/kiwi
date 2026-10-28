@@ -230,6 +230,22 @@ def test_fixed_and_selectable_writers_cannot_both_win_on_postgresql() -> None:
     engine = _engine()
     try:
         barrier = Barrier(2)
+        selectable_payload = {
+            "expected_version": 0,
+            "groups": [{
+                "name": "Acompañamiento",
+                "minimum_selections": 1,
+                "maximum_selections": 1,
+                "included_selections": 1,
+                "options": [{
+                    "name": "Papas",
+                    "effect_type": "product_component",
+                    "component_product_id": "018f6f73-2d0a-74f0-8f1c-000000000112",
+                    "component_quantity": "1",
+                    "price_delta_cents": 0,
+                }],
+            }],
+        }
 
         def selectable_writer() -> str:
             with Session(engine) as session:
@@ -239,7 +255,7 @@ def test_fixed_and_selectable_writers_cannot_both_win_on_postgresql() -> None:
                         session,
                         ADMIN_USER_ID,
                         PRODUCT_ID,
-                        _payload(),
+                        selectable_payload,
                         "compound-products-postgres-mode-selectable",
                     )
                     return "selectable-applied"

@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 import sqlalchemy as sa
 from corte_ciego_storage import isolated_database
+from fixture_metadata import create_fixture_tables
 from restaurant_os import models
 from restaurant_os import operations as ops
 from restaurant_os.integrations.service import ChannelIntegrationService
@@ -17,7 +18,7 @@ from test_platform_api import ADMIN_USER_ID, _seed
 @pytest.fixture
 def log_pg() -> Iterator[sessionmaker[Session]]:
     for engine in isolated_database("postgresql"):
-        models.metadata.create_all(engine)
+        create_fixture_tables(engine)
         factory = sessionmaker(bind=engine, expire_on_commit=False)
         with factory() as session:
             _seed(session)

@@ -9489,7 +9489,9 @@ def test_facturapi_connection(
     ))
 
 
-@router.get("/invoicing/invoices", dependencies=[Depends(financial_read_guard("sales"))])
+@router.get("/invoicing/invoices", dependencies=[
+    Depends(financial_read_guard("sales", workspace_context=True))
+])
 def list_cfdi_invoices(
     session: SessionDep,
     branch_id: str | None = None,
@@ -9507,7 +9509,9 @@ def list_cfdi_invoices(
     ))
 
 
-@router.get("/invoicing/invoices/{invoice_id}", dependencies=[Depends(financial_read_guard("sales", invoice_resource=True))])
+@router.get("/invoicing/invoices/{invoice_id}", dependencies=[
+    Depends(financial_read_guard("sales", invoice_resource=True, workspace_context=True))
+])
 def get_cfdi_invoice_detail(
     invoice_id: str,
     session: SessionDep,
@@ -9542,8 +9546,12 @@ def issue_cfdi_invoice(
     ))
 
 
-@router.get("/invoicing/invoices/{invoice_id}/pdf", dependencies=[Depends(financial_read_guard("sales", invoice_resource=True))])
-@router.get("/invoicing/invoices/{invoice_id}/xml", dependencies=[Depends(financial_read_guard("sales", invoice_resource=True))])
+@router.get("/invoicing/invoices/{invoice_id}/pdf", dependencies=[
+    Depends(financial_read_guard("sales", invoice_resource=True, workspace_context=True))
+])
+@router.get("/invoicing/invoices/{invoice_id}/xml", dependencies=[
+    Depends(financial_read_guard("sales", invoice_resource=True, workspace_context=True))
+])
 def download_cfdi_invoice(
     invoice_id: str,
     request: Request,

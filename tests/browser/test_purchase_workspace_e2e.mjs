@@ -217,6 +217,7 @@ try {
       await page.getByRole('button', { name: 'Confirmar recepción de esta nota' }).waitFor();
       assert.deepEqual(attempts[1], attempts[0], 'Recovery uses the exact original rejected intent');
       assert.equal(await page.getByRole('button', { name: 'Cerrar revisión' }).isDisabled(), false, 'A definitive rejection releases recovery');
+      await dialog.getByText('Turno revisado: ' + newShift.id.slice(-8), { exact: true }).waitFor();
       await page.getByRole('button', { name: 'Confirmar recepción de esta nota' }).click();
       await review.waitFor({ state: 'hidden' });
       assert.notEqual(attempts[2].key, attempts[0].key);
@@ -285,9 +286,15 @@ try {
   const stateConflictDraft = await post('/purchases', stateConflictPayload, { 'Idempotency-Key': 'aud-state-conflict-' + suffix });
   await page.goto(origin + '/admin/purchases');
   const staleStateRow = page.locator('tr').filter({ hasText: stateConflictDraft.folio });
+  // Freeze the intended starting state: navigation alone does not await the purchases query.
+  await staleStateRow.getByRole('button', { name: 'Eliminar borrador', exact: true }).waitFor();
   await post('/purchases/' + stateConflictDraft.id + '/confirm', { branch_id: manifest.branch_id, expected_version: 1 }, { 'Idempotency-Key': 'aud-state-confirm-' + suffix });
   page.once('dialog', dialog => dialog.accept('Fila obsoleta confirmada en otra sesión'));
+  const rejectedDiscard = page.waitForResponse(response => response.url() === origin + '/api/v1/purchases/' + stateConflictDraft.id + '/discard' && response.request().method() === 'POST');
   await staleStateRow.getByRole('button', { name: 'Eliminar borrador', exact: true }).click();
+  const discardedStateResponse = await rejectedDiscard;
+  assert.equal(discardedStateResponse.status(), 409);
+  assert.equal((await discardedStateResponse.json()).detail.code, 'purchase_state_conflict');
   await staleStateRow.getByRole('button', { name: 'Cancelar', exact: true }).waitFor();
   assert.equal(await staleStateRow.getByRole('button', { name: 'Eliminar borrador', exact: true }).count(), 0);
   await post('/purchases/' + stateConflictDraft.id + '/cancel', { reason: 'Cerrar fixture de estado', expected_version: 1 });

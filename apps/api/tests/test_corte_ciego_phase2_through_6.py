@@ -1,3 +1,4 @@
+# SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-corte-ciego-phase2-through-6-v1
 """CORTE-CIEGO-001 Phases 2, 3, 4, 5, and 6 comprehensive verification suite."""
 
 from __future__ import annotations

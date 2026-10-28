@@ -633,7 +633,7 @@ def save_modifier_configuration(
             "modifier_component_nested",
             "A fixed combo cannot also be a selectable compound product",
         )
-    if normalized and session.scalar(
+    if contains_product_component and session.scalar(
         sa.select(models.modifier_options.c.id)
         .select_from(
             models.modifier_options.join(

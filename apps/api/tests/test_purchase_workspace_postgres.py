@@ -8,12 +8,12 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
-from restaurant_os import models
+from restaurant_os import models, purchase_commands
 from restaurant_os.modifier_configuration import (
     copy_modifier_configuration,
     save_modifier_configuration,
@@ -181,6 +181,127 @@ def test_concurrent_creation_has_one_document_and_no_duplicate_audit(pg_engine, 
             )
             == 1
         )
+
+
+@pytest.mark.parametrize("first_operation", ["create", "update"])
+def test_creation_and_draft_edit_share_identity_lock_order(pg_engine, monkeypatch, first_operation):
+    """Force both lock interleavings; no timing sleeps or probabilistic race starts."""
+    payload = _purchase_seed(pg_engine)
+    target_folio = "SR-PG-CREATE-EDIT"
+    changed = {**payload, "folio": target_folio}
+    creation = {
+        **changed,
+        "folio": f"  {target_folio}  ",
+        "document_type": f" {payload['document_type'].upper()} ",
+    }
+
+    def financial_snapshot(session):
+        return {
+            table.name: sorted(
+                [dict(row) for row in session.execute(sa.select(table)).mappings()],
+                key=repr,
+            )
+            for table in (
+                models.inventory_movements,
+                models.inventory_cost_states,
+                models.cash_movements,
+                models.purchase_presentations,
+                models.supplier_price_history,
+            )
+        }
+
+    with Session(pg_engine) as session:
+        draft = create_purchase_document(session, payload, ADMIN_USER_ID, "sr-pg-lock-order-seed")
+        fingerprints = {
+            "create": preview_purchase(session, creation, ADMIN_USER_ID)["context_fingerprint"],
+            "update": preview_purchase(session, changed, ADMIN_USER_ID)["context_fingerprint"],
+        }
+        before_effects = financial_snapshot(session)
+
+    first_locked = Event()
+    second_requested = Event()
+    original_lock = purchase_commands._acquire_idempotency_lock
+
+    def interleaved_lock(session, namespace, key):
+        if namespace != "purchase-document-identity":
+            return original_lock(session, namespace, key)
+        if session.info["race_operation"] == first_operation:
+            original_lock(session, namespace, key)
+            first_locked.set()
+            assert second_requested.wait(timeout=10), "Second writer never requested identity"
+        else:
+            second_requested.set()
+            original_lock(session, namespace, key)
+
+    def write(operation):
+        with Session(pg_engine) as session:
+            session.info["race_operation"] = operation
+            if operation != first_operation:
+                assert first_locked.wait(timeout=10), "First writer never acquired identity"
+            if operation == "create":
+                return create_purchase_document(
+                    session, creation, ADMIN_USER_ID, "sr-pg-lock-order-create",
+                    fingerprints["create"],
+                )
+            return update_purchase_document(
+                session, draft["id"], {**changed, "expected_version": 1}, ADMIN_USER_ID,
+                "sr-pg-lock-order-update", fingerprints["update"],
+            )
+
+    def race(operation):
+        try:
+            return write(operation)
+        except BusinessError as error:
+            return error.code
+
+    monkeypatch.setattr(purchase_commands, "_acquire_idempotency_lock", interleaved_lock)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = {operation: pool.submit(race, operation) for operation in ("create", "update")}
+        results = {operation: future.result(timeout=30) for operation, future in futures.items()}
+    monkeypatch.setattr(purchase_commands, "_acquire_idempotency_lock", original_lock)
+    second_operation = "update" if first_operation == "create" else "create"
+    assert isinstance(results[first_operation], dict)
+    assert results[second_operation] == "purchase_document_identity_conflict"
+
+    def command_snapshot(session):
+        return {
+            table.name: sorted(
+                [dict(row) for row in session.execute(sa.select(table)).mappings()], key=repr,
+            )
+            for table in (
+                models.purchase_documents,
+                models.purchase_document_lines,
+                models.purchase_create_commands,
+                models.purchase_update_commands,
+                models.audit_events,
+            )
+        }
+
+    with Session(pg_engine) as session:
+        final = command_snapshot(session)
+        assert financial_snapshot(session) == before_effects
+        documents = final["purchase_documents"]
+        assert len(documents) == (2 if first_operation == "create" else 1)
+        target = [row for row in documents if row["folio"] == target_folio]
+        assert len(target) == 1 and target[0]["status"] == "draft"
+        assert target[0]["version"] == (1 if first_operation == "create" else 2)
+        assert len(final["purchase_document_lines"]) == 3 * len(documents)
+        assert len(final["purchase_create_commands"]) == len(documents)
+        assert len(final["purchase_update_commands"]) == int(first_operation == "update")
+        for action, count in (
+            ("purchase.created", len(documents)),
+            ("purchase.updated", int(first_operation == "update")),
+        ):
+            assert sum(row["action"] == action for row in final["audit_events"]) == count
+        original = next(row for row in documents if row["id"] == draft["id"])
+        assert original["version"] == (1 if first_operation == "create" else 2)
+        expected_folio = payload["folio"] if first_operation == "create" else target_folio
+        assert original["folio"] == expected_folio
+
+    assert write(first_operation) == results[first_operation]
+    with Session(pg_engine) as session:
+        assert command_snapshot(session) == final
+        assert financial_snapshot(session) == before_effects
 
 
 def test_draft_edit_and_confirmation_have_one_reviewed_version_winner(pg_engine):

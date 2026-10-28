@@ -340,7 +340,7 @@ const AdminLayout = () => {
         <div className="admin-sidebar-logo" style={{ display: 'flex', justifyContent: isCollapsed ? 'center' : 'space-between', alignItems: 'center', padding: isCollapsed ? '24px 0' : '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div className="admin-sidebar-logo-icon" style={{ background: '#16a34a', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Utensils size={18} color="#ffffff" />
+              <Utensils size={18} color="#ffffff" aria-hidden="true" />
             </div>
             {!isCollapsed && <span style={{ fontWeight: 800, fontSize: '1.15rem', color: '#0f172a', letterSpacing: '-0.02em' }}>Mimenu <span style={{ fontWeight: 500, color: '#64748b', fontSize: '0.9rem' }}>Admin</span></span>}
           </div>

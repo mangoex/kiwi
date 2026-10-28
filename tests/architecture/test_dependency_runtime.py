@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
         "branch_authority",
         "branch_workspace",
         "fiscal_authority",
+        "fiscal_read_locks",
         "fiscal_emitter",
         "fiscal_command",
         "offline_authorization",
@@ -35,47 +36,30 @@ def test_branch_authority_locks_require_executed_postgres_evidence(
     tmp_path, monkeypatch, module, fault
 ):
     monkeypatch.syspath_prepend(str(ROOT / "scripts"))
-    from verify_postgres_evidence import verify
+    from verify_postgres_evidence import PATHS, verify
 
-    modules = [
-        "delivery_fee",
-        "cash_ledger",
-        "purchase_workspace",
-        "operating_expenses",
-        "system_remediation",
-        "corporate_purchases",
-        "branch_authority",
-        "branch_workspace",
-        "fiscal_authority",
-        "fiscal_emitter",
-        "fiscal_command",
-        "offline_authorization",
-        "operational_intents",
-        "supplier_xml",
-        "driver_cash_settlement",
-        "public_tracking_index",
-        "inventory_overview",
-        "delivery_driver_assignment",
-    ]
-    collected = [name for name in modules if name != module or fault != "not_collected"]
+    target = f"apps/api/tests/test_{module}_postgres.py"
+    assert target in PATHS
+    collected = [path for path in PATHS if path != target or fault != "not_collected"]
     collection = tmp_path / "branch-collection.txt"
     collection.write_text(
-        "\n".join(f"apps/api/tests/test_{name}_postgres.py::test_lock" for name in collected),
+        "\n".join(f"{path}::test_lock" for path in collected),
         encoding="utf-8",
     )
     junit = tmp_path / "branch-report.xml"
     junit.write_text(
         "<testsuite>"
         + "".join(
-            f'<testcase classname="apps.api.tests.test_{name}_postgres" name="test_lock">'
-            + ("<skipped/>" if name == module and fault == "skipped" else "")
+            f"<testcase classname=\"{path[:-3].replace('/', '.')}\" name=\"test_lock\">"
+            + ("<skipped/>" if path == target and fault == "skipped" else "")
             + "</testcase>"
-            for name in collected
+            for path in collected
         )
         + "</testsuite>",
         encoding="utf-8",
     )
-    with pytest.raises(RuntimeError, match="Mandatory PostgreSQL"):
+    expected_error = "collection omits" if fault == "not_collected" else "case did not pass"
+    with pytest.raises(RuntimeError, match=expected_error):
         verify(collection, junit)
 
 
@@ -126,6 +110,7 @@ def test_required_postgres_evidence_rejects_omitted_or_unexecuted_case(tmp_path,
         "branch_authority",
         "branch_workspace",
         "fiscal_authority",
+        "fiscal_read_locks",
         "fiscal_emitter",
         "fiscal_command",
         "offline_authorization",

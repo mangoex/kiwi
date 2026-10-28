@@ -39,6 +39,6 @@ assert.match(styles, /\.modifier-add-button\s*\{[^}]*width:\s*fit-content/s);
 assert.match(styles, /@media \(max-width:\s*760px\)/);
 
 assert.match(sharedWorkspace, /<ModifierManager/);
-assert.match(sharedWorkspace, /allowProductComponents=\{false\}/);
+assert.match(sharedWorkspace, /allowProductComponents=\{true\}/);
 assert.match(sharedWorkspace, /showCompoundTools=\{false\}/);
 assert.doesNotMatch(products, /ModifierManager|productos-compound-intro|productos-compound-preview/);

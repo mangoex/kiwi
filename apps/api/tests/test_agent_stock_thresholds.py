@@ -12,6 +12,7 @@ from uuid import uuid4
 import pytest
 import sqlalchemy as sa
 import yaml
+from fixture_metadata import create_fixture_tables
 from restaurant_os import models
 from sqlalchemy.orm import Session, sessionmaker
 from test_agent_tools import (
@@ -57,7 +58,7 @@ def stock_factory(request: pytest.FixtureRequest) -> Generator[sessionmaker[Sess
         connection.execute(sa.schema.CreateSchema(schema))
     engine = sa.create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     try:
-        models.metadata.create_all(engine)
+        create_fixture_tables(engine)
         factory = sessionmaker(bind=engine, expire_on_commit=False)
         with factory() as session:
             _seed(session)

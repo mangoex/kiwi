@@ -155,7 +155,12 @@ BDD-SC-806. Contrato y API prueban payload explícito, rama inmutable, autorizac
 replay de la misma key/hash/actor/documento, conflicto de key o versión y rechazo de estados no draft.
 Inyectar fallo después de reemplazar líneas, auditoría y recibo; documento, partidas, versión y efectos
 deben quedar intactos. Contar cero movimientos/caja/costo antes y después. PostgreSQL usa barreras para
-editar contra confirmar/cancelar; SQLite focal verifica la misma transición serial.
+editar contra confirmar/cancelar; SQLite focal verifica la misma transición serial. Agregar carrera
+determinista crear/editar hacia la misma identidad documental y presentación, incluyendo tipo y
+folio normalizados. Forzar la intercalación en los locks, exigir un ganador y
+`purchase_document_identity_conflict`, y contar documentos, versiones, partidas, auditoría y
+recibos antes/después de repetir la intención ganadora. Ningún resultado puede ser un deadlock,
+error de almacenamiento ni efecto en inventario/caja.
 
 ## TDD-TC-477 Descarte controlado y revisión exacta
 
@@ -164,5 +169,9 @@ conserva filas y auditoría, no genera evento financiero
 ni reversa y no borra físicamente. Versión obsoleta y ausencia de versión tras una edición fallan sin
 mutación. Confirmación UI envía `expected_version`; una confirmación obsoleta no recibe las partidas
 editadas sin nueva revisión. Migración sube documentos existentes a versión 1, persiste recibos y
-bloquea downgrade con ediciones. Gates: pytest/ruff/mypy focales, contrato, prueba frontend, typecheck,
+bloquea downgrade con ediciones. El E2E espera la fila draft visible antes de confirmar desde otra
+sesión; exige `409 purchase_state_conflict` al descartarla y después la acción Cancelar actualizada.
+Tras rechazar un turno obsoleto, espera que la revisión muestre el nuevo turno antes de confirmar
+con otra intención; verifica que el replay previo mantuvo exactamente su key/body original.
+Gates: pytest/ruff/mypy focales, contrato, prueba frontend, typecheck,
 migración SQLite/PostgreSQL focal, `git diff --check`, QA visual de tabla/modal y auditoría Sol fresca.

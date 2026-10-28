@@ -14,11 +14,13 @@ heredar esa opción. Editar el set cambia ventas nuevas pero no el snapshot prev
 La prueba reemplaza `product_ids`, comprueba alta/baja efectiva, auditoría y versión incremental.
 Conjunto vacío, producto inválido/no corporativo/otra estación, versión obsoleta y clave reutilizada
 con cuerpo distinto fallan sin mutación parcial. Ambos órdenes set↔combo fijo y
-set↔`product_component` se rechazan incluso con un set todavía vacío.
+los componentes de segunda profundidad se rechazan. Un set puede configurar componentes elegibles
+según PRD-FR-262 sin permitir recursión entre productos.
 
 ### TDD-TC-311 Separación de autoridades
 
-Pruebas negativas rechazan `product_component` en sets compartidos y comprueban que grupos legados,
+Pruebas de componentes elegibles aceptan `product_component` en sets compartidos y rechazan una
+segunda profundidad; comprueban que grupos legados,
 comentarios, extras y composición permanecen intactos. El CRUD legado no puede editar un grupo cuyo
 propietario es un set.
 
@@ -26,7 +28,8 @@ propietario es un set.
 
 Pruebas frontend semánticas exigen tarjeta/ruta **Modificadores**, selector por categoría/producto,
 estados mixtos, workspace de dos columnas como Comentarios, validación accionable de nombre/alcance,
-escritura mediante endpoints del set y editor sin producto componente. Productos no publica tab,
+escritura mediante endpoints del set y editor con productos componentes elegibles, sin herramientas
+de composición fija (`showCompoundTools=false`). Productos no publica tab,
 resumen, enlace ni monta `ModifierManager`; la ruta central es la única superficie. La prueba Chrome
 confirma creación sin botón inerte, fuerza `401`, relogin y remontaje para creación y alcance, y exige
 el mismo cuerpo y clave.

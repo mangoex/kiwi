@@ -13,7 +13,7 @@ const posDashboard = readFileSync(
   'utf8',
 );
 const adminDashboard = readFileSync(
-  join(root, 'apps/admin-web/src/features/dashboard/Overview.tsx'),
+  join(root, 'apps/admin-web/src/features/dashboard/ExecutiveCopilot.tsx'),
   'utf8',
 );
 const history = readFileSync(
@@ -57,6 +57,7 @@ for (const dashboard of [posDashboard, adminDashboard]) {
   assert.doesNotMatch(dashboard, /total_revenue_cents\s*\/\s*data\.total_orders/);
   assert.doesNotMatch(dashboard, /totalRevenue\s*\/\s*totalOrders/);
 }
-assert.match(adminDashboard, /category\.share_bps/);
+assert.match(adminDashboard, /formatMoney\(row\.average_ticket_cents\)/);
+assert.match(adminDashboard, /\/admin-ai\/executive-insights/);
 assert.doesNotMatch(adminDashboard, /total_orders \* 0\.(?:52|31|83)/);
 assert.doesNotMatch(adminDashboard, /\(index \+ 1\) \/ topCategoryTotal/);

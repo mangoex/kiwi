@@ -89,17 +89,26 @@ def test_pos_branch_selection_migration_roundtrip_and_history_guard(tmp_path: Pa
 
     engine = sa.create_engine(env["RESTAURANTOS_DATABASE_URL"])
     try:
-        with Session(engine) as session:
-            profile = build_session_profile(
+        # The downgrade is structurally reversible, but the current financial
+        # authority must fail closed on this unsupported application schema.
+        with Session(engine) as session, pytest.raises(BusinessError) as incomplete:
+            build_session_profile(
                 session, "018f6f73-2d0a-74f0-8f1c-000000000006"
             )
-        assert profile["scope"]["authorization_version"] == 1
-        assert profile["scope"]["can_select_branch"] is False
+        assert incomplete.value.code == "financial_schema_incomplete"
     finally:
         engine.dispose()
 
     upgraded_again = run_alembic("upgrade", "0077_pos_branch_selection")
     assert upgraded_again.returncode == 0, upgraded_again.stdout + upgraded_again.stderr
+    engine = sa.create_engine(env["RESTAURANTOS_DATABASE_URL"])
+    try:
+        with Session(engine) as session:
+            profile = build_session_profile(session, "018f6f73-2d0a-74f0-8f1c-000000000006")
+        assert profile["scope"]["authorization_version"] == 1
+        assert profile["scope"]["can_select_branch"] is False
+    finally:
+        engine.dispose()
     connection = sqlite3.connect(database_path)
     try:
         connection.execute(
