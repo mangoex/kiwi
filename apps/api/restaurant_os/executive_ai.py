@@ -40,27 +40,9 @@ def _extract_query_keywords(prompt: str) -> tuple[str | None, str | None]:
     if cust_match:
         cand = cust_match.group(1).strip()
         stop_words = {
-            "en",
-            "particular",
-            "frecuente",
-            "frecuentes",
-            "nuevo",
-            "nuevos",
-            "registrado",
-            "registrados",
-            "con",
-            "cuenta",
-            "contraseña",
-            "contrasena",
-            "de",
-            "la",
-            "el",
-            "los",
-            "las",
-            "tenemos",
-            "hay",
-            "sobre",
-            "del",
+            "en", "particular", "frecuente", "frecuentes", "nuevo", "nuevos",
+            "registrado", "registrados", "con", "cuenta", "contraseña", "contrasena",
+            "de", "la", "el", "los", "las", "tenemos", "hay", "sobre", "del"
         }
         cand_words = [w for w in cand.split() if w.lower() not in stop_words]
         if cand_words:
@@ -75,25 +57,9 @@ def _extract_query_keywords(prompt: str) -> tuple[str | None, str | None]:
     if inv_match:
         cand = inv_match.group(1).strip()
         stop_inv = {
-            "tenemos",
-            "hay",
-            "en",
-            "almacen",
-            "almacén",
-            "sucursal",
-            "el",
-            "la",
-            "los",
-            "las",
-            "de",
-            "clientes",
-            "cuentas",
-            "pedidos",
-            "ordenes",
-            "ventas",
-            "ganancia",
-            "margen",
-            "dinero",
+            "tenemos", "hay", "en", "almacen", "almacén", "sucursal", "el", "la",
+            "los", "las", "de", "clientes", "cuentas", "pedidos", "ordenes", "ventas",
+            "ganancia", "margen", "dinero"
         }
         if cand.lower() not in stop_inv:
             inventory_term = cand
@@ -288,7 +254,9 @@ def query_inventory_status(
         ]
 
     total_items = len(stock_items)
-    out_or_low_stock = [it for it in stock_items if float(it.get("quantity_on_hand") or 0.0) <= 0.0]
+    out_or_low_stock = [
+        it for it in stock_items if float(it.get("quantity_on_hand") or 0.0) <= 0.0
+    ]
 
     sample = []
     for it in stock_items[:limit]:
@@ -329,7 +297,9 @@ def query_customers_data(
     )
 
     mobile_accounts = int(
-        session.scalar(sa.select(sa.func.count(models.mobile_customer_credentials.c.identity_id)))
+        session.scalar(
+            sa.select(sa.func.count(models.mobile_customer_credentials.c.identity_id))
+        )
         or 0
     )
 
@@ -360,11 +330,7 @@ def query_customers_data(
             | models.customers.c.id.in_(phones_subquery)
         )
 
-    rows = list(
-        session.execute(
-            query.order_by(models.customers.c.created_at.desc()).limit(limit)
-        ).mappings()
-    )
+    rows = list(session.execute(query.order_by(models.customers.c.created_at.desc()).limit(limit)).mappings())
 
     customer_list = []
     for r in rows:
@@ -379,9 +345,7 @@ def query_customers_data(
             session.execute(
                 sa.select(
                     sa.func.count(models.orders.c.id).label("total_orders"),
-                    sa.func.coalesce(sa.func.sum(models.orders.c.total_cents), 0).label(
-                        "total_spent"
-                    ),
+                    sa.func.coalesce(sa.func.sum(models.orders.c.total_cents), 0).label("total_spent"),
                     sa.func.max(models.orders.c.created_at).label("last_order_at"),
                 ).where(
                     models.orders.c.customer_id == cid,
@@ -411,9 +375,7 @@ def query_customers_data(
                 "email": str(r["email"] or "Sin email"),
                 "phone": str(phone_val or "Sin teléfono"),
                 "total_orders": int(order_stats["total_orders"] if order_stats else 0),
-                "total_spent_mxn": (
-                    f"${(int(order_stats['total_spent'] if order_stats else 0)) / 100:.2f}"
-                ),
+                "total_spent_mxn": f"${(int(order_stats['total_spent'] if order_stats else 0)) / 100:.2f}",
                 "last_order": str(order_stats["last_order_at"])[:19]
                 if order_stats and order_stats["last_order_at"]
                 else "Sin pedidos",
@@ -443,16 +405,11 @@ def _call_external_provider(
         "Eres Kiwi, el Copiloto Ejecutivo inteligente de RestaurantOS. "
         "Tienes acceso directo y autoritario a las bases de datos de la empresa: "
         "ventas, productos, márgenes, sucursales, inventario actual y base de clientes. "
-        "Utiliza la información de los datos duros proporcionados para responder "
-        "de forma precisa, veraz y fundamentada. "
-        "- Si te preguntan por clientes o cuántos tienen cuenta/contraseña, "
-        "utiliza las métricas de 'clientes_y_cuentas'. "
-        "- Si te preguntan por un cliente específico o su historial, "
-        "busca en la lista de clientes coincidentes. "
-        "- Si te preguntan por inventario, existencias, almacén o un insumo específico, "
-        "revisa la sección 'inventario'. "
-        "- Si te preguntan por ventas, sucursales o canales, "
-        "usa los datos de 'ventas_generales' y 'sucursales'. "
+        "Utiliza la información de los datos duros proporcionados para responder de forma precisa, veraz y fundamentada. "
+        "- Si te preguntan por clientes o cuántos tienen cuenta/contraseña, utiliza las métricas de 'clientes_y_cuentas'. "
+        "- Si te preguntan por un cliente específico o su historial, busca en la lista de clientes coincidentes. "
+        "- Si te preguntan por inventario, existencias, almacén o un insumo específico, revisa la sección 'inventario'. "
+        "- Si te preguntan por ventas, sucursales o canales, usa los datos de 'ventas_generales' y 'sucursales'. "
         "Sé conciso, profesional y ejecutivo. Presenta las cifras en MXN y no inventes montos."
     )
     context_data = {
@@ -494,9 +451,7 @@ def _call_external_provider(
         data_points = branches
     elif "inventario" in normalized_p or "stock" in normalized_p or "insumo" in normalized_p:
         data_points = (inventory or {}).get("items", [])[:10]
-    elif ("cliente" in normalized_p or "clientes" in normalized_p) and (customers or {}).get(
-        "matching_or_recent_customers"
-    ):
+    elif ("cliente" in normalized_p or "clientes" in normalized_p) and (customers or {}).get("matching_or_recent_customers"):
         data_points = (customers or {}).get("matching_or_recent_customers", [])[:10]
     else:
         data_points = []
@@ -577,7 +532,9 @@ def generate_executive_insights(
         or "rentab" in normalized_prompt
         or "ganancia" in normalized_prompt
     ):
-        top_names = ", ".join(f"{p['product_name']} ({p['margin_pct']}%)" for p in top_products[:3])
+        top_names = ", ".join(
+            f"{p['product_name']} ({p['margin_pct']}%)" for p in top_products[:3]
+        )
         answer = (
             "Basado en el historial de órdenes analizado, los productos con mejor "
             "desempeño de margen "
@@ -594,8 +551,7 @@ def generate_executive_insights(
         )
         answer = (
             f"Resumen comparativo de sucursales activas: {branches_summary}. "
-            "El ticket promedio consolidado es de "
-            f"{sales_overview['average_ticket_formatted_mxn']}."
+            f"El ticket promedio consolidado es de {sales_overview['average_ticket_formatted_mxn']}."
         )
         data_points = branches
         sources = ["branches", "orders", "reconciliation_records"]
@@ -615,11 +571,7 @@ def generate_executive_insights(
             for k, v in sales_overview["channels"].items()
         ]
         sources = ["orders", "channel_integrations"]
-    elif (
-        "inventario" in normalized_prompt
-        or "stock" in normalized_prompt
-        or "insumo" in normalized_prompt
-    ):
+    elif "inventario" in normalized_prompt or "stock" in normalized_prompt or "insumo" in normalized_prompt:
         if inv_term and inventory_data["items"]:
             items_desc = ", ".join(
                 f"{it['item_name']}: {it['stock']} {it['unit']} ({it['branch']})"
@@ -631,8 +583,7 @@ def generate_executive_insights(
             )
         else:
             answer = (
-                "Estado general de inventario: "
-                f"Se tienen {inventory_data['total_items']} insumos registrados. "
+                f"Estado general de inventario: Se tienen {inventory_data['total_items']} insumos registrados. "
                 f"Insumos con existencia cero o baja: {inventory_data['out_or_low_stock_count']}."
             )
         data_points = inventory_data["items"][:10]
@@ -653,11 +604,9 @@ def generate_executive_insights(
             answer = (
                 f"Información del cliente '{c_info['customer_name']}': "
                 f"Teléfono: {c_info['phone']}, Email: {c_info['email']}, "
-                f"Pedidos registrados: {c_info['total_orders']}, "
-                f"Total comprado: {c_info['total_spent_mxn']}, "
+                f"Pedidos registrados: {c_info['total_orders']}, Total comprado: {c_info['total_spent_mxn']}, "
                 f"Último pedido: {c_info['last_order']}, "
-                "Cuenta en app móvil con contraseña: "
-                f"{'Sí' if c_info['has_mobile_password'] else 'No'}."
+                f"Cuenta en app móvil con contraseña: {'Sí' if c_info['has_mobile_password'] else 'No'}."
             )
             data_points = matching[:5]
         else:

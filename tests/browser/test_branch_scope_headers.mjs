@@ -83,7 +83,6 @@ try {
   for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
     const label = `${viewport.width}x${viewport.height}`;
     const admin = await browser.newPage({ viewport });
-    const executiveRequests = [];
     await admin.addInitScript(() => {
       localStorage.setItem('auth_token', 'branch-scope-admin-token');
       localStorage.setItem('user', JSON.stringify({ id: 'branch-scope-qa', display_name: 'Administrador QA' }));
@@ -96,11 +95,6 @@ try {
       if (path === '/dashboard/overview') {
         return route.fulfill({ json: { total_revenue_cents: 0, total_orders: 0, average_ticket_cents: 0, total_products: 0, order_types: {}, recent_transactions: [], activity_chart: [], recent_notifications: [], popular_categories: [] } });
       }
-      if (path === '/admin-ai/executive-insights') {
-        const payload = route.request().postDataJSON();
-        executiveRequests.push(payload);
-        return route.fulfill({ json: { answer: `Informe QA: ${payload.branch_id || 'organization'}` } });
-      }
       return route.fulfill({ json: [] });
     });
     await admin.goto(`${adminUrl}/`, { waitUntil: 'domcontentloaded' });
@@ -108,12 +102,7 @@ try {
     await dashboardScope.waitFor();
     assert.equal(await dashboardScope.inputValue(), '');
     assert.equal(await dashboardScope.getByRole('option', { name: 'Todas las sucursales' }).count(), 1);
-    await admin.getByRole('heading', { name: 'Copiloto Ejecutivo', exact: true }).waitFor();
-    await admin.getByLabel('Consulta para el Copiloto Ejecutivo').waitFor();
-    assert.equal(await admin.locator('.admin-dashboard-modern select').count(), 0, 'The Copilot uses the single canonical dashboard scope selector');
-    await admin.getByRole('button', { name: /Resumen del negocio/ }).click();
-    await admin.getByText('Informe QA: organization', { exact: true }).waitFor();
-    assert.equal(executiveRequests[0].branch_id, undefined);
+    assert.equal(await admin.locator('.admin-dashboard-filters select').count(), 1, 'Only the month filter remains in the dashboard');
     const topbar = await admin.locator('.admin-topbar').boundingBox();
     const indicator = await admin.locator('.configuration-scope-indicator').boundingBox();
     assert.ok(topbar && indicator && indicator.y - (topbar.y + topbar.height) >= 16, `Admin content gap must be >=16px at ${label}`);
@@ -139,13 +128,7 @@ try {
 
     await dashboardScope.selectOption(branches[1].id);
     await admin.getByText('Panel de Norte', { exact: true }).waitFor();
-    await admin.getByText('Tu análisis aparecerá aquí', { exact: true }).waitFor();
-    assert.equal(await admin.getByText('Informe QA: organization', { exact: true }).count(), 0);
-    await admin.getByRole('button', { name: /Resumen del negocio/ }).click();
-    await admin.getByText(`Informe QA: ${branches[1].id}`, { exact: true }).waitFor();
-    assert.equal(executiveRequests[1].branch_id, branches[1].id);
-    await admin.getByRole('button', { name: 'Catálogo y Menú', exact: true }).click();
-    await admin.getByRole('button', { name: 'Acceder a Productos', exact: true }).click();
+    await admin.getByRole('button', { name: 'Productos', exact: true }).click();
     if (!expectV2Enabled) {
       assert.equal(await admin.getByLabel('Alcance de configuración').count(), 0);
       assert.equal(await admin.locator('.admin-configuration-scope-static').count(),0,

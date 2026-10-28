@@ -372,9 +372,6 @@ def test_post_executive_ai_insights_endpoint(
         json={"prompt": "¿Cuántos clientes tienen cuenta y contraseña?"},
     )
     assert response_creds.status_code == 200
-    assert (
-        "contraseña" in response_creds.json()["answer"].lower()
-        or "clientes" in response_creds.json()["answer"].lower()
-    )
+    assert "contraseña" in response_creds.json()["answer"].lower() or "clientes" in response_creds.json()["answer"].lower()
     # Conversational query does not return redundant table data
     assert response_creds.json()["data_points"] == []

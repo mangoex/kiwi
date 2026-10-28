@@ -457,13 +457,13 @@ def archive_modifier_set(
         )
     assigned_products = _assigned_products(session, modifier_set_id)
     _lock_product_scope(session, [str(product["id"]) for product in assigned_products])
-    active_group_ids: list[str] = list(session.scalars(
+    active_group_ids = list(session.scalars(
         sa.select(models.modifier_groups.c.id).where(
             models.modifier_groups.c.modifier_set_id == modifier_set_id,
             models.modifier_groups.c.status == "active",
         )
     ))
-    active_option_ids: list[str] = list(session.scalars(
+    active_option_ids = list(session.scalars(
         sa.select(models.modifier_options.c.id).where(
             models.modifier_options.c.group_id.in_(active_group_ids),
             models.modifier_options.c.status == "active",

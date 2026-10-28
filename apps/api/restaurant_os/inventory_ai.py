@@ -135,10 +135,10 @@ def calculate_suggested_purchases(
         )
     )
     pres_by_item: dict[str, dict[str, Any]] = {}
-    for presentation_row in session.execute(presentations_query).mappings():
-        iid = str(presentation_row["item_id"])
+    for pres in session.execute(presentations_query).mappings():
+        iid = str(pres["item_id"])
         if iid not in pres_by_item:
-            pres_by_item[iid] = dict(presentation_row)
+            pres_by_item[iid] = dict(pres)
 
     # 4. Recent purchase history to find latest supplier and purchase price
     recent_purchases_query = (
