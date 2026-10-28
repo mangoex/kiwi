@@ -1000,11 +1000,11 @@ def test_phase6_operational_controls_reprint_drawer_and_remaining_alerts(
     with cash_world.sessions() as session:
         # Configure leader credentials for step-up authorization under protected policy
         salt = "0123456789abcdef0123456789abcdef"
-        secret = "LeaderSecret#2026"
+        supervisor_fixture_secret = "LeaderSecret#2026"
         session.execute(
             models.user_credentials.insert().values(
                 user_id=cash_world.actors["leader"],
-                password_hash=ops.hash_password(secret, salt),
+                password_hash=ops.hash_password(supervisor_fixture_secret, salt),
                 password_salt=salt,
                 password_algorithm=ops.PASSWORD_ALGORITHM,
                 updated_at=NOW,

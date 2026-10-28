@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from typing import Any, Literal
 
 import sqlalchemy as sa
@@ -131,7 +132,7 @@ def preflight(
             sa.and_(models.roles.c.scope == "branch", models.user_roles.c.branch_id == branch),
         ),
     )
-    people = session.execute(
+    people: Sequence[sa.Row[tuple[str, int]]] = session.execute(
         sa.select(models.users.c.id, models.users.c.authorization_version)
         .where(
             models.users.c.organization_id == ops.ORGANIZATION_ID,
@@ -149,14 +150,14 @@ def preflight(
         block("review_subjects_invalid")
     users = []
     for user_id, version in people:
-        permissions = session.scalars(
+        permissions: Sequence[str] = session.scalars(
             sa.select(models.permissions.c.code)
             .select_from(assignments.join(models.role_permissions).join(models.permissions))
             .where(scoped, models.user_roles.c.user_id == user_id)
             .distinct()
             .order_by(models.permissions.c.code)
         ).all()
-        grants = (
+        grants: Sequence[str] = (
             session.execute(
                 sa.select(models.role_authority_grants.c.authority_kind)
                 .select_from(assignments.join(models.role_authority_grants))

@@ -20024,7 +20024,7 @@ def _is_dedicated_legacy_order_comment_group(
         return False
     if group["maximum_selections"] < 1:
         return False
-    effects = set(
+    effects: set[str] = set(
         session.scalars(
             sa.select(models.modifier_options.c.effect_type).where(
                 models.modifier_options.c.group_id == group["id"]

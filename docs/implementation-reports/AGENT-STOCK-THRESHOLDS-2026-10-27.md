@@ -60,10 +60,26 @@ La URL compartida por el usuario, `https://asistto.bots2.me/docs`, sirve el Open
 no contiene esta ruta. Se confirmó por lectura pública que `https://kiwipos.mimenu.onl/openapi.json`
 sí contiene la ruta de Kiwi, todavía con el esquema genérico anterior.
 
-No se ejecutó suite completa local: cambio acotado, regresión focal ejecutada; CI configura suite
-completa y PostgreSQL, pero este paquete aún no tiene ejecución CI, commit, push ni despliegue.
+No se ejecutó suite completa Python local: cambio acotado, regresión focal ejecutada; CI configura
+suite completa y PostgreSQL. El paquete se publicó en PR #91 como `9f3ce3c`. CI run `40624863714`
+falló antes de ejecutar Python por diez errores de tipos heredados en otros cinco módulos, y
+también por firmas de fixtures desactualizadas y dos expectativas antiguas de marca/icono de Admin.
+Docker y revisión de dependencias sí aprobaron; ese run no acredita la suite funcional.
+
+El seguimiento corrige esos gates sin modificar reglas ni UI: anota colecciones y filas SQL;
+actualiza expectativas exactas de Mimenu Admin/Utensils conforme al layout vigente; renombra una
+variable de credencial sintética; refresca únicamente cinco SHA de entradas existentes en la
+allowlist, tras revisar sus fixtures. El lint completo detectó además formato heredado en
+`executive_ai.py` y su prueba: se corrigió verificando igualdad del AST antes/después. No se agregan
+silenciamientos, exclusiones ni nuevas entradas a la allowlist. Mypy completo aprueba los 150
+módulos y Ruff aprueba `apps/api tests`. Auditoría Sol de seguimiento sin hallazgos; las regresiones
+focales y semánticas de esta reparación se ejecutan antes del cierre. La integración requiere un
+nuevo CI verde del PR, no el run fallido anterior.
+
 Frontend, gateway y migraciones no se activan. El usuario autorizó explícitamente publicación y
-despliegue en este chat, conforme a GOV-REL-001. Tras CI verde, desplegar y hacer canary autenticado
+despliegue en este chat, conforme a GOV-REL-001, y después indicó que él hará el redeploy.
+La navegación automatizada se detuvo sin ejecutar el despliegue. Tras CI verde, integrar y entregar
+el SHA al usuario para redeploy y canary autenticado
 con `inventory`: comparar un insumo con
 umbral y otro sin él contra Admin, validar unidad, ceros/null y rechazo de sucursal ajena. No escribir
 datos productivos para el canary. Ante regresión, revertir el código/contrato de esta ampliación;

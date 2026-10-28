@@ -329,7 +329,7 @@ def list_owner_alerts(
 
     # A delegate requires BOTH active financial dataset grant AND explicit recipient designation.
     recipients = models.owner_alert_recipients
-    designated_types = set(
+    designated_types: set[str] = set(
         session.scalars(
             sa.select(recipients.c.alert_type).where(
                 recipients.c.organization_id == ops.ORGANIZATION_ID,
