@@ -134,3 +134,33 @@ acciones finales visibles. Gates: prueba semántica, contrato, pytest/ruff focal
 `git diff --check`, CI aplicable y auditoría independiente R3; despliegue y migración productiva
 conservan autorización separada. La cobertura de autocompletado documental y multimodal del borrador
 de compra (`PUR-AI-CAPTURE-001`, `BDD-SC-804`) se registra en `TDD-TC-474` (`docs/04-TDD-procurement-assistance.md`).
+
+## TDD-TS-162 Borradores de compra inspeccionables y editables
+
+PUR-DRAFT-001, R3. Base aislada con dos sucursales, cuentas read/manage, borrador de varias partidas,
+documento confirmado y cancelado, versiones concurrentes y fallos inyectados. No usa producción.
+
+## TDD-TC-475 Detalle y autoridad de UI
+
+BDD-SC-805. La prueba semántica y el recorrido browser comprueban **Ver** para lectura, detalle de
+todas las partidas y ausencia de Editar/Eliminar sin `purchases.manage`. Para un manager comprueban
+Ver, Editar, Confirmar y Eliminar borrador, hidratación exacta del editor y que una fila cancelada en
+draft deja de ser pendiente sin ocultar cancelaciones de compras antes confirmadas.
+
+## TDD-TC-476 Edición idempotente, versionada y atómica
+
+BDD-SC-806. Contrato y API prueban payload explícito, rama inmutable, autorización, versión vigente,
+replay de la misma key/hash/actor/documento, conflicto de key o versión y rechazo de estados no draft.
+Inyectar fallo después de reemplazar líneas, auditoría y recibo; documento, partidas, versión y efectos
+deben quedar intactos. Contar cero movimientos/caja/costo antes y después. PostgreSQL usa barreras para
+editar contra confirmar/cancelar; SQLite focal verifica la misma transición serial.
+
+## TDD-TC-477 Descarte controlado y revisión exacta
+
+BDD-SC-807. Descartar draft mediante el comando exclusivo `discard`, con estado y versión vigentes,
+conserva filas y auditoría, no genera evento financiero
+ni reversa y no borra físicamente. Versión obsoleta y ausencia de versión tras una edición fallan sin
+mutación. Confirmación UI envía `expected_version`; una confirmación obsoleta no recibe las partidas
+editadas sin nueva revisión. Migración sube documentos existentes a versión 1, persiste recibos y
+bloquea downgrade con ediciones. Gates: pytest/ruff/mypy focales, contrato, prueba frontend, typecheck,
+migración SQLite/PostgreSQL focal, `git diff --check`, QA visual de tabla/modal y auditoría Sol fresca.

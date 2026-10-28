@@ -23315,6 +23315,26 @@ def create_purchase_document(
     )
 
 
+def update_purchase_document(
+    session: Session,
+    purchase_id: str,
+    payload: dict[str, Any],
+    actor_user_id: str | None = None,
+    idempotency_key: str | None = None,
+    reviewed_fingerprint: str | None = None,
+) -> dict[str, Any]:
+    from restaurant_os.purchase_commands import execute_purchase_update
+
+    return execute_purchase_update(
+        session,
+        purchase_id,
+        payload,
+        actor_user_id,
+        idempotency_key,
+        reviewed_fingerprint,
+    )
+
+
 def _create_purchase_document(
     session: Session,
     payload: dict[str, Any],
@@ -23364,6 +23384,7 @@ def _create_purchase_document(
         "evidence_url": payload.get("evidence_url"),
         "notes": payload.get("notes"),
         "status": "draft",
+        "version": 1,
         "created_by": actor_id,
         "confirmed_by": None,
         "cancelled_by": None,
@@ -23465,6 +23486,7 @@ def _confirm_purchase_document(
     if not purchase:
         raise BusinessError("purchase_not_found", "Purchase document was not found")
     authorize_branch_scope(session, actor_id, "purchases.manage", purchase["branch_id"])
+    _require_purchase_version(purchase, (confirmation_context or {}).get("expected_version"))
     from restaurant_os.purchase_workspace import validate_purchase_payment
 
     validate_purchase_payment(purchase["payment_method"], purchase["paid_from_cash"])
@@ -23698,9 +23720,28 @@ def cancel_purchase_document(
     purchase_id: str,
     reason: str,
     actor_user_id: str | None = None,
+    expected_version: int | None = None,
 ) -> dict[str, Any]:
     try:
-        return _cancel_purchase_document(session, purchase_id, reason, actor_user_id)
+        return _cancel_purchase_document(
+            session, purchase_id, reason, actor_user_id, expected_version, None
+        )
+    except Exception:
+        session.rollback()
+        raise
+
+
+def discard_purchase_document(
+    session: Session,
+    purchase_id: str,
+    reason: str,
+    actor_user_id: str | None = None,
+    expected_version: int | None = None,
+) -> dict[str, Any]:
+    try:
+        return _cancel_purchase_document(
+            session, purchase_id, reason, actor_user_id, expected_version, "draft"
+        )
     except Exception:
         session.rollback()
         raise
@@ -23711,6 +23752,8 @@ def _cancel_purchase_document(
     purchase_id: str,
     reason: str,
     actor_user_id: str | None = None,
+    expected_version: int | None = None,
+    expected_status: str | None = None,
 ) -> dict[str, Any]:
     _begin_cash_shift_serialization(session)
     actor_id = _actor_user_id(actor_user_id)
@@ -23730,6 +23773,11 @@ def _cancel_purchase_document(
     if not purchase:
         raise BusinessError("purchase_not_found", "Purchase document was not found")
     authorize_branch_scope(session, actor_id, "purchases.manage", purchase["branch_id"])
+    _require_purchase_version(purchase, expected_version)
+    if expected_status is not None and purchase["status"] != expected_status:
+        raise BusinessError(
+            "purchase_state_conflict", "Purchase state changed; review before continuing"
+        )
     normalized_reason = reason.strip()
     if not normalized_reason:
         raise BusinessError(
@@ -23955,6 +24003,24 @@ def _cancel_purchase_document(
     record_agent_resource_transition(session, purchase_id, "CANCELLED_BY_HUMAN", occurred_at=now)
     session.commit()
     return get_purchase_document(session, purchase_id)
+
+
+def _require_purchase_version(
+    purchase: Mapping[str, Any] | RowMapping, expected_version: Any
+) -> None:
+    current = int(purchase.get("version") or 1)
+    if expected_version is None:
+        if current > 1:
+            raise BusinessError(
+                "purchase_version_required", "Review the current purchase version before continuing"
+            )
+        return
+    if isinstance(expected_version, bool) or not isinstance(expected_version, int):
+        raise BusinessError("purchase_version_invalid", "expected_version must be a positive integer")
+    if expected_version < 1:
+        raise BusinessError("purchase_version_invalid", "expected_version must be a positive integer")
+    if expected_version != current:
+        raise BusinessError("purchase_version_conflict", "Purchase version changed; review again")
 
 
 def get_purchase_document(session: Session, purchase_id: str) -> dict[str, Any]:

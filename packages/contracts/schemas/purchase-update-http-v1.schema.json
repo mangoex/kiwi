@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://restaurantos.local/schemas/purchase-update-http-v1.schema.json",
+  "title": "Versioned online purchase draft update v1 (Idempotency-Key header)",
+  "type": "object",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "payment_method": { "const": "cash" } } },
+      "then": { "properties": { "paid_from_cash": { "const": true } } },
+      "else": { "properties": { "paid_from_cash": { "const": false } } }
+    }
+  ],
+  "required": [
+    "branch_id", "supplier_id", "document_type", "folio", "document_date",
+    "payment_method", "paid_from_cash", "expected_version", "lines"
+  ],
+  "$defs": {
+    "decimal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)$"
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["presentation_id", "quantity", "unit_price", "discount", "tax"],
+      "properties": {
+        "presentation_id": { "type": "string", "format": "uuid" },
+        "quantity": { "$ref": "#/$defs/decimal" },
+        "unit_price": { "$ref": "#/$defs/decimal" },
+        "discount": { "$ref": "#/$defs/decimal" },
+        "tax": { "$ref": "#/$defs/decimal" }
+      }
+    }
+  },
+  "properties": {
+    "branch_id": { "type": "string", "format": "uuid" },
+    "supplier_id": { "type": "string", "format": "uuid" },
+    "document_type": { "enum": ["invoice", "receipt", "ticket", "note"] },
+    "folio": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "document_date": {
+      "anyOf": [
+        { "type": "string", "format": "date" },
+        { "type": "string", "format": "date-time" }
+      ]
+    },
+    "payment_method": { "enum": ["cash", "transfer", "card", "other"] },
+    "paid_from_cash": { "type": "boolean" },
+    "expected_version": { "type": "integer", "minimum": 1 },
+    "delivered_by_name": { "type": "string", "maxLength": 160 },
+    "supplier_catalog_exception": { "type": "boolean" },
+    "supplier_catalog_exception_reason": { "type": "string", "maxLength": 240 },
+    "freight_total": { "const": "0" },
+    "notes": { "type": "string", "maxLength": 600 },
+    "evidence_url": { "type": "string", "maxLength": 600 },
+    "lines": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/line" }
+    }
+  }
+}

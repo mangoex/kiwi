@@ -8,7 +8,8 @@
   "properties": {
     "branch_id": { "type": "string", "format": "uuid" },
     "register_id": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "\\S" },
-    "expected_cash_shift_id": { "type": "string", "format": "uuid" }
+    "expected_cash_shift_id": { "type": "string", "format": "uuid" },
+    "expected_version": { "type": "integer", "minimum": 1 }
   },
   "dependentRequired": {
     "register_id": ["expected_cash_shift_id"],

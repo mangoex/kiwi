@@ -1,7 +1,7 @@
 import type { PurchaseCashContextV1, PurchaseConfirmInputV1 } from '../../../../../packages/contracts/purchase-workspace-v1';
 
 export interface PurchaseScope { organization_id: string; actor_id: string; branch_id: string; }
-export interface ConfirmablePurchase { id: string; organization_id: string; branch_id: string; paid_from_cash: boolean; payment_method: string; }
+export interface ConfirmablePurchase { id: string; organization_id: string; branch_id: string; paid_from_cash: boolean; payment_method: string; version: number; }
 export interface PurchaseAttempt { scope: PurchaseScope; purchase_id: string; key: string; body: PurchaseConfirmInputV1; }
 export const purchaseMethodLabels: Record<string, string> = { cash: 'Efectivo', transfer: 'Transferencia', card: 'Tarjeta', other: 'Otro' };
 export const purchaseScopeKey = (scope: PurchaseScope): string => `${scope.organization_id}:${scope.actor_id}:${scope.branch_id}`;
@@ -23,7 +23,8 @@ export function selectedPurchaseRegister(context: PurchaseCashContextV1 | undefi
 export function createPurchaseAttempt(scope: PurchaseScope, purchase: ConfirmablePurchase, cash: PurchaseCashContextV1 | undefined, register: string, key: string): PurchaseAttempt {
   if (!scope.organization_id || !scope.actor_id || !scope.branch_id || purchase.organization_id !== scope.organization_id || purchase.branch_id !== scope.branch_id) throw new Error('Vuelve a la cuenta y sucursal de esta compra antes de confirmar.');
   if (!purchaseMethodLabels[purchase.payment_method] || (purchase.payment_method === 'cash') !== purchase.paid_from_cash) throw new Error('El método de esta nota es incoherente. Cancélala y vuelve a capturarla.');
-  let body: PurchaseConfirmInputV1 = { branch_id: scope.branch_id };
+  if (!Number.isInteger(purchase.version) || purchase.version < 1) throw new Error('La versión de esta nota no es válida. Actualiza antes de confirmar.');
+  let body: PurchaseConfirmInputV1 = { branch_id: scope.branch_id, expected_version: purchase.version };
   if (purchase.paid_from_cash) {
     const box = cash?.branch_id === scope.branch_id ? cash.open_registers.find(row => row.register_id === register) : undefined;
     if (!box) throw new Error('Selecciona una caja con turno abierto en esta sucursal.');
@@ -43,8 +44,10 @@ export function readPurchaseAttempt(storage: Pick<Storage, 'getItem'>, scope: Pu
       || scopeFields.some(field => parsed.scope[field as keyof PurchaseScope] !== scope[field as keyof PurchaseScope]) || parsed.purchase_id !== id
       || typeof parsed.key !== 'string' || !parsed.key || parsed.key.length > 180
       || parsed.body.branch_id !== scope.branch_id
-      || Object.keys(parsed.body).some(field => !['branch_id', 'register_id', 'expected_cash_shift_id'].includes(field))
-      || Object.values(parsed.body).some(value => typeof value !== 'string' || !value)
+      || Object.keys(parsed.body).some(field => !['branch_id', 'register_id', 'expected_cash_shift_id', 'expected_version'].includes(field))
+      || Object.entries(parsed.body).some(([field, value]) => field === 'expected_version'
+        ? !Number.isInteger(value) || Number(value) < 1
+        : typeof value !== 'string' || !value)
       || ('register_id' in parsed.body) !== ('expected_cash_shift_id' in parsed.body)) throw new Error();
     return parsed;
   } catch { throw new Error('No se pudo validar el intento pendiente. Revisa su resultado antes de confirmar otra vez.'); }

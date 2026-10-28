@@ -4434,9 +4434,9 @@ campos obligatorios; omitirlos sigue siendo error. Sólo la ruta legacy de creac
 los defaults internos ya existentes; no extenderlos a rutas de captura explícita. Cuando ambos
 campos vienen explícitos y son incoherentes se rechazan, sin normalización silenciosa.
 Los documentos históricos se muestran fielmente y no se reescriben. Un borrador histórico incoherente
-o con método fuera de la lista no se confirma: se cancela y recaptura, pues no existe
-edición de borradores persistidos. Revisar también confirmación, no sólo captura. DTO/esquemas online
-se actualizan junto al backend; `purchase-command.schema.json` del gateway queda fuera del cambio.
+o con método fuera de la lista no se confirma mientras siga incoherente: se corrige mediante la
+edición versionada de §51.9 o se cancela. Revisar también confirmación, no sólo captura. DTO/esquemas
+online se actualizan junto al backend; `purchase-command.schema.json` del gateway queda fuera del cambio.
 
 **Contexto mínimo.** La cuenta autentica actor y alcance; `AdminSession.active_branch.id` fija la
 sucursal de captura. Se agrega `GET /api/v1/purchases/cash-context?branch_id=...`, sólo lectura,
@@ -4506,6 +4506,54 @@ estructurados registran operación, resultado, código de rechazo y correlación
 tokens ni claves idempotentes crudas. Pruebas de conteo y conciliación contestan la segunda pregunta.
 No se agrega una regla de fondos insuficientes ni apertura automática: se conserva la política
 existente. No se altera dinero personal, crédito, pagos mixtos ni cuentas por pagar.
+
+### 51.9 PUR-DRAFT-001 — detalle, edición y descarte de compras pendientes
+
+Estado: diseño e implementación R3 por persistencia, dinero e inventario futuro. Amplía FR-108 y
+FR-207 sin cambiar fórmulas, permisos, estados, offline ni los efectos de confirmación/cancelación.
+
+**Lectura y acciones.** `GET /api/v1/purchases` conserva el documento completo con sus partidas. La
+lista de sucursal ofrece **Ver** a quien tenga `purchases.read`; **Editar**, **Confirmar** y
+**Eliminar borrador** exigen `purchases.manage` y estado `draft`. Ver abre el detalle sin mutación.
+Eliminar no ejecuta `DELETE`: solicita motivo y usa
+`POST /api/v1/purchases/{purchase_id}/discard`, que vincula la intención al estado `draft`; conserva documento,
+partidas y auditoría con estado `cancelled`, no crea reversas y deja de mostrarlo entre pendientes.
+Una compra confirmada conserva la acción **Cancelar** y sus compensaciones vigentes.
+
+**Edición autoritativa.** `PUT /api/v1/purchases/{purchase_id}` recibe el mismo cuerpo explícito de
+captura más `expected_version`, `Idempotency-Key` y `If-Purchase-Preview`. La sucursal es inmutable y
+debe coincidir con documento, contexto activo y permiso vigente. Sólo `draft` es editable. Python
+revalida proveedor/presentaciones, exactitud Decimal, excepción, fecha y método; recalcula importes y
+reemplaza encabezado y partidas en una única transacción. No acepta IDs de línea del cliente ni
+calcula totales en TypeScript. El evento `purchase.updated` registra actor, sucursal, versión anterior
+y nueva, campos cambiados, conteos, importes y hashes anterior/nuevo; no registra notas, evidencia,
+nombres, payloads completos ni claves.
+
+`purchase_documents.version INTEGER NOT NULL DEFAULT 1` aumenta exactamente una vez por edición.
+`purchase_update_commands` conserva organización, sucursal, actor, documento, clave, hash de la
+intención, versión esperada y resultado. Misma clave e intención autorizada recupera el resultado;
+otra identidad, documento, versión o body entra en conflicto. El downgrade se bloquea si existen
+recibos de edición o documentos con versión mayor a uno. La migración es aditiva y no reescribe
+importes, estados ni partidas históricas.
+
+**Carreras y revisión.** Actualizar, confirmar, descartar y cancelar serializan primero por documento. Edición
+exige coincidencia exacta de `expected_version`; un valor obsoleto devuelve
+`purchase_version_conflict` sin escrituras. La UI siempre envía la versión mostrada al confirmar,
+editar o retirar. Para compatibilidad, un cliente anterior sin versión sólo puede transicionar un
+documento todavía en versión 1; después de una edición recibe `purchase_version_required`. Si una
+edición gana, una confirmación o descarte basados en la versión anterior fallan y obligan a revisar;
+si la transición gana, la edición falla por estado. Un fallo al reemplazar partidas, auditar o
+guardar el recibo revierte el comando completo. Previsualizar, ver, editar o descartar un draft deja
+en cero sus movimientos de inventario y caja y no actualiza costo promedio ni precio vigente.
+
+**Recuperación y operación.** El editor persistido se hidrata desde el snapshot servidor y usa una
+clave de recuperación separada por organización, actor, sucursal y documento. Durante una respuesta
+incierta congela clave, versión y body; nunca transforma un timeout en una intención nueva. Logs
+estructurados emiten sólo `operation`, `result` y código estable. Preguntas operativas: ¿qué actor
+cambió qué versión de qué documento?, ¿un replay repitió la edición?, ¿qué conflicto de versión o
+estado evitó confirmar datos no revisados?, ¿un descarte de draft produjo algún efecto financiero o
+de inventario? Recibos, auditoría y pruebas de ausencia de efectos responden sin exponer contenido
+sensible. Despliegue y migración productiva requieren autorización separada.
 
 ## 52. POS-CAJERO-001 — captura, espera y confirmación de caja
 

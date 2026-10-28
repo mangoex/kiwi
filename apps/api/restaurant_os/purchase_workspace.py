@@ -394,6 +394,7 @@ def create_agent_purchase_draft(
         "evidence_url": prepared["evidence_url"],
         "notes": prepared["notes"],
         "status": "draft",
+        "version": 1,
         "created_by": None,
         "created_by_agent_identity_id": agent_identity_id,
         "origin": "GROKBOT",

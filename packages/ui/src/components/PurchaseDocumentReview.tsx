@@ -7,7 +7,7 @@ export interface PurchaseDocumentView {
   document_date?: string; subtotal?: string | number; discount_total?: string | number; tax_total?: string | number;
   lines?: { id: string; presentation_snapshot?: { name?: string; base_unit_code?: string }; presentation_quantity?: string | number; base_quantity?: string | number; unit_price?: string | number; discount?: string | number; tax?: string | number; line_total?: string | number }[];
 }
-export interface PurchasePaymentReview { branchName: string; method: string; registerId: string; cashShiftId: string; message: string; recovering: boolean; canConfirm: boolean; }
+export interface PurchasePaymentReview { branchName: string; method: string; registerId: string; cashShiftId: string; message: string; recovering: boolean; canManage: boolean; canConfirm: boolean; }
 export function PurchaseDocumentReview({ purchase, paymentContext, onClose, onConfirm }: { purchase: PurchaseDocumentView | null; paymentContext?: PurchasePaymentReview; onClose: () => void; onConfirm: () => Promise<void> }) {
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState('');
@@ -45,7 +45,7 @@ export function PurchaseDocumentReview({ purchase, paymentContext, onClose, onCo
       <div style={{ overflowX: 'auto' }}><table className="premium-table"><thead><tr><th>Presentación</th><th>Cantidad</th><th>Entrada base</th><th>Precio</th><th>Descuento</th><th>Impuesto</th><th>Importe</th></tr></thead><tbody>{purchase.lines?.map(line => <tr key={line.id}><td>{line.presentation_snapshot?.name ?? 'Sin referencia histórica'}</td><td>{line.presentation_quantity}</td><td>{line.base_quantity} {line.presentation_snapshot?.base_unit_code}</td><td>{line.unit_price}</td><td>{line.discount}</td><td>{line.tax}</td><td>{line.line_total}</td></tr>)}</tbody></table></div>
       <p>Subtotal: {purchase.subtotal} · descuentos: {purchase.discount_total} · impuestos: {purchase.tax_total} · total registrado: {purchase.total}</p>
       <p>Confirmar registra las entradas y, cuando corresponde, el retiro de caja de esta nota.</p>
-      <Button variant="secondary" disabled={pending || paymentContext?.recovering} onClick={onClose}>Cerrar revisión</Button> {(purchase.status === 'draft' || paymentContext?.recovering) && <Button disabled={pending || paymentContext?.canConfirm === false} onClick={() => { setPending(true); setFailure(''); void onConfirm().catch(cause => setFailure(cause instanceof Error ? cause.message : 'No se pudo confirmar.')).finally(() => setPending(false)); }}>{pending ? 'Confirmando…' : paymentContext?.recovering ? 'Recuperar confirmación pendiente' : 'Confirmar recepción de esta nota'}</Button>}
+      <Button variant="secondary" disabled={pending || paymentContext?.recovering} onClick={onClose}>Cerrar revisión</Button> {paymentContext?.canManage && (purchase.status === 'draft' || paymentContext.recovering) && <Button disabled={pending || paymentContext.canConfirm === false} onClick={() => { setPending(true); setFailure(''); void onConfirm().catch(cause => setFailure(cause instanceof Error ? cause.message : 'No se pudo confirmar.')).finally(() => setPending(false)); }}>{pending ? 'Confirmando…' : paymentContext.recovering ? 'Recuperar confirmación pendiente' : 'Confirmar recepción de esta nota'}</Button>}
     </div>}
   </Modal>;
 }

@@ -2,7 +2,7 @@ import React, { useEffect, useReducer, useRef, useState } from 'react';
 import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { Button } from './Button';
 import { Modal } from './Modal';
-import { branchLocalDate, initialPurchaseDraft, purchaseDraftReducer, purchasePayload, restorePurchaseDraft, type PurchaseDraft } from './purchaseDraft';
+import { branchLocalDate, initialPurchaseDraft, purchaseDraftFromDocument, purchaseDraftReducer, purchasePayload, restorePurchaseDraft, type PersistedPurchaseDraft, type PurchaseDraft } from './purchaseDraft';
 import { usePythonPreview, type WorkspaceRequest } from './usePythonPreview';
 import './PurchaseDocumentEditor.css';
 import { registerWorkspaceNavigationGuard, confirmWorkspaceNavigation } from './workspaceNavigation';
@@ -44,15 +44,19 @@ export interface PurchaseDocumentEditorProps {
   suppliers: WorkspaceSupplier[]; presentations: WorkspacePresentation[];
   request: WorkspaceRequest; onCreated: () => void | Promise<void>; initialSupplierId?: string;
   catalogTools?: (supplierId: string, done: () => void) => React.ReactNode;
+  editingPurchase?: PersistedPurchaseDraft | null;
+  onStale?: (message: string) => void | Promise<void>;
 }
 export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
-  const { scope, branchId, branchTimeZone, isOpen, onClose, suppliers, presentations, request, onCreated, initialSupplierId = '', catalogTools } = props;
-  const recoveryKey = 'purchase:' + scope;
+  const { scope, branchId, branchTimeZone, isOpen, onClose, suppliers, presentations, request, onCreated, initialSupplierId = '', catalogTools, editingPurchase = null, onStale } = props;
+  const recoveryKey = 'purchase:' + scope + (editingPurchase ? ':' + editingPurchase.id : ':new');
   const [draft, dispatch] = useReducer(purchaseDraftReducer, null, () => {
     const saved = readWorkspaceSnapshot<PurchaseDraft>(recoveryKey);
-    return saved && saved.scope === scope && saved.branch_id === branchId
+    return saved && saved.scope === scope && saved.branch_id === branchId && saved.purchaseId === editingPurchase?.id
       ? restorePurchaseDraft(saved)
-      : { ...initialPurchaseDraft(scope, branchId, '', 'purchase-create-' + crypto.randomUUID(), crypto.randomUUID()), supplier_id: initialSupplierId };
+      : editingPurchase
+        ? purchaseDraftFromDocument(scope, editingPurchase, 'purchase-update-' + crypto.randomUUID())
+        : { ...initialPurchaseDraft(scope, branchId, '', 'purchase-create-' + crypto.randomUUID(), crypto.randomUUID()), supplier_id: initialSupplierId };
   });
   const recoveryDraft = useRef(draft);
   recoveryDraft.current = draft;
@@ -81,7 +85,7 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
   const submitting = useRef(false);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  useEffect(() => { if (initialSupplierId) dispatch({ type: 'header', key: 'supplier_id', value: initialSupplierId }); }, [initialSupplierId]);
+  useEffect(() => { if (initialSupplierId && !editingPurchase) dispatch({ type: 'header', key: 'supplier_id', value: initialSupplierId }); }, [initialSupplierId, editingPurchase]);
   const payload = purchasePayload(draft);
   const preview = usePythonPreview<PurchasePreview>(request, '/purchases/preview', payload, isOpen && draft.phase === 'editing' && Boolean(draft.document_date));
   const locked = draft.phase !== 'editing';
@@ -183,7 +187,7 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
     recoveryDraft.current = purchaseDraftReducer(draft, { type: 'submit', fingerprint });
     let applied = false;
     try {
-      await request('/purchases', { method: 'POST', headers: { 'Idempotency-Key': draft.creationKey, 'If-Purchase-Preview': fingerprint || '' }, body: JSON.stringify(payload) });
+      await request(editingPurchase ? `/purchases/${editingPurchase.id}` : '/purchases', { method: editingPurchase ? 'PUT' : 'POST', headers: { 'Idempotency-Key': draft.creationKey, 'If-Purchase-Preview': fingerprint || '' }, body: JSON.stringify(editingPurchase ? { ...payload, expected_version: draft.expectedVersion } : payload) });
       applied = true;
       if (!alive.current) return;
       await onCreated();
@@ -193,10 +197,16 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
       const status = (cause as { status?: number }).status;
       const code = (cause as { code?: string }).code || '';
       const rejected = !applied && isWorkspaceRejection(status, code, draft.phase === 'uncertain', 'purchase');
+      if (editingPurchase && rejected && ['purchase_version_conflict', 'purchase_not_editable'].includes(code)) {
+        discardWorkspaceSnapshot(recoveryKey);
+        const message = cause instanceof Error ? cause.message : 'La compra cambió. Revisa la versión vigente.';
+        try { await onStale?.(message); } finally { if (alive.current) onClose(); }
+        return;
+      }
       dispatch({ type: rejected ? 'resolved' : 'uncertain', message: cause instanceof Error ? cause.message : 'No se pudo recuperar el resultado.' });
     } finally { submitting.current = false; }
   };
-  return <Modal isOpen={isOpen} onClose={close} title="Registrar nota de compra" maxWidth="1120px" contentClassName="purchase-document-modal">
+  return <Modal isOpen={isOpen} onClose={close} title={editingPurchase ? "Editar compra pendiente" : "Registrar nota de compra"} maxWidth="1120px" contentClassName="purchase-document-modal">
     <div className="purchase-workspace">
       {draft.message && <p role="alert">{draft.message}</p>}
       {draft.phase === 'uncertain' && <p role="status">La respuesta no se confirmó. Recupera la misma nota antes de continuar; conserva esta ventana abierta.</p>}
@@ -313,7 +323,7 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
       {preview.error && <p role="alert">{preview.error}</p>}
       {preview.data && <div className="purchase-summary" aria-live="polite">Subtotal: ${preview.data.subtotal} · descuentos: ${preview.data.discount_total} · impuestos: ${preview.data.tax_total}<br /><strong>Total: ${preview.data.total}</strong></div>}
       <p>El impuesto no integra el costo de inventario. Guardar registra el documento; confirmar después realiza la recepción y, cuando corresponde, el retiro de caja.</p>
-      <div className="purchase-actions"><Button variant="secondary" disabled={locked} onClick={close}>Cerrar captura</Button><Button disabled={draft.phase === 'submitting' || (draft.phase === 'editing' && (!compatible || !preview.data))} onClick={() => void submit()}>{draft.phase === 'uncertain' ? 'Recuperar nota registrada' : draft.phase === 'submitting' ? 'Guardando…' : 'Guardar borrador'}</Button></div>
+      <div className="purchase-actions"><Button variant="secondary" disabled={locked} onClick={close}>Cerrar captura</Button><Button disabled={draft.phase === 'submitting' || (draft.phase === 'editing' && (!compatible || !preview.data))} onClick={() => void submit()}>{draft.phase === 'uncertain' ? (editingPurchase ? 'Recuperar cambios' : 'Recuperar nota registrada') : draft.phase === 'submitting' ? 'Guardando…' : editingPurchase ? 'Guardar cambios' : 'Guardar borrador'}</Button></div>
     </div>
   </Modal>;
 }

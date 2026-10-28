@@ -4,7 +4,7 @@ import ts from 'typescript';
 
 const source = readFileSync('packages/ui/src/components/purchaseDraft.ts', 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { branchLocalDate, initialPurchaseDraft, purchaseDraftReducer, purchasePayload } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const { branchLocalDate, initialPurchaseDraft, purchaseDraftFromDocument, purchaseDraftReducer, purchasePayload } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 assert.equal(branchLocalDate('America/Mazatlan', new Date('2026-10-16T05:30:00Z')), '2026-10-15');
 assert.equal(branchLocalDate('America/Mazatlan', new Date('2026-10-16T07:30:00Z')), '2026-10-16');
 assert.equal(branchLocalDate('Invalid/Zone', new Date('2026-10-16T07:30:00Z')), '');
@@ -28,6 +28,17 @@ assert.equal(purchasePayload(draft).lines[0].unit_price, '0', 'Explicit zero mus
 assert.equal(purchasePayload(draft).document_date, '2026-09-30', 'Calendar date must survive');
 assert.equal(purchasePayload(draft).delivered_by_name, '  Ana López  ', 'Python owns canonical trimming');
 assert.ok(!('id' in purchasePayload(draft).lines[0]), 'Local row IDs must not reach Python');
+const persisted = purchaseDraftFromDocument('branch-1:user-1', {
+  id: 'purchase-1', branch_id: 'branch-1', supplier_id: 'supplier-1', folio: 'DRAFT-1',
+  document_type: 'note', document_date: '2026-10-09T00:00:00Z', payment_method: 'other',
+  paid_from_cash: false, delivered_by_name: 'Ana', notes: 'Pendiente', evidence_url: '', version: 3,
+  lines: [{ id: 'persisted-line', presentation_id: 'presentation-1', presentation_quantity: '2', unit_price: '10', discount: '1', tax: '2' }],
+}, 'edit-key');
+assert.equal(persisted.purchaseId, 'purchase-1');
+assert.equal(persisted.expectedVersion, 3);
+assert.equal(persisted.document_date, '2026-10-09');
+assert.equal(persisted.lines[0].quantity, '2');
+assert.equal(persisted.dirty, false);
 draft = purchaseDraftReducer(draft, { type: 'header', key: 'supplier_id', value: 'supplier-2' });
 assert.equal(draft.lines[0].presentation_id, 'presentation-1', 'Changing supplier must preserve capture for review');
 draft = purchaseDraftReducer(draft, { type: 'supplierException', value: true });
@@ -122,6 +133,19 @@ assert.match(modalCss, /\.ui-modal-body\s*\{[\s\S]*min-height:\s*0/);
 for (const path of ['apps/admin-web/src/features/purchasing/PurchasesList.tsx']) {
   assert.match(readFileSync(path, 'utf8'), /<PurchaseDocumentEditor/, `${path} must use the shared editor`);
 }
+const purchasesList = readFileSync('apps/admin-web/src/features/purchasing/PurchasesList.tsx', 'utf8');
+for (const action of ['Ver', 'Editar', 'Eliminar borrador']) assert.match(purchasesList, new RegExp(`>${action}<`));
+assert.match(purchasesList, /setEditingPurchase\(purchase\)/);
+assert.match(editor, /method:\s*editingPurchase\s*\?\s*'PUT'\s*:\s*'POST'/);
+assert.match(editor, /expected_version/);
+assert.match(editor, /discardWorkspaceSnapshot\(recoveryKey\)/);
+assert.match(editor, /\['purchase_version_conflict', 'purchase_not_editable'\]/);
+assert.match(purchasesList, /onStale=\{async message => \{/);
+assert.match(purchasesList, /onStale=[\s\S]*try \{ await refresh\(\)/);
+assert.match(purchasesList, /purchase_version_conflict[\s\S]*await refresh\(\)/);
+assert.match(purchasesList, /purchase_state_conflict/);
+assert.match(purchasesList, /purchase\.status === 'draft' \? 'discard' : 'cancel'/);
+assert.match(purchasesList, /setOpen\(false\); setEditingPurchase\(null\)/);
 assert.match(readFileSync('apps/pos-web/src/App.tsx', 'utf8'), /<AdminModuleRedirect module="purchases"/);
 console.log('Purchase workspace capture, zero, date, lost response and retry contracts passed');
 
@@ -145,12 +169,12 @@ assert.equal(confirmation.isDefinitivePurchaseRejection(409, 'cash_shift_not_ope
 for (const [status, code] of [[401, 'token_invalid'], [403, 'permission_denied'], [409, 'idempotency_key_conflict'], [503, 'database_unavailable']]) assert.equal(confirmation.isDefinitivePurchaseRejection(status, code, true), false, 'An unresolved intent must survive uncertain rejection');
 const scope = { organization_id: 'org-a', actor_id: 'actor-a', branch_id: 'branch-a' };
 const cash = { branch_id: 'branch-a', open_registers: [{ register_id: 'CAJA-01', cash_shift_id: 'shift-1', opened_at: '2026-10-09T12:00:00Z' }] };
-const purchase = { id: 'purchase-1', organization_id: 'org-a', branch_id: 'branch-a', payment_method: 'cash', paid_from_cash: true };
+const purchase = { id: 'purchase-1', organization_id: 'org-a', branch_id: 'branch-a', payment_method: 'cash', paid_from_cash: true, version: 1 };
 assert.equal(confirmation.selectedPurchaseRegister(cash, 'branch-a', 'AJENA'), 'CAJA-01');
 assert.equal(confirmation.selectedPurchaseRegister(cash, 'branch-b', 'CAJA-01'), '');
 assert.equal(confirmation.selectedPurchaseRegister({ ...cash, open_registers: [...cash.open_registers, { ...cash.open_registers[0], register_id: 'CAJA-02' }] }, 'branch-a', null), '');
 const attempt = confirmation.createPurchaseAttempt(scope, purchase, cash, 'CAJA-01', 'stable-command');
-assert.deepEqual(attempt.body, { branch_id: 'branch-a', register_id: 'CAJA-01', expected_cash_shift_id: 'shift-1' });
+assert.deepEqual(attempt.body, { branch_id: 'branch-a', expected_version: 1, register_id: 'CAJA-01', expected_cash_shift_id: 'shift-1' });
 for (const patch of [{ branch_id: 'branch-b' }, { organization_id: 'org-b' }, { payment_method: 'other' }]) assert.throws(() => confirmation.createPurchaseAttempt(scope, { ...purchase, ...patch }, cash, 'CAJA-01', 'stable-command'));
 assert.throws(() => confirmation.createPurchaseAttempt(scope, purchase, undefined, 'CAJA-01', 'stable-command'));
 const store = new Map();
@@ -161,7 +185,7 @@ assert.equal(confirmation.readPurchaseAttempt(storage, { ...scope, actor_id: 'ac
 assert.equal(confirmation.readPurchaseAttempt(storage, { ...scope, organization_id: 'org-b' }, purchase.id), null);
 cash.open_registers[0].cash_shift_id = 'reopened-shift';
 assert.equal(confirmation.readPurchaseAttempt(storage, scope, purchase.id).body.expected_cash_shift_id, 'shift-1', 'Recovery must keep the exact reviewed shift');
-assert.deepEqual(confirmation.createPurchaseAttempt(scope, { ...purchase, payment_method: 'transfer', paid_from_cash: false }, undefined, '', 'transfer-key').body, { branch_id: 'branch-a' });
+assert.deepEqual(confirmation.createPurchaseAttempt(scope, { ...purchase, payment_method: 'transfer', paid_from_cash: false }, undefined, '', 'transfer-key').body, { branch_id: 'branch-a', expected_version: 1 });
 store.set(confirmation.purchaseAttemptKey(scope, purchase.id), JSON.stringify({ ...attempt, body: { ...attempt.body, total: '300' } }));
 assert.throws(() => confirmation.readPurchaseAttempt(storage, scope, purchase.id), 'Corrupt pending metadata must not silently permit a new intent');
 console.log('Cash default, scoped context and frozen confirmation recovery passed');
