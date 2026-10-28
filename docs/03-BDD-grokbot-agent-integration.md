@@ -46,6 +46,11 @@ Feature: Conectar un orquestador con cuatro identidades técnicas sin entregar a
     Given el bot de Inventarios sólo está autorizado para la sucursal Centro
     When consulta insumos y existencia resumida de Centro
     Then obtiene una proyección paginada y minimizada de Centro
+    And cada existencia incluye min_quantity y max_quantity exactos del almacén de Centro
+    And unit_id es la unidad base compartida por existencia y umbrales
+    And un umbral configurado en cero se distingue de null cuando no existe configuración
+    And los insumos sin stock o sin umbral permanecen en el listado sin duplicados entre páginas
+    And la consulta no modifica configuración, existencias, costos ni movimientos
     But una consulta a otra sucursal o a pagos, caja, clientes o personal falla cerrada
 
   @BDD-SC-666

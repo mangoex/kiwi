@@ -518,7 +518,11 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   el orquestador no recibe una credencial maestra ni puede declarar por sí mismo otro perfil.
 - `PRD-FR-271`: La API versionada de agentes debe exponer lecturas mínimas y paginadas de contexto,
   catálogo, insumos, existencias resumidas, recetas, proveedores y necesidades de compra según la
-  identidad. La identidad Inventarios puede leer además movimientos de una sucursal en un periodo
+  identidad. La lectura de existencias incluye los umbrales mínimo y máximo configurados por insumo
+  y sucursal en su almacén, en la misma unidad base que la existencia, con ausencia explícita cuando
+  no hay configuración. Se mantiene sólo lectura bajo `agent.inventory.read`, incluido el perfil
+  `inventory`, sin conceder edición de umbrales. La identidad Inventarios puede leer además
+  movimientos de una sucursal en un periodo
   UTC acotado; aunque otras identidades lean existencias, esta proyección queda reservada a ese
   perfil. La identidad Compras puede leer presentaciones con precio de compra vigente e historial de
   compras confirmadas de una sucursal en un periodo UTC acotado, incluida la composición de costos

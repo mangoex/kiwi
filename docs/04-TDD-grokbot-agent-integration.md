@@ -26,6 +26,13 @@ ajena, branch omitida o ambigua, branch fuera de allowlist y expansión de capac
 body. Las consultas paginadas sólo contienen campos allowlist y excluyen PII, caja, pagos, nómina,
 auditoría cruda y datos cross-branch.
 
+Regresión de `inventory/stock` en `test_agent_stock_thresholds.py`: umbral ausente, cero y seis
+decimales, insumo sin estado de stock, paginación, aislamiento de organización/sucursal/almacén,
+rechazo sin capacidad o fuera de allowlist, fallo cerrado sin almacén activo y ausencia de escrituras
+de dominio. Comprueba los
+campos anulables en OpenAPI compartible y runtime (TC358). Ejecutar las lecturas SQL también en
+PostgreSQL aislado mediante `GROKBOT_TEST_POSTGRES_URL` cuando esté disponible (CI lo configura).
+
 ## TDD-TC-371 Lectura acotada de movimientos de inventario
 
 Siembra movimientos en dos sucursales y fechas, incluidos empates de `effective_at`. Verifica que
