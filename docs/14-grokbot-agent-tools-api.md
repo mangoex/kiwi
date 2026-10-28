@@ -95,7 +95,7 @@ esa solicitud: el bot no debe intentar otra ruta para evadirla.
 | `GET /api/v1/agent-tools/sales/summary` | Ventas confirmadas agregadas por sucursal y periodo UTC |
 | `GET /api/v1/agent-tools/cash/cuts` | Cortes finalizados minimizados por sucursal y periodo UTC |
 | `GET /api/v1/agent-tools/inventory/items` | Insumos administrativos minimizados |
-| `GET /api/v1/agent-tools/inventory/stock` | Existencia resumida de una sucursal |
+| `GET /api/v1/agent-tools/inventory/stock` | Existencia y umbrales mínimo/máximo de una sucursal |
 | `GET /api/v1/agent-tools/inventory/movements` | Movimientos minimizados de una sucursal y periodo UTC |
 | `GET /api/v1/agent-tools/recipes` | Recetas efectivas y componentes permitidos |
 | `GET /api/v1/agent-tools/suppliers` | Proveedores habilitados sin contactos personales |
@@ -110,6 +110,31 @@ cortes se limitan a 25 registros por página. Para solicitar la siguiente págin
 y ligado a sucursal y periodo.
 Los movimientos exigen además `branch_id`, `from_utc` inclusivo y `to_utc` exclusivo; el periodo
 debe ser positivo y no exceder 31 días.
+
+### Umbrales por insumo
+
+`GET /api/v1/agent-tools/inventory/stock?branch_id=<UUID>` usa `agent.inventory.read`, disponible
+para la identidad técnica `inventory` según su allowlist vigente. Cada fila añade `min_quantity`
+y `max_quantity` del almacén activo de esa sucursal; son cadenas decimales exactas en la misma
+unidad base `unit_id` que `available_quantity`. Por ejemplo:
+
+```json
+{
+  "item_id": "018f6f73-2d0a-74f0-8f1c-000000000311",
+  "unit_id": "018f6f73-2d0a-74f0-8f1c-000000000301",
+  "available_quantity": "3.000000",
+  "min_quantity": "5.000000",
+  "max_quantity": "20.000000",
+  "as_of": "2026-10-27T12:00:00Z"
+}
+```
+
+Sin configuración, ambos campos son `null`; cero sí es un umbral configurado. El listado conserva
+insumos sin stock o sin umbral. `as_of` fecha la existencia, no la edición del umbral. No existe un
+`par_quantity` adicional. Para listar configurados, filtrar `min_quantity != null` y recorrer todas
+las páginas. Relacionar `item_id` con `inventory/items` para obtener nombre y SKU. Si no hay almacén
+activo, la API responde `503 dependency_unavailable`; no debe interpretarse como stock cero.
+La lectura no permite crear ni modificar umbrales, existencias o movimientos.
 
 ### Escrituras mediadas
 

@@ -226,7 +226,13 @@ paths:
     get:
       tags: [Agent reads]
       operationId: listAgentInventoryStock
-      summary: Listar existencia resumida de una sucursal
+      summary: Listar existencia y umbrales configurados de una sucursal
+      description: >-
+        Sólo lectura bajo agent.inventory.read, incluido el perfil inventory. min_quantity y
+        max_quantity son decimales exactos en la misma unidad base unit_id que available_quantity,
+        o null si el insumo no tiene umbrales configurados en el almacén activo de la sucursal.
+        No omite insumos sin existencia o sin umbrales. Sin almacén activo responde 503
+        dependency_unavailable. as_of corresponde a la existencia, no a la configuración.
       parameters:
         - $ref: "#/components/parameters/RequiredBranchId"
         - $ref: "#/components/parameters/Cursor"
@@ -1082,6 +1088,18 @@ components:
           $ref: "#/components/schemas/Uuid"
         available_quantity:
           $ref: "#/components/schemas/DecimalString"
+        min_quantity:
+          description: Mínimo configurado en unit_id; null si no hay umbral.
+          anyOf:
+            - type: string
+              pattern: "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+            - type: "null"
+        max_quantity:
+          description: Máximo configurado en unit_id; null si no hay umbral.
+          anyOf:
+            - type: string
+              pattern: "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+            - type: "null"
         as_of:
           type: string
           format: date-time

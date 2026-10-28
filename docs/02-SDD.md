@@ -5935,6 +5935,19 @@ separado. No proyecta folio,
 incompletitud de impuestos, descuentos o cortesías se expresa mediante contadores de calidad, nunca
 se transforma silenciosamente en cero conocido.
 
+La lectura `inventory/stock` añade `min_quantity` y `max_quantity`: cadenas decimales exactas de
+`inventory_stock_thresholds.minimum_quantity/maximum_quantity`, o `null` sin configuración.
+`unit_id` identifica la unidad base tanto de `available_quantity` como de los dos umbrales; no hay
+`par_quantity` ni conversión o redondeo nuevo. La consulta enlaza por organización, sucursal
+autorizada, almacén activo de esa sucursal e insumo, mediante LEFT JOIN para conservar insumos sin
+stock o sin umbral. El estado de stock también se acota a ese almacén. Conserva paginación por
+insumo, autorización `agent.inventory.read` y los perfiles ya admitidos, incluido `inventory`.
+Sin almacén activo de la organización y sucursal autorizadas falla con `503 dependency_unavailable`,
+sin presentar ausencia de almacén como existencia cero ni como falta de umbral.
+`as_of` conserva su significado de fecha de la existencia, no de actualización del umbral.
+No escribe configuración, ledger, reservas ni costos; no requiere migración. El OpenAPI compartible
+y el esquema de respuesta del runtime documentan los campos anulables.
+
 La lectura `inventory/movements` exige la capacidad `agent.inventory.read` y el perfil técnico
 `inventory`, además de una sucursal allowlist,
 `from_utc` inclusivo, `to_utc` exclusivo y un intervalo positivo de hasta treinta y un días. Consulta

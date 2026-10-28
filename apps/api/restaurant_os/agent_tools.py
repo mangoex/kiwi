@@ -1701,7 +1701,36 @@ def list_agent_inventory_items(
     return _page(rows, limit)
 
 
-@router.get("/agent-tools/inventory/stock")
+class AgentStockSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: str
+    unit_id: str = Field(description="Base unit shared by stock and both thresholds.")
+    available_quantity: str
+    min_quantity: str | None = Field(
+        default=None, description="Exact configured minimum in unit_id, or null if unconfigured."
+    )
+    max_quantity: str | None = Field(
+        default=None, description="Exact configured maximum in unit_id, or null if unconfigured."
+    )
+    as_of: datetime = Field(description="Stock timestamp; not the threshold update timestamp.")
+
+
+class AgentStockPageMeta(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    next_cursor: str | None = None
+    has_more: bool
+
+
+class AgentStockPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[AgentStockSummary]
+    page: AgentStockPageMeta
+
+
+@router.get("/agent-tools/inventory/stock", response_model=AgentStockPage)
 def list_agent_stock(
     branch_id: str,
     session: SessionDep,
@@ -1715,12 +1744,24 @@ def list_agent_stock(
     authorized_branch = _branch(session, principal, branch_id)
     after = _cursor(cursor)
     state = models.inventory_cost_states.alias("agent_stock_state")
+    thresholds = models.inventory_stock_thresholds.alias("agent_stock_thresholds")
+    warehouse_id = session.scalar(
+        sa.select(models.warehouses.c.id).where(
+            models.warehouses.c.organization_id == principal.organization_id,
+            models.warehouses.c.branch_id == authorized_branch,
+            models.warehouses.c.status == "active",
+        )
+    )
+    if warehouse_id is None:
+        _fail(503, "dependency_unavailable", "Active branch warehouse is unavailable")
     query = (
         sa.select(
             models.inventory_items.c.id,
             models.inventory_items.c.id.label("item_id"),
             models.inventory_items.c.base_unit_id.label("unit_id"),
             sa.func.coalesce(state.c.quantity_on_hand, 0).label("available_quantity"),
+            thresholds.c.minimum_quantity.label("min_quantity"),
+            thresholds.c.maximum_quantity.label("max_quantity"),
             sa.func.coalesce(state.c.updated_at, _now()).label("as_of"),
         )
         .select_from(
@@ -1729,6 +1770,15 @@ def list_agent_stock(
                 sa.and_(
                     state.c.item_id == models.inventory_items.c.id,
                     state.c.branch_id == authorized_branch,
+                    state.c.warehouse_id == warehouse_id,
+                ),
+            ).outerjoin(
+                thresholds,
+                sa.and_(
+                    thresholds.c.organization_id == principal.organization_id,
+                    thresholds.c.branch_id == authorized_branch,
+                    thresholds.c.warehouse_id == warehouse_id,
+                    thresholds.c.item_id == models.inventory_items.c.id,
                 ),
             )
         )
@@ -1747,6 +1797,8 @@ def list_agent_stock(
     ]
     for row in rows:
         row["available_quantity"] = str(row["available_quantity"])
+        for field in ("min_quantity", "max_quantity"):
+            row[field] = str(row[field]) if row[field] is not None else None
     page = _page(rows, limit)
     for item in page["items"]:
         item.pop("id", None)
