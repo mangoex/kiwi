@@ -7,6 +7,7 @@ from threading import Barrier
 import pytest
 import sqlalchemy as sa
 from corte_ciego_storage import isolated_database
+from fixture_metadata import create_fixture_tables
 from restaurant_os import models, operational_intents
 from restaurant_os import operations as ops
 from restaurant_os.branch_workspaces import reissue_branch_context
@@ -27,7 +28,7 @@ def intent_pg(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[sa.Engine, str]
     get_settings.cache_clear()
     try:
         for engine in isolated_database("postgresql"):
-            models.metadata.create_all(engine)
+            create_fixture_tables(engine)
             with Session(engine) as session:
                 _seed(session)
                 for code in (

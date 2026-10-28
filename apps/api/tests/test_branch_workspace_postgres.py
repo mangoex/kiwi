@@ -7,7 +7,7 @@ from threading import Barrier, Event, Thread
 
 import pytest
 import sqlalchemy as sa
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from restaurant_os import api, branch_workspaces, expenses, models, workspace_fences
 from restaurant_os import operations as ops
 from restaurant_os.auth import create_session_token
@@ -268,7 +268,7 @@ def test_cash_open_fence_serializes_before_branch_selection(context_engine):
                     connection.scalar(
                         sa.text(
                             "SELECT wait_event_type = 'Lock' "
-                            "AND wait_event IN ('transactionid', 'tuple') "
+                            "AND wait_event IN ('advisory', 'transactionid', 'tuple') "
                             "FROM pg_stat_activity WHERE pid = :pid"
                         ),
                         {"pid": backend_pid[0]},
@@ -364,7 +364,7 @@ def test_human_operational_guard_holds_actor_fence_until_resource_transaction_en
                     connection.scalar(
                         sa.text(
                             "SELECT wait_event_type = 'Lock' "
-                            "AND wait_event IN ('transactionid', 'tuple') "
+                            "AND wait_event IN ('advisory', 'transactionid', 'tuple') "
                             "FROM pg_stat_activity WHERE pid = :pid"
                         ),
                         {"pid": backend_pid[0]},
@@ -468,6 +468,7 @@ def _document_confirmation(engine, family, initial):
                     **arguments,
                 )
             return api.expense_confirm(
+                response=Response(),
                 expense_id=document["id"],
                 payload={"branch_id": BRANCH_ID, "version": document["version"]},
                 idempotency_key="pg-document-confirm",
@@ -557,6 +558,7 @@ def test_document_confirmation_and_selection_share_transaction_fence(
                                 }
                                 if family == "purchase"
                                 else {
+                                        "response": Response(),
                                     "expense_id": document["id"],
                                     "idempotency_key": "pg-document-confirm",
                                 }

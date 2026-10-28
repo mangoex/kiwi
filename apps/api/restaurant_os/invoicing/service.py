@@ -11,6 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from restaurant_os import models
+from restaurant_os.config import get_settings
 from restaurant_os.operations import (
     ORGANIZATION_ID,
     BusinessError,
@@ -433,6 +434,8 @@ class InvoicingService:
     ) -> list[dict[str, Any]]:
         from restaurant_os.financial_reads import require_financial_read
 
+        if get_settings().branch_scope_v2_enabled:
+            _authority_governance_lock(session)
         require_financial_read(session, actor_user_id, branch_id, ("sales",))
         query = sa.select(models.cfdi_invoices).where(
             models.cfdi_invoices.c.organization_id == org_id
@@ -480,6 +483,10 @@ class InvoicingService:
     ) -> dict[str, Any] | None:
         from restaurant_os.financial_reads import require_financial_read
 
+        # Avoid upgrading shared financial authority after another reader has
+        # entered: workspace validation and commands use exclusive governance.
+        if get_settings().branch_scope_v2_enabled:
+            _authority_governance_lock(session)
         branch_id = session.scalar(sa.select(models.cfdi_invoices.c.branch_id).where(
             models.cfdi_invoices.c.organization_id == org_id,
             models.cfdi_invoices.c.id == invoice_id,

@@ -64,7 +64,7 @@ def _run_alembic(url: str, *arguments: str) -> None:
         raise RuntimeError(result.stdout + result.stderr)
 
 
-def _reset_and_upgrade(url: str) -> None:
+def _reset_and_upgrade(url: str, revision: str = SEC001_REVISION) -> None:
     """Destructive only to validated local sec001_* databases; never uses generic URLs."""
     engine = sa.create_engine(url)
     try:
@@ -73,7 +73,19 @@ def _reset_and_upgrade(url: str) -> None:
             connection.execute(sa.text("CREATE SCHEMA public"))
     finally:
         engine.dispose()
-    _run_alembic(url, "upgrade", SEC001_REVISION)
+    _run_alembic(url, "upgrade", revision)
+    if revision == "head":
+        engine = sa.create_engine(url)
+        try:
+            with engine.begin() as connection:
+                names = [
+                    name for name in sa.inspect(connection).get_table_names()
+                    if name != "alembic_version"
+                ]
+                quoted = ", ".join(connection.dialect.identifier_preparer.quote(n) for n in names)
+                connection.execute(sa.text(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE"))
+        finally:
+            engine.dispose()
 
 
 def _seed_print_race_scope(session: Session, now: datetime) -> None:
@@ -294,7 +306,7 @@ def test_sec001_postgres_migration_constraints_and_downgrade_guard() -> None:
 
 def test_sec001_postgres_claim_race_has_one_winner() -> None:
     url = _sec001_postgres_url()
-    _reset_and_upgrade(url)
+    _reset_and_upgrade(url, "head")
     engine = sa.create_engine(url)
     now = datetime.now(timezone.utc)
     try:
@@ -355,7 +367,7 @@ def test_sec001_postgres_claim_race_has_one_winner() -> None:
 
 def test_sec001_postgres_retry_race_has_one_active_attempt() -> None:
     url = _sec001_postgres_url()
-    _reset_and_upgrade(url)
+    _reset_and_upgrade(url, "head")
     engine = sa.create_engine(url)
     now = datetime.now(timezone.utc)
     try:

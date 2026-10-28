@@ -160,6 +160,9 @@ def authorized_read_branches(
     requested_branch: str | None,
     branch_context: str | None = None,
 ) -> list[str]:
+    # Workspace validation may follow; acquire its mode before any authority/row lock.
+    if get_settings().branch_scope_v2_enabled:
+        ops._authority_governance_lock(session)
     actor_id = actor or ""
     # Validate current actor and existence of the fiscal capability before any document query.
     ops.require_permission(session, actor_id, "invoicing.read", None)

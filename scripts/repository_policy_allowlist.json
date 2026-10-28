@@ -42,7 +42,7 @@
     },
     {
       "path": "apps/api/tests/test_platform_api.py",
-      "sha256": "692ba9f50d8e64dcb718dc5db8ede28dbfbe02b6c1dd7b82dc6b2cf56ba74632",
+      "sha256": "4765fa63801a9d740f7bf2b3642dede445627d159819877b5363144732770f2f",
       "provenance": "restaurantos-platform-tests-v1"
     },
     {
@@ -162,7 +162,7 @@
     },
     {
       "path": "apps/api/tests/test_fiscal_authority_postgres.py",
-      "sha256": "b4daf10553a148b885fbe0a355e6865e7459f024b23f0a08038368d5b1bc3c7b",
+      "sha256": "028875f5b2af20bb84b9d297340e63898f99b66e4df39ad0984af3714f367612",
       "provenance": "restaurantos-audit-test-fiscal-authority-postgres-v1"
     },
     {

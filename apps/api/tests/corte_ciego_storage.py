@@ -13,6 +13,7 @@ import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from corte_ciego_fixtures import grant_permission
+from fixture_metadata import create_fixture_tables
 from restaurant_os import models
 from restaurant_os.financial_access import FinancialAccessService
 from restaurant_os.financial_access_schema import tables
@@ -91,7 +92,7 @@ def isolated_database(dialect: str) -> Iterator[sa.Engine]:
                 if target not in required:
                     required.add(target)
                     pending.append(target)
-        models.metadata.create_all(engine, tables=list(required))
+        create_fixture_tables(engine, tables=list(required))
         with engine.begin() as connection:
             migrate(connection, "upgrade")
         yield engine

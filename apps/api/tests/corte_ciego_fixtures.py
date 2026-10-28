@@ -19,6 +19,8 @@ import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from restaurant_os import models
+from restaurant_os.auth import create_session_token
+from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.main import create_app
 from restaurant_os.operations import UserCashCutService
@@ -111,7 +113,8 @@ class CashWorld:
     payload: dict[str, str]
 
     def headers(self, actor: str, *, key: str | None = None) -> dict[str, str]:
-        result = {"X-Actor-User-Id": self.actors[actor]}
+        token = create_session_token({"sub": self.actors[actor]}, get_settings().secret_key)
+        result = {"Authorization": f"Bearer {token}"}
         if key is not None:
             result["Idempotency-Key"] = key
         return result

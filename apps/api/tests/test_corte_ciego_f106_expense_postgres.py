@@ -9,6 +9,7 @@ import pytest
 import sqlalchemy as sa
 from corte_ciego_fixtures import grant_permission
 from corte_ciego_storage import isolated_database
+from fixture_metadata import create_fixture_tables
 from restaurant_os import expenses, models
 from restaurant_os import operations as ops
 from sqlalchemy.orm import Session, sessionmaker
@@ -20,7 +21,7 @@ from test_corte_ciego_f106_movements import activate
 @pytest.fixture
 def expense_pg() -> Iterator[tuple[sa.Engine, dict[str, Any]]]:
     for engine in isolated_database("postgresql"):
-        models.metadata.create_all(engine)
+        create_fixture_tables(engine)
         with Session(engine) as session:
             _seed_cash_concept_scope(session)
             _insert_shift(session)

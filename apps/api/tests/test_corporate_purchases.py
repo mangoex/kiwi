@@ -402,6 +402,13 @@ def test_corporate_receipts_are_partial_idempotent_and_destination_scoped():
             "presentation_quantity": "1.000000",
             "base_quantity": "5.000000",
             "movement_ids": [movements[0]["id"]],
+            "differences": [{
+                "allocation_id": north["id"],
+                "allocated_quantity": "2.000000",
+                "received_quantity": "1.000000",
+                "pending_quantity": "1.000000",
+            }],
+            "discrepancy_reason": None,
         }
 
     north_completed = client.post(

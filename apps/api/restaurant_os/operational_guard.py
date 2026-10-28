@@ -17,6 +17,7 @@ from restaurant_os.operations import (
     AuthorizationError,
     BusinessError,
     _audit,
+    _authority_governance_lock,
     build_session_profile,
     require_permission,
 )
@@ -54,6 +55,7 @@ class OperationalRouteGuard:
             from restaurant_os.branch_workspaces import validate_branch_context
 
             try:
+                _authority_governance_lock(session)
                 requested = (branch_id or "").strip()
                 if not requested:
                     profile = build_session_profile(session, user_id)

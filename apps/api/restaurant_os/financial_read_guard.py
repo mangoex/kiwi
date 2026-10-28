@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from restaurant_os import models
 from restaurant_os import operations as ops
+from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
 from restaurant_os.financial_authority import deny
 from restaurant_os.financial_reads import require_financial_read
@@ -22,6 +23,7 @@ def financial_read_guard(
     active_only: bool = False,
     order_resource: bool = False,
     invoice_resource: bool = False,
+    workspace_context: bool = False,
 ) -> Callable[..., None]:
     def guard(
         request: Request,
@@ -36,6 +38,10 @@ def financial_read_guard(
             actor = _human_actor(
                 request.headers.get("X-Actor-User-Id"), request.headers.get("Authorization")
             )
+            if workspace_context and get_settings().branch_scope_v2_enabled:
+                # The domain will validate workspace authority in exclusive mode.
+                # Choose that mode before any shared financial authority guard.
+                ops._authority_governance_lock(session)
             branch = None if organization_scope else request.query_params.get("branch_id")
             if order_resource or invoice_resource:
                 table = models.orders if order_resource else models.cfdi_invoices

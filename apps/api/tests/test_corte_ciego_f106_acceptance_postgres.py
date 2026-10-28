@@ -9,6 +9,7 @@ import pytest
 import sqlalchemy as sa
 from corte_ciego_storage import isolated_database
 from fastapi.testclient import TestClient
+from fixture_metadata import create_fixture_tables
 from restaurant_os import models
 from restaurant_os import operations as ops
 from restaurant_os.config import get_settings
@@ -27,7 +28,7 @@ def acceptance_pg(monkeypatch: pytest.MonkeyPatch) -> Iterator[AcceptanceWorld]:
     get_settings.cache_clear()
     try:
         for engine in isolated_database("postgresql"):
-            models.metadata.create_all(engine)
+            create_fixture_tables(engine)
             factory = sessionmaker(bind=engine, expire_on_commit=False)
             with factory() as session:
                 _seed(session)

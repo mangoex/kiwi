@@ -13,6 +13,7 @@ import pytest
 import sqlalchemy as sa
 from corte_ciego_fixtures import grant_permission
 from corte_ciego_storage import isolated_database, seed_authority
+from fixture_metadata import create_fixture_tables
 from restaurant_os import models, operations
 from restaurant_os.cash_command_views import shift_command
 from restaurant_os.cash_views import CashViews
@@ -34,7 +35,7 @@ from test_corte_ciego_f104_postgres import wait_until_blocked
 def pg_cash() -> Iterator[tuple[sa.Engine, str, str]]:
     for engine in isolated_database("postgresql"):
         # Existing domain tables with real FKs; authority uses the real 0101 migration.
-        models.metadata.create_all(engine)
+        create_fixture_tables(engine)
         seed_authority(engine)
         shift = str(uuid4())
         with Session(engine) as session:

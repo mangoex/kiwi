@@ -5470,6 +5470,11 @@ token, secreto ni snapshot financiero. `prepared` bloquea transiciones desde ant
 No se resuelve por TTL ni por confirmación de ausencia aportada por el navegador. Preparación,
 ejecución, recuperación y selección usan gobernanza → actor → intención → dominio. La intención
 prepared se confirma previamente; applied y evidencia del comando de dominio se confirman juntos.
+La validación de contexto operativo toma gobernanza exclusiva antes del actor también en
+PostgreSQL. Si debe resolver primero el perfil o la lectura financiera fiscal, adquiere ese modo
+antes de cualquier lock compartido o de workspace; no asciende de compartido a exclusivo después.
+Esto serializa las transacciones operativas bajo ese fence organizacional. El acceso al PAC sigue
+fuera de la transacción y exige reautorización al regresar.
 Un commit o rollback interno del dominio rompe ese contrato y se rechaza. El downgrade 0090
 rechaza eliminar cualquier intención, incluidas las terminales, para conservar historia.
 

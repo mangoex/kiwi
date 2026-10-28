@@ -4665,6 +4665,28 @@ def test_selectable_compound_configuration_is_versioned_idempotent_and_prices_in
     )
     assert nested.status_code == 200, nested.text
 
+    second_depth = client.put(
+        f"/api/v1/products/{fries_id}/modifier-configuration",
+        headers={**_admin_headers(), "Idempotency-Key": "compound-config-second-depth"},
+        json={
+            "expected_version": 1,
+            "groups": [{
+                **payload["groups"][0],
+                "options": [{
+                    **payload["groups"][0]["options"][0],
+                    "component_product_id": soda_id,
+                }],
+            }],
+        },
+    )
+    assert second_depth.status_code == 409, second_depth.text
+    assert second_depth.json()["detail"]["code"] == "modifier_component_nested"
+    preserved = client.get(
+        f"/api/v1/products/{fries_id}/modifier-configuration", headers=_admin_headers()
+    ).json()
+    assert preserved["expected_version"] == 1
+    assert [group["name"] for group in preserved["groups"]] == ["Tamaño"]
+
     duplicate_name = client.put(
         f"/api/v1/products/{burger_id}/modifier-configuration",
         headers={**_admin_headers(), "Idempotency-Key": "compound-config-duplicate-name"},
@@ -4679,9 +4701,11 @@ def test_selectable_compound_configuration_is_versioned_idempotent_and_prices_in
         "groups": [
             {
                 **payload["groups"][0],
+                "id": group_id,
                 "options": [
                     {
                         **payload["groups"][0]["options"][0],
+                        "id": saved.json()["groups"][0]["options"][0]["id"],
                         "component_product_id": soda_id,
                     }
                 ],

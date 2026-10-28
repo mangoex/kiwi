@@ -518,3 +518,10 @@ movimientos ante denegación, seguido de aprobación explícita. Se mantienen re
 de conteo legacy. `test_corte_ciego_f108_step_up.py` rechaza código público sin secreto,
 administrador sin autoridad explícita y admite secreto propio de autorizador o Dueño.
 Recepción y autorización exacta de cambios/cancelaciones siguen pendientes de este bloque.
+
+TC-462, lecturas fiscales concurrentes: `test_fiscal_read_locks_postgres.py` pausa al primer lector
+tras su guarda financiera y observa al segundo esperando en PostgreSQL al primero. Listado,
+detalle y entradas PDF/XML HTTP, más listado directo del servicio, deben terminar sin ascender
+locks compartidos competidores. Las entradas PDF/XML usan un documento draft y conservan el
+rechazo de descarga; la carrera fiscal de auditoría cubre por separado revocación post-commit
+y cero bytes entregados. La espera se prueba con `pg_blocking_pids`, no con un retraso supuesto.

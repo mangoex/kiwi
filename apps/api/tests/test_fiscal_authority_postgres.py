@@ -555,8 +555,17 @@ def test_download_reauthorization_cannot_be_overtaken_before_audit_commit(
     failures, returned, pids = [], [], {}
     original_audit = operations._audit
 
+    original_commit = Session.commit
+
+    def commit_then_allow_revocation(session):
+        downloading = session.info.pop("download_audit_probe", False)
+        original_commit(session)
+        if downloading:
+            assert revoked.wait(8), "Revocation must win before post-commit delivery"
+
     def pause_audit(session, **kwargs):
         if kwargs["action"] == "invoicing.document.downloaded":
+            session.info["download_audit_probe"] = True
             authorized.set()
             assert release.wait(8)
         original_audit(session, **kwargs)
@@ -572,6 +581,7 @@ def test_download_reauthorization_cannot_be_overtaken_before_audit_commit(
             return b"private-synthetic-file"
 
     monkeypatch.setattr("restaurant_os.invoicing.service._audit", pause_audit)
+    monkeypatch.setattr(Session, "commit", commit_then_allow_revocation)
     monkeypatch.setattr(
         InvoicingService, "get_client", lambda self, session, _: SyntheticPAC(session)
     )
@@ -648,6 +658,8 @@ def test_download_reauthorization_cannot_be_overtaken_before_audit_commit(
         if third.ident:
             third.join(12)
     assert not first.is_alive() and not second.is_alive() and not third.is_alive()
-    assert not failures, failures
-    assert returned == [b"private-synthetic-file"]
+    assert len(failures) == 1, failures
+    assert isinstance(failures[0], operations.AuthorizationError)
+    assert failures[0].code == "permission_denied"
+    assert returned == [], "A revocation after audit commit must still prevent delivery"
     assert revoked.is_set() and resource_written.is_set()
