@@ -46,6 +46,19 @@ def _identity_conflict(exc: IntegrityError) -> bool:
     ) in str(exc.orig)
 
 
+def _document_identity(branch_id: str, payload: dict[str, Any]) -> str:
+    # Match prepare_purchase normalization before acquiring any presentation locks.
+    return json.dumps(
+        [
+            branch_id,
+            str(payload.get("supplier_id", "")),
+            str(payload.get("document_type", "receipt")).strip().lower(),
+            str(payload.get("folio", "")).strip(),
+        ],
+        separators=(",", ":"),
+    )
+
+
 def execute_purchase_creation(
     session: Session,
     payload: dict[str, Any],
@@ -114,15 +127,7 @@ def execute_purchase_creation(
                 },
             )
             return result
-        identity = json.dumps(
-            [
-                branch_id,
-                payload.get("supplier_id"),
-                str(payload.get("document_type", "receipt")).strip().lower(),
-                str(payload.get("folio", "")).strip(),
-            ],
-            separators=(",", ":"),
-        )
+        identity = _document_identity(branch_id, payload)
         _acquire_idempotency_lock(session, "purchase-document-identity", identity)
         existing_document = session.scalar(
             sa.select(models.purchase_documents.c.id).where(
@@ -350,6 +355,11 @@ def execute_purchase_update(
                 "purchase_version_conflict", "Purchase version changed; review again"
             )
 
+        # Creation also locks identity before presentations. Reversing that order
+        # deadlocks when creation and editing compete for the same supplier folio.
+        _acquire_idempotency_lock(
+            session, "purchase-document-identity", _document_identity(branch_id, update_payload)
+        )
         presentation_ids = sorted(
             {
                 str(line.get("presentation_id", ""))
@@ -371,11 +381,6 @@ def execute_purchase_update(
             raise BusinessError("purchase_preview_changed", "Re-read and review current values")
         prepared = prepare_purchase(session, update_payload, actor)
         before = _purchase_snapshot(session, dict(purchase))
-        identity = json.dumps(
-            [branch_id, prepared["supplier_id"], prepared["document_type"], prepared["folio"]],
-            separators=(",", ":"),
-        )
-        _acquire_idempotency_lock(session, "purchase-document-identity", identity)
         duplicate = session.scalar(
             sa.select(models.purchase_documents.c.id).where(
                 models.purchase_documents.c.organization_id == ORGANIZATION_ID,

@@ -4546,6 +4546,13 @@ si la transición gana, la edición falla por estado. Un fallo al reemplazar par
 guardar el recibo revierte el comando completo. Previsualizar, ver, editar o descartar un draft deja
 en cero sus movimientos de inventario y caja y no actualiza costo promedio ni precio vigente.
 
+Crear y editar adquieren el lock de identidad documental normalizada (sucursal, proveedor, tipo,
+folio) antes de bloquear presentaciones en orden de ID. Edición conserva antes su lock de sucursal
+y documento. No se espera una identidad mientras se retienen presentaciones: crear un folio y
+renombrar un borrador al mismo folio deben producir un único ganador y conflicto de identidad,
+sin deadlock ni recibos o auditorías parciales. La validación del preview permanece bajo los locks
+de presentación y el replay conserva su autorización y resultado original.
+
 **Recuperación y operación.** El editor persistido se hidrata desde el snapshot servidor y usa una
 clave de recuperación separada por organización, actor, sucursal y documento. Durante una respuesta
 incierta congela clave, versión y body; nunca transforma un timeout en una intención nueva. Logs
