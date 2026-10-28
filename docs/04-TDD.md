@@ -50,6 +50,10 @@ Los fixtures que crean tablas PostgreSQL desde los modelos copian `MetaData` ant
 `test_fixture_metadata.py` verifica que la clave foránea de intención aceptada sigue presente en
 SQLite después. Los tests de migración histórica se separan del runtime actual: una revisión no
 soportada debe fallar cerrada, mientras las carreras del dominio se ejecutan sobre el head vigente.
+La secuencia incluye `test_agent_stock_thresholds.py` con `GROKBOT_TEST_POSTGRES_URL` antes de
+las guardas de metadatos y la regresión de FK de `test_public_order_intents.py`: un fixture que
+parametriza ambos dialectos debe conservar las restricciones SQLite aunque su archivo no termine
+en `_postgres.py`.
 
 ### 3.3 Contrato
 Para:

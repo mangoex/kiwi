@@ -132,3 +132,11 @@ no acredita la cadena CLI head→0065. La carrera de retry de impresión tuvo un
 al migrar head bajo carga; se repitió aislada y pasó sin cambiar el timeout. Mypy de 150 fuentes,
 Ruff completo, 39 regresiones finales fiscales/trazabilidad y diff-check verdes. CI completo del
 nuevo commit sigue siendo el gate de cierre; no se acredita producción.
+
+CI de `86c83aa` detectó contaminación residual en el fixture de existencias para agentes, que
+parametriza SQLite/PostgreSQL en un archivo sin sufijo `_postgres`. La secuencia local de ese
+módulo seguida de las tres guardas de metadatos y la FK de intención pública reprodujo cuatro
+fallos y siete aprobadas. Se aplica también allí la copia de metadatos; no cambia runtime ni
+restricciones. La ejecución completa de CI sigue siendo necesaria para cerrar el paquete.
+La repetición de esa misma secuencia pasó 11/11, junto con Ruff, política del repositorio y
+`git diff --check`. Se conserva el fallo real de FK en la fase RED, sin relajar su expectativa.
