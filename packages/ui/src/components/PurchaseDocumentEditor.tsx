@@ -2,7 +2,7 @@ import React, { useEffect, useReducer, useRef, useState } from 'react';
 import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { Button } from './Button';
 import { Modal } from './Modal';
-import { branchLocalDate, initialPurchaseDraft, purchaseDraftFromDocument, purchaseDraftReducer, purchasePayload, restorePurchaseDraft, type PersistedPurchaseDraft, type PurchaseDraft } from './purchaseDraft';
+import { branchLocalDate, initialPurchaseDraft, purchaseDraftFromDocument, purchaseDraftReducer, purchasePayload, purchasePreviewReady, restorePurchaseDraft, type PersistedPurchaseDraft, type PurchaseDraft } from './purchaseDraft';
 import { usePythonPreview, type WorkspaceRequest } from './usePythonPreview';
 import './PurchaseDocumentEditor.css';
 import { registerWorkspaceNavigationGuard, confirmWorkspaceNavigation } from './workspaceNavigation';
@@ -86,8 +86,13 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { if (initialSupplierId && !editingPurchase) dispatch({ type: 'header', key: 'supplier_id', value: initialSupplierId }); }, [initialSupplierId, editingPurchase]);
+  const exceptionReasonValid = !draft.supplier_catalog_exception || Boolean(draft.supplier_catalog_exception_reason.trim());
+  const compatible = Boolean(draft.document_date) && exceptionReasonValid && draft.lines.every(line => presentations.some(pres => (
+    pres.id === line.presentation_id
+    && (pres.supplier_id === draft.supplier_id || draft.supplier_catalog_exception)
+  )));
   const payload = purchasePayload(draft);
-  const preview = usePythonPreview<PurchasePreview>(request, '/purchases/preview', payload, isOpen && draft.phase === 'editing' && Boolean(draft.document_date));
+  const preview = usePythonPreview<PurchasePreview>(request, '/purchases/preview', payload, isOpen && purchasePreviewReady(draft) && compatible);
   const locked = draft.phase !== 'editing';
   const hasCapture = draft.dirty || Boolean(draft.supplier_id);
   useEffect(() => {
@@ -105,11 +110,6 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
     document.addEventListener('click', navigate, true);
     return () => { unregister(); window.removeEventListener('beforeunload', unload); document.removeEventListener('click', navigate, true); };
   }, [hasCapture, locked]);
-  const exceptionReasonValid = !draft.supplier_catalog_exception || Boolean(draft.supplier_catalog_exception_reason.trim());
-  const compatible = Boolean(draft.document_date) && exceptionReasonValid && draft.lines.every(line => presentations.some(pres => (
-    pres.id === line.presentation_id
-    && (pres.supplier_id === draft.supplier_id || draft.supplier_catalog_exception)
-  )));
   const close = () => { if (!locked) onClose(); };
   const runAiExtraction = async () => {
     if (locked || aiPending || (!aiFile && !aiRawText.trim())) return;

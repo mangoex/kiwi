@@ -122,7 +122,9 @@ pendiente de autorización separada y no se acredita con pruebas locales.
 BDD-SC-705. Extender `tests/frontend/test_purchase_workspace.mjs` para probar el día de sucursal
 en ambos lados de medianoche UTC, default sin marcar captura como editada, conservación de snapshot,
 `delivered_by_name`, inserción inmediatamente después, límite/remoción y contratos accesibles de
-`+`/papelera. Verificar por semántica CSS que el cuerpo puede encogerse y desplazarse.
+`+`/papelera. Comprobar que un borrador incompleto no solicita `/purchases/preview`, no presenta el
+rechazo técnico del servidor y que el preview se habilita al completar cabecera y partidas.
+Verificar por semántica CSS que el cuerpo puede encogerse y desplazarse.
 
 Extender `tests/contract/test_purchase_workspace_contract.py` y
 `apps/api/tests/test_purchase_workspace.py` con campo opcional acotado a 160, recorte canónico,

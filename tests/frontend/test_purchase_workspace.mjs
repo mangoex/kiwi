@@ -4,11 +4,19 @@ import ts from 'typescript';
 
 const source = readFileSync('packages/ui/src/components/purchaseDraft.ts', 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { branchLocalDate, initialPurchaseDraft, purchaseDraftFromDocument, purchaseDraftReducer, purchasePayload } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const { branchLocalDate, initialPurchaseDraft, purchaseDraftFromDocument, purchaseDraftReducer, purchasePayload, purchasePreviewReady } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 assert.equal(branchLocalDate('America/Mazatlan', new Date('2026-10-16T05:30:00Z')), '2026-10-15');
 assert.equal(branchLocalDate('America/Mazatlan', new Date('2026-10-16T07:30:00Z')), '2026-10-16');
 assert.equal(branchLocalDate('Invalid/Zone', new Date('2026-10-16T07:30:00Z')), '');
 let draft = initialPurchaseDraft('branch-1:user-1', 'branch-1', '2026-09-30', 'key-1', 'line-1');
+assert.equal(purchasePreviewReady(draft), false, 'An untouched draft must not call the authoritative preview');
+let previewDraft = purchaseDraftReducer(draft, { type: 'header', key: 'supplier_id', value: 'supplier-1' });
+previewDraft = purchaseDraftReducer(previewDraft, { type: 'header', key: 'folio', value: 'NOTE-PREVIEW' });
+previewDraft = purchaseDraftReducer(previewDraft, { type: 'line', id: 'line-1', key: 'presentation_id', value: 'presentation-1' });
+previewDraft = purchaseDraftReducer(previewDraft, { type: 'line', id: 'line-1', key: 'unit_price', value: '0' });
+assert.equal(purchasePreviewReady(previewDraft), true, 'A complete explicit draft may request a preview');
+previewDraft = purchaseDraftReducer(previewDraft, { type: 'add', id: 'line-incomplete' });
+assert.equal(purchasePreviewReady(previewDraft), false, 'Any incomplete line must suspend preview without surfacing a server rejection');
 assert.equal(draft.payment_method, 'cash', 'New purchase defaults to cash');
 assert.equal(draft.paid_from_cash, true);
 for (const method of ['transfer', 'card', 'other', 'cash']) {
@@ -110,6 +118,8 @@ assert.doesNotMatch(editor, /parseFloat|Math\.round|\.reduce\(/, 'Editor must no
 assert.match(editor, /\/purchases\/ai-extract/);
 assert.match(editor, /Autocompletar con IA/);
 assert.match(editor, /\/purchases\/preview/);
+assert.match(editor, /purchasePreviewReady\(draft\)\s*&&\s*compatible/,
+  'The editor must not request a server preview for an incomplete capture');
 assert.match(editor, /Idempotency-Key/);
 assert.match(editor, /Compra excepcional con presentación de otro proveedor/);
 assert.match(editor, /item_name/);

@@ -178,3 +178,28 @@ export function purchasePayload(draft: PurchaseDraft): PurchaseCreateInputV1 {
     })),
   };
 }
+
+export function purchasePreviewReady(draft: PurchaseDraft): boolean {
+  const requiredDocumentFields = [
+    draft.branch_id,
+    draft.supplier_id,
+    draft.document_type,
+    draft.folio,
+    draft.document_date,
+    draft.payment_method,
+  ];
+  if (
+    draft.phase !== 'editing'
+    || requiredDocumentFields.some(value => !value.trim())
+    || draft.lines.length < 1
+    || draft.lines.length > 200
+    || (draft.supplier_catalog_exception && !draft.supplier_catalog_exception_reason.trim())
+  ) return false;
+  return draft.lines.every(line => [
+    line.presentation_id,
+    line.quantity,
+    line.unit_price,
+    line.discount,
+    line.tax,
+  ].every(value => value.trim()));
+}
