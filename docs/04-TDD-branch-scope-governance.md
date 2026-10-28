@@ -67,6 +67,10 @@ asignación no cruza la enumeración de un rol cuyos permisos están cambiando.
 
 ## TDD-TC-352 Cambio seguro e idempotente de sucursal
 
+El browser de recuperación de operadores de documentos usa una sesión financiera activa sin
+datasets autorizados: Gastos solicita la proyección operativa v2 y nunca la financiera v1,
+con versión de política/autoridad coherente y el contexto operativo reemitido.
+
 API y frontend prueban `POST /auth/branch-selections`: destino válido, no autorizado/inactivo,
 versión obsoleta, replay idéntico, key con payload distinto, turno OPEN/CLOSING, comando incierto,
 grant offline y reconciliación pendiente. Fallo conserva contexto anterior; éxito cancela respuestas
