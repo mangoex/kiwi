@@ -13,8 +13,8 @@ import { CorporatePurchaseWorkspace } from './CorporatePurchaseWorkspace';
 
 interface Supplier { id: string; commercial_name: string; }
 interface Presentation { id: string; supplier_id: string; supplier_name: string; item_id: string; item_name: string; item_sku: string; name: string; last_net_price: number; base_unit_yield: number; base_unit_code: string; }
-interface PurchaseLine { id: string; presentation_snapshot: { name: string }; presentation_quantity: number; base_quantity: number; }
-interface Purchase { id: string; organization_id: string; branch_id: string; payment_method: string; folio: string; supplier_id: string; document_type: string; delivered_by_name?: string | null; total: number; status: string; paid_from_cash: boolean; cash_movement_id?: string; confirmation_idempotency_key?: string; confirmed_by?: string; confirmed_at?: string; lines: PurchaseLine[]; }
+interface PurchaseLine { id: string; presentation_id: string; presentation_snapshot: { name: string; base_unit_code?: string; supplier_catalog_exception?: boolean; supplier_catalog_exception_reason?: string | null }; presentation_quantity: number; base_quantity: number; unit_price: number; discount: number; tax: number; line_total: number; }
+interface Purchase { id: string; organization_id: string; branch_id: string; payment_method: string; folio: string; supplier_id: string; document_type: string; document_date: string; delivered_by_name?: string | null; subtotal: number; discount_total: number; tax_total: number; total: number; status: string; version: number; paid_from_cash: boolean; notes?: string | null; evidence_url?: string | null; cash_movement_id?: string; confirmation_idempotency_key?: string; confirmed_by?: string; confirmed_at?: string; lines: PurchaseLine[]; }
 interface InventoryCost { item_id: string; item_name: string; item_sku: string; quantity_on_hand: number; average_unit_cost: number; unit_code: string; }
 
 const PurchasesList = () => {
@@ -44,6 +44,7 @@ const BranchPurchaseWorkspace = () => {
   const branchId = authority.branch_id;
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
   const [review, setReview] = useState<Purchase | null>(null);
   const [suggestedOpen, setSuggestedOpen] = useState(false);
   const [error, setError] = useState('');
@@ -128,13 +129,28 @@ const BranchPurchaseWorkspace = () => {
   };
   const cancelPurchase = async (purchaseId: string) => {
     if (!canWrite || uncertain || sending.current) return;
-    const reason = window.prompt('Motivo obligatorio de cancelación');
+    const purchase = purchases.find(row => row.id === purchaseId);
+    if (!purchase) return;
+    const reason = window.prompt(purchase.status === 'draft' ? 'Motivo obligatorio para eliminar el borrador' : 'Motivo obligatorio de cancelación');
     if (!reason) return;
     try {
-      await fetchApi(`/purchases/${purchaseId}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) });
+      const action = purchase.status === 'draft' ? 'discard' : 'cancel';
+      await fetchApi(`/purchases/${purchaseId}/${action}`, { method: 'POST', body: JSON.stringify({ reason, expected_version: purchase.version }) });
       setError(''); await refresh();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible cancelar.'); }
+    } catch (cause) {
+      if (cause instanceof ApiError && ['purchase_version_conflict', 'purchase_state_conflict', 'purchase_not_cancellable'].includes(cause.code)) {
+        try { await refresh(); } catch { setError(`${cause.message} No se pudo cargar el estado vigente; actualiza la vista antes de intentar de nuevo.`); return; }
+      }
+      setError(cause instanceof Error ? cause.message : 'No fue posible cancelar.');
+    }
   };
+  const openReview = async (purchase: Purchase) => {
+    try {
+      const rows = await fetchApi<Purchase[]>(`/purchases${query}`);
+      if (alive.current) setReview(rows.find(row => row.id === purchase.id) || null);
+    } catch (cause) { if (alive.current) setError(cause instanceof Error ? cause.message : 'No fue posible consultar la compra.'); }
+  };
+  const visiblePurchases = purchases.filter(purchase => purchase.status !== 'cancelled' || Boolean(purchase.confirmed_at));
 
   return (
     <>
@@ -153,7 +169,7 @@ const BranchPurchaseWorkspace = () => {
             <Sparkles size={18} />
             Sugerencias IA & Mermas
           </button>}
-          {canWrite && <button className="premium-add-btn" onClick={() => setOpen(true)}>
+          {canWrite && <button className="premium-add-btn" onClick={() => { setEditingPurchase(null); setOpen(true); }}>
             <Plus size={18} />
             Nueva compra
           </button>}
@@ -205,7 +221,7 @@ const BranchPurchaseWorkspace = () => {
       </div>}
 
       <div className="premium-card" style={{ marginBottom: 32 }}>
-        {purchases.length === 0 ? (
+        {visiblePurchases.length === 0 ? (
           <div className="premium-empty-state">
             <ShoppingCart size={56} className="premium-empty-icon" />
             <h3 style={{ marginBottom: 8, fontSize: '1.25rem', fontWeight: 600 }}>No hay compras registradas</h3>
@@ -225,7 +241,7 @@ const BranchPurchaseWorkspace = () => {
                 </tr>
               </thead>
               <tbody>
-                {purchases.map((purchase) => (
+                {visiblePurchases.map((purchase) => (
                   <tr key={purchase.id}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -259,12 +275,17 @@ const BranchPurchaseWorkspace = () => {
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        <Button variant="secondary" onClick={() => void openReview(purchase)}>Ver</Button>
                         {purchase.status === 'draft' && (
-                          (canWrite ? <Button variant="primary" disabled={uncertain} onClick={() => { void fetchApi<Purchase[]>(`/purchases${query}`).then(rows => { if (alive.current) setReview(rows.find(row => row.id === purchase.id) || null); }).catch(cause => { if (alive.current) setError(String(cause)); }); }}>
-                            <CheckCircle2 size={15} /> Confirmar
-                          </Button> : null)
+                          canWrite ? <>
+                            <Button variant="secondary" disabled={uncertain} onClick={() => { setEditingPurchase(purchase); setOpen(true); }}>Editar</Button>
+                            <Button variant="primary" disabled={uncertain} onClick={() => void openReview(purchase)}>
+                              <CheckCircle2 size={15} /> Confirmar
+                            </Button>
+                            <Button variant="secondary" disabled={uncertain} onClick={() => void cancelPurchase(purchase.id)}>Eliminar borrador</Button>
+                          </> : null
                         )}
-                        {purchase.status !== 'cancelled' && (
+                        {purchase.status === 'confirmed' && (
                           (canWrite ? <Button variant="secondary" disabled={uncertain} onClick={() => void cancelPurchase(purchase.id)}>
                             <XCircle size={15} /> Cancelar
                           </Button> : null)
@@ -312,13 +333,19 @@ const BranchPurchaseWorkspace = () => {
         </div>
       </div>}
 
-      <PurchaseDocumentReview purchase={review} paymentContext={{ branchName: canonicalSession.active_branch.name, method: purchaseMethodLabels[review?.payment_method || ''] || review?.payment_method || '', registerId: uncertain ? attempt.current?.body.register_id || '' : registerId, cashShiftId: uncertain ? attempt.current?.body.expected_cash_shift_id || '' : cash.data?.open_registers.find(box => box.register_id === registerId)?.cash_shift_id || '', message: error, recovering: uncertain, canConfirm: Boolean(authority.organization_id) && canWrite && (!uncertain || Boolean(attempt.current)) && (!review?.paid_from_cash || (canWithdraw && (uncertain || Boolean(cash.data?.open_registers.some(box => box.register_id === registerId))))) }} onClose={() => { if (!uncertain) setReview(null); }} onConfirm={async () => { if (review && await confirmPurchase(review)) setReview(null); }} />
+      <PurchaseDocumentReview purchase={review} paymentContext={{ branchName: canonicalSession.active_branch.name, method: purchaseMethodLabels[review?.payment_method || ''] || review?.payment_method || '', registerId: uncertain ? attempt.current?.body.register_id || '' : registerId, cashShiftId: uncertain ? attempt.current?.body.expected_cash_shift_id || '' : cash.data?.open_registers.find(box => box.register_id === registerId)?.cash_shift_id || '', message: error, recovering: uncertain, canManage: canWrite, canConfirm: Boolean(authority.organization_id) && canWrite && (!uncertain || Boolean(attempt.current)) && (!review?.paid_from_cash || (canWithdraw && (uncertain || Boolean(cash.data?.open_registers.some(box => box.register_id === registerId))))) }} onClose={() => { if (!uncertain) setReview(null); }} onConfirm={async () => { if (review && await confirmPurchase(review)) setReview(null); }} />
       {canWrite && canonicalSession && <PurchaseDocumentEditor
-        key={scope + ':' + captureVersion}
-        scope={scope} branchId={branchId} branchTimeZone={canonicalSession.active_branch.timezone} isOpen={open} onClose={() => setOpen(false)}
+        key={scope + ':' + captureVersion + ':' + (editingPurchase?.id || 'new') + ':' + (editingPurchase?.version || 0)}
+        scope={scope} branchId={branchId} branchTimeZone={canonicalSession.active_branch.timezone} isOpen={open} onClose={() => { setOpen(false); setEditingPurchase(null); }}
         suppliers={suppliers} presentations={presentations} request={fetchApi}
         initialSupplierId={initialSupplierId}
-        onCreated={async () => { await refresh(); setCaptureVersion(value => value + 1); }}
+        editingPurchase={editingPurchase}
+        onCreated={async () => { await refresh(); setEditingPurchase(null); setCaptureVersion(value => value + 1); }}
+        onStale={async message => {
+          setOpen(false); setEditingPurchase(null); setCaptureVersion(value => value + 1);
+          try { await refresh(); setError(`${message} Se cargó la versión vigente; revísala antes de intentar de nuevo.`); }
+          catch { setError(`${message} No se pudo cargar el estado vigente; actualiza la vista antes de intentar de nuevo.`); }
+        }}
         catalogTools={canReadInventory ? (supplierId, done) => <ContextualPresentationForm
           key={supplierId} supplierId={supplierId} branchId={branchId} items={items} units={units} request={fetchApi}
           onCancel={done} onSaved={async () => { await queryClient.invalidateQueries({ queryKey: ['purchase-presentations', scope] }); done(); }}
@@ -331,6 +358,7 @@ const BranchPurchaseWorkspace = () => {
         branchId={branchId}
         onSelectSupplierForPurchase={(supId) => {
           setInitialSupplierId(supId);
+          setEditingPurchase(null);
           setOpen(true);
         }}
       />}

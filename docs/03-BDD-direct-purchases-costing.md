@@ -114,6 +114,33 @@ Feature: Comprar con efectivo de la sucursal activa
     And papelera conserva al menos una partida y enfoca una partida vecina
     And el contenido y las acciones del modal son alcanzables mediante desplazamiento
     But no existe carga de archivo ni extracción por IA en este incremento
+
+  @BDD-SC-804
+  Scenario: Consultar todas las partidas de una compra pendiente
+    Given existe una compra en borrador de la sucursal activa con varias partidas
+    When una cuenta con purchases.read abre Ver desde la lista
+    Then observa documento, proveedor, método, importes y cada partida persistida
+    And la consulta no cambia versión, inventario, costo ni caja
+    But no se muestran acciones de escritura si no tiene purchases.manage
+
+  @BDD-SC-805
+  Scenario: Editar un borrador con versión revisada
+    Given una cuenta con purchases.manage abrió la versión vigente de una compra en borrador
+    When corrige encabezado o partidas y guarda con la misma clave e intención
+    Then Python revalida y recalcula el documento en una sola transacción
+    And aumenta la versión una sola vez y conserva auditoría de la corrección
+    And repetir la misma clave recupera el mismo resultado sin duplicar la edición
+    And no se crean movimientos ni se actualiza costo o caja
+    But una versión obsoleta o un documento ya confirmado o cancelado se rechaza sin escrituras
+
+  @BDD-SC-806
+  Scenario: Retirar un borrador sin borrado físico ni reversas
+    Given una compra pendiente no produjo inventario, costo ni caja
+    When una cuenta autorizada elige Eliminar borrador, confirma un motivo y conserva la versión
+    Then el documento queda cancelado y desaparece de las compras pendientes
+    And conserva partidas, actor, motivo y auditoría para trazabilidad
+    And no se elimina físicamente ni crea gasto, retiro, recepción o compensación
+    But si otra edición o transición ganó primero se exige revisar el estado vigente
 ```
 
 ## BDD-FEAT-039 Costo promedio por recepción

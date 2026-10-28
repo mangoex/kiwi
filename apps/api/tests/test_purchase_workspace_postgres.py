@@ -20,10 +20,14 @@ from restaurant_os.modifier_configuration import (
 )
 from restaurant_os.operations import (
     BusinessError,
+    confirm_purchase_document,
     create_purchase_document,
     create_purchase_presentation,
     create_supplier,
+    discard_purchase_document,
+    update_purchase_document,
 )
+from restaurant_os.purchase_workspace import preview_purchase
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 from test_platform_api import ADMIN_USER_ID, BRANCH_ID, ORGANIZATION_ID, _seed
@@ -177,6 +181,263 @@ def test_concurrent_creation_has_one_document_and_no_duplicate_audit(pg_engine, 
             )
             == 1
         )
+
+
+def test_draft_edit_and_confirmation_have_one_reviewed_version_winner(pg_engine):
+    payload = _purchase_seed(pg_engine)
+    with Session(pg_engine) as session:
+        created = create_purchase_document(
+            session, payload, ADMIN_USER_ID, "sr-pg-draft-race-create"
+        )
+        changed = {**payload, "folio": "SR-PG-EDITED", "lines": [payload["lines"][0]]}
+        fingerprint = preview_purchase(session, changed, ADMIN_USER_ID)["context_fingerprint"]
+    barrier = Barrier(2)
+
+    def edit():
+        with Session(pg_engine) as session:
+            barrier.wait(timeout=10)
+            try:
+                return "updated", update_purchase_document(
+                    session,
+                    created["id"],
+                    {**changed, "expected_version": 1},
+                    ADMIN_USER_ID,
+                    "sr-pg-draft-race-edit",
+                    fingerprint,
+                )
+            except BusinessError as error:
+                return error.code, None
+
+    def confirm():
+        with Session(pg_engine) as session:
+            barrier.wait(timeout=10)
+            try:
+                return "confirmed", confirm_purchase_document(
+                    session,
+                    created["id"],
+                    "sr-pg-draft-race-confirm",
+                    actor_user_id=ADMIN_USER_ID,
+                    confirmation_context={"branch_id": BRANCH_ID, "expected_version": 1},
+                )
+            except BusinessError as error:
+                return error.code, None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = [pool.submit(edit), pool.submit(confirm)]
+        results = [future.result() for future in outcomes]
+    codes = {result[0] for result in results}
+    assert len(codes & {"updated", "confirmed"}) == 1
+    assert codes <= {"updated", "confirmed", "purchase_version_conflict", "purchase_not_editable"}
+    with Session(pg_engine) as session:
+        document = session.execute(
+            sa.select(models.purchase_documents).where(
+                models.purchase_documents.c.id == created["id"]
+            )
+        ).mappings().one()
+        effects = session.scalar(
+            sa.select(sa.func.count()).select_from(models.inventory_movements).where(
+                models.inventory_movements.c.source_id == created["id"]
+            )
+        )
+        updates = session.scalar(
+            sa.select(sa.func.count()).select_from(models.purchase_update_commands).where(
+                models.purchase_update_commands.c.purchase_id == created["id"]
+            )
+        )
+        if document["status"] == "confirmed":
+            assert document["version"] == 1 and effects == 3 and updates == 0
+        else:
+            assert document["status"] == "draft"
+            assert document["version"] == 2 and effects == 0 and updates == 1
+
+
+def test_draft_edit_and_discard_have_one_reviewed_version_winner(pg_engine):
+    payload = _purchase_seed(pg_engine)
+    with Session(pg_engine) as session:
+        created = create_purchase_document(
+            session, payload, ADMIN_USER_ID, "sr-pg-draft-discard-race-create"
+        )
+        changed = {**payload, "folio": "SR-PG-DISCARD-EDITED"}
+        fingerprint = preview_purchase(session, changed, ADMIN_USER_ID)["context_fingerprint"]
+    barrier = Barrier(2)
+
+    def edit():
+        with Session(pg_engine) as session:
+            barrier.wait(timeout=10)
+            try:
+                return "updated", update_purchase_document(
+                    session,
+                    created["id"],
+                    {**changed, "expected_version": 1},
+                    ADMIN_USER_ID,
+                    "sr-pg-draft-discard-race-edit",
+                    fingerprint,
+                )
+            except BusinessError as error:
+                return error.code, None
+
+    def discard():
+        with Session(pg_engine) as session:
+            barrier.wait(timeout=10)
+            try:
+                return "cancelled", discard_purchase_document(
+                    session,
+                    created["id"],
+                    "Concurrent discard",
+                    ADMIN_USER_ID,
+                    1,
+                )
+            except BusinessError as error:
+                return error.code, None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = [pool.submit(edit), pool.submit(discard)]
+        results = [future.result() for future in outcomes]
+    codes = {result[0] for result in results}
+    assert len(codes & {"updated", "cancelled"}) == 1
+    assert codes <= {"updated", "cancelled", "purchase_version_conflict", "purchase_not_editable"}
+    with Session(pg_engine) as session:
+        document = session.execute(
+            sa.select(models.purchase_documents).where(
+                models.purchase_documents.c.id == created["id"]
+            )
+        ).mappings().one()
+        effects = session.scalar(
+            sa.select(sa.func.count()).select_from(models.inventory_movements).where(
+                models.inventory_movements.c.source_id == created["id"]
+            )
+        )
+        updates = session.scalar(
+            sa.select(sa.func.count()).select_from(models.purchase_update_commands).where(
+                models.purchase_update_commands.c.purchase_id == created["id"]
+            )
+        )
+        assert effects == 0
+        if document["status"] == "cancelled":
+            assert document["version"] == 1 and updates == 0
+        else:
+            assert document["status"] == "draft"
+            assert document["version"] == 2 and updates == 1
+
+
+def test_confirmation_and_draft_discard_cannot_cross_intents(pg_engine):
+    payload = _purchase_seed(pg_engine)
+    with Session(pg_engine) as session:
+        created = create_purchase_document(
+            session, payload, ADMIN_USER_ID, "sr-pg-confirm-discard-create"
+        )
+    barrier = Barrier(2)
+
+    def confirm():
+        with Session(pg_engine) as session:
+            barrier.wait(timeout=10)
+            try:
+                return "confirmed", confirm_purchase_document(
+                    session,
+                    created["id"],
+                    "sr-pg-confirm-discard-confirm",
+                    actor_user_id=ADMIN_USER_ID,
+                    confirmation_context={"branch_id": BRANCH_ID, "expected_version": 1},
+                )
+            except BusinessError as error:
+                return error.code, None
+
+    def discard():
+        with Session(pg_engine) as session:
+            barrier.wait(timeout=10)
+            try:
+                return "cancelled", discard_purchase_document(
+                    session,
+                    created["id"],
+                    "Concurrent stale row discard",
+                    ADMIN_USER_ID,
+                    1,
+                )
+            except BusinessError as error:
+                return error.code, None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = [pool.submit(confirm), pool.submit(discard)]
+        results = [future.result() for future in outcomes]
+    codes = {result[0] for result in results}
+    assert len(codes & {"confirmed", "cancelled"}) == 1
+    assert codes <= {
+        "confirmed",
+        "cancelled",
+        "purchase_state_conflict",
+        "purchase_not_confirmable",
+    }
+    with Session(pg_engine) as session:
+        document = session.execute(
+            sa.select(models.purchase_documents).where(
+                models.purchase_documents.c.id == created["id"]
+            )
+        ).mappings().one()
+        effects = session.scalar(
+            sa.select(sa.func.count()).select_from(models.inventory_movements).where(
+                models.inventory_movements.c.source_id == created["id"]
+            )
+        )
+        if document["status"] == "confirmed":
+            assert effects == 3
+        else:
+            assert document["status"] == "cancelled"
+            assert effects == 0
+
+
+@pytest.mark.parametrize("guard", ["receipt", "version"])
+def test_purchase_draft_edit_postgres_downgrade_guards_history(pg_engine, guard):
+    payload = _purchase_seed(pg_engine)
+    with Session(pg_engine) as session:
+        created = create_purchase_document(
+            session, payload, ADMIN_USER_ID, f"sr-pg-draft-migration-{guard}"
+        )
+        if guard == "receipt":
+            changed = {**payload, "folio": "SR-PG-MIGRATION-EDITED"}
+            fingerprint = preview_purchase(session, changed, ADMIN_USER_ID)[
+                "context_fingerprint"
+            ]
+            update_purchase_document(
+                session,
+                created["id"],
+                {**changed, "expected_version": 1},
+                ADMIN_USER_ID,
+                "sr-pg-draft-migration-update",
+                fingerprint,
+            )
+        else:
+            session.execute(
+                sa.update(models.purchase_documents)
+                .where(models.purchase_documents.c.id == created["id"])
+                .values(version=2)
+            )
+            session.commit()
+    url = os.environ["SR_WORKSPACE_TEST_POSTGRES_URL"]
+    env = {**os.environ, "RESTAURANTOS_DATABASE_URL": url}
+    env.pop("DATABASE_URL", None)
+    blocked = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            "alembic.ini",
+            "downgrade",
+            "0103_blind_cash_phases_2_6",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert blocked.returncode != 0
+    expected = (
+        "purchase edit receipts exist"
+        if guard == "receipt"
+        else "edited purchase drafts exist"
+    )
+    assert expected in blocked.stdout + blocked.stderr
 
 
 def test_purchase_delivery_name_persists_and_blocks_postgres_data_loss(pg_engine):

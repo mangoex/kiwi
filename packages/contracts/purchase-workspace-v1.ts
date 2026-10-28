@@ -5,8 +5,8 @@ export interface PurchaseCashContextV1 {
   branch_id: string;
   open_registers: { register_id: string; cash_shift_id: string; opened_at: string }[];
 }
-export type PurchaseConfirmInputV1 = { branch_id: string; register_id?: never; expected_cash_shift_id?: never }
-  | { branch_id: string; register_id: string; expected_cash_shift_id: string };
+export type PurchaseConfirmInputV1 = ({ branch_id: string; register_id?: never; expected_cash_shift_id?: never }
+  | { branch_id: string; register_id: string; expected_cash_shift_id: string }) & { expected_version?: number };
 export interface PurchaseLineInputV1 {
   presentation_id: string; quantity: string; unit_price: string; discount: string; tax: string;
 }
@@ -16,3 +16,4 @@ export interface PurchaseCreateInputV1 {
   supplier_catalog_exception: boolean; supplier_catalog_exception_reason: string;
   delivered_by_name: string; notes: string; evidence_url: string; lines: PurchaseLineInputV1[];
 }
+export interface PurchaseUpdateInputV1 extends PurchaseCreateInputV1 { expected_version: number }

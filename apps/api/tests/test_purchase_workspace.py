@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 import sqlalchemy as sa
 from restaurant_os import models
+from restaurant_os.auth import create_session_token
+from restaurant_os.config import get_settings
+from sqlalchemy.orm import Session
 from test_platform_api import (
     BRANCH_ID,
     _admin_headers,
@@ -107,6 +111,7 @@ def _effects(client):
                 models.purchase_documents,
                 models.purchase_document_lines,
                 models.purchase_create_commands,
+                models.purchase_update_commands,
                 models.recipes,
                 models.recipe_cost_calculations,
                 models.audit_events,
@@ -190,6 +195,497 @@ def test_purchase_presentation_listing_names_related_product_and_supplier():
     assert selected["item_name"]
     assert selected["item_sku"]
     assert selected["supplier_name"] == "SR-SUP-1"
+
+
+def test_draft_update_is_versioned_idempotent_audited_and_has_no_domain_effects():
+    client, headers, suppliers = _workspace()
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=headers, json=_presentation(suppliers[0])
+    ).json()
+    payload = _purchase_payload(suppliers[0], presentation["id"])
+    created = client.post(
+        "/api/v1/purchases",
+        headers={**headers, "Idempotency-Key": "draft-edit-create"},
+        json=payload,
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["version"] == 1
+    update_payload = {
+        **payload,
+        "folio": "SR-NOTE-EDITED",
+        "lines": [{**payload["lines"][0], "quantity": "3"}],
+    }
+    preview = client.post("/api/v1/purchases/preview", headers=headers, json=update_payload)
+    assert preview.status_code == 200, preview.text
+    request = {
+        **update_payload,
+        "expected_version": 1,
+    }
+    before = _effects(client)
+    edit_headers = {
+        **headers,
+        "Idempotency-Key": "draft-edit-command",
+        "If-Purchase-Preview": preview.json()["context_fingerprint"],
+    }
+    edited = client.put(
+        f"/api/v1/purchases/{created.json()['id']}", headers=edit_headers, json=request
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["version"] == 2
+    assert edited.json()["folio"] == "SR-NOTE-EDITED"
+    assert len(edited.json()["lines"]) == 1
+    replay = client.put(
+        f"/api/v1/purchases/{created.json()['id']}", headers=edit_headers, json=request
+    )
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == edited.json()
+    after = _effects(client)
+    for table in ("inventory_movements", "inventory_cost_states", "cash_movements"):
+        assert after[table] == before[table]
+    events = [
+        row for row in after["audit_events"]
+        if row["entity_id"] == created.json()["id"] and row["action"] == "purchase.updated"
+    ]
+    assert len(events) == 1
+    assert events[0]["payload"]["previous_version"] == 1
+    assert events[0]["payload"]["version"] == 2
+    assert len(after["purchase_update_commands"]) == len(before["purchase_update_commands"]) + 1
+    conflicting_replay = client.put(
+        f"/api/v1/purchases/{created.json()['id']}",
+        headers=edit_headers,
+        json={**request, "folio": "DIFFERENT-INTENT"},
+    )
+    assert conflicting_replay.status_code == 409, conflicting_replay.text
+    assert conflicting_replay.json()["detail"]["code"] == "purchase_update_idempotency_conflict"
+    stale = client.put(
+        f"/api/v1/purchases/{created.json()['id']}",
+        headers={**edit_headers, "Idempotency-Key": "draft-edit-stale"},
+        json={**request, "folio": "STALE"},
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"]["code"] == "purchase_version_conflict"
+
+
+def test_header_only_draft_update_does_not_report_business_lines_as_changed():
+    client, headers, suppliers = _workspace()
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=headers, json=_presentation(suppliers[0])
+    ).json()
+    payload = _purchase_payload(suppliers[0], presentation["id"])
+    created = client.post(
+        "/api/v1/purchases",
+        headers={**headers, "Idempotency-Key": "header-only-create"},
+        json=payload,
+    ).json()
+    changed = {**payload, "notes": "Sólo cambió el encabezado"}
+    preview = client.post("/api/v1/purchases/preview", headers=headers, json=changed).json()
+
+    edited = client.put(
+        f"/api/v1/purchases/{created['id']}",
+        headers={
+            **headers,
+            "Idempotency-Key": "header-only-update",
+            "If-Purchase-Preview": preview["context_fingerprint"],
+        },
+        json={**changed, "expected_version": 1},
+    )
+
+    assert edited.status_code == 200, edited.text
+    audit = next(
+        row
+        for row in _effects(client)["audit_events"]
+        if row["entity_id"] == created["id"] and row["action"] == "purchase.updated"
+    )
+    assert "notes" in audit["payload"]["changed_fields"]
+    assert "lines" not in audit["payload"]["changed_fields"]
+
+
+def test_draft_update_enforces_manage_permission_actor_replay_and_branch_scope():
+    client, headers, suppliers = _workspace()
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=headers, json=_presentation(suppliers[0])
+    ).json()
+    payload = _purchase_payload(suppliers[0], presentation["id"])
+    created = client.post(
+        "/api/v1/purchases",
+        headers={**headers, "Idempotency-Key": "auth-update-create"},
+        json=payload,
+    ).json()
+    preview = client.post("/api/v1/purchases/preview", headers=headers, json=payload).json()
+    now = datetime(2026, 10, 27, tzinfo=UTC)
+    read_user = "018f6f73-2d0a-74f0-8f1c-000000009981"
+    manage_user = "018f6f73-2d0a-74f0-8f1c-000000009982"
+    read_role = "018f6f73-2d0a-74f0-8f1c-000000009983"
+    manage_role = "018f6f73-2d0a-74f0-8f1c-000000009984"
+    foreign_branch = "018f6f73-2d0a-74f0-8f1c-000000009985"
+    with _test_session_factory(client)() as session:
+        branch = dict(
+            session.execute(
+                sa.select(models.branches).where(models.branches.c.id == BRANCH_ID)
+            ).mappings().one()
+        )
+        session.execute(
+            models.branches.insert().values(
+                **{
+                    **branch,
+                    "id": foreign_branch,
+                    "name": "Sucursal alcance alterno",
+                    "code": "SCOPE-B",
+                }
+            )
+        )
+        session.execute(
+            models.roles.insert(),
+            [
+                {
+                    "id": read_role,
+                    "organization_id": created["organization_id"],
+                    "name": "Purchase reader",
+                    "scope": "branch",
+                    "created_at": now,
+                },
+                {
+                    "id": manage_role,
+                    "organization_id": created["organization_id"],
+                    "name": "Purchase manager",
+                    "scope": "branch",
+                    "created_at": now,
+                },
+            ],
+        )
+        session.execute(
+            models.users.insert(),
+            [
+                {
+                    "id": read_user,
+                    "organization_id": created["organization_id"],
+                    "email": "purchase-reader@example.test",
+                    "display_name": "Purchase reader",
+                    "status": "active",
+                    "created_at": now,
+                    "updated_at": now,
+                },
+                {
+                    "id": manage_user,
+                    "organization_id": created["organization_id"],
+                    "email": "purchase-manager@example.test",
+                    "display_name": "Purchase manager",
+                    "status": "active",
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            ],
+        )
+        permission_ids = dict(
+            session.execute(
+                sa.select(models.permissions.c.code, models.permissions.c.id).where(
+                    models.permissions.c.code.in_({"purchases.read", "purchases.manage"})
+                )
+            ).all()
+        )
+        session.execute(
+            models.role_permissions.insert(),
+            [
+                {"role_id": read_role, "permission_id": permission_ids["purchases.read"]},
+                {"role_id": manage_role, "permission_id": permission_ids["purchases.read"]},
+                {"role_id": manage_role, "permission_id": permission_ids["purchases.manage"]},
+            ],
+        )
+        session.execute(
+            models.user_roles.insert(),
+            [
+                {"user_id": read_user, "role_id": read_role, "branch_id": BRANCH_ID},
+                {"user_id": manage_user, "role_id": manage_role, "branch_id": BRANCH_ID},
+            ],
+        )
+        session.commit()
+    read_token = create_session_token({"sub": read_user}, get_settings().secret_key)
+    manager_token = create_session_token({"sub": manage_user}, get_settings().secret_key)
+    read_headers = {"Authorization": f"Bearer {read_token}"}
+    manager_headers = {"Authorization": f"Bearer {manager_token}"}
+    request_headers = {
+        "Idempotency-Key": "auth-update-command",
+        "If-Purchase-Preview": preview["context_fingerprint"],
+    }
+    before = _effects(client)
+    listed = client.get(f"/api/v1/purchases?branch_id={BRANCH_ID}", headers=read_headers)
+    assert listed.status_code == 200
+    denied = client.put(
+        f"/api/v1/purchases/{created['id']}",
+        headers={**read_headers, **request_headers},
+        json={**payload, "expected_version": 1},
+    )
+    assert denied.status_code == 403, denied.text
+    after_denial = _effects(client)
+    for table in (
+        "inventory_movements",
+        "inventory_cost_states",
+        "cash_movements",
+        "purchase_documents",
+        "purchase_document_lines",
+        "purchase_update_commands",
+    ):
+        assert after_denial[table] == before[table]
+    edited = client.put(
+        f"/api/v1/purchases/{created['id']}",
+        headers={**headers, **request_headers},
+        json={**payload, "expected_version": 1},
+    )
+    assert edited.status_code == 200, edited.text
+    actor_replay = client.put(
+        f"/api/v1/purchases/{created['id']}",
+        headers={**manager_headers, **request_headers},
+        json={**payload, "expected_version": 1},
+    )
+    assert actor_replay.status_code == 409, actor_replay.text
+    assert actor_replay.json()["detail"]["code"] == "purchase_update_idempotency_conflict"
+    after_edit = _effects(client)
+    immutable_branch = client.put(
+        f"/api/v1/purchases/{created['id']}",
+        headers={
+            **headers,
+            "Idempotency-Key": "auth-update-immutable-branch",
+            "If-Purchase-Preview": preview["context_fingerprint"],
+        },
+        json={**payload, "branch_id": foreign_branch, "expected_version": 2},
+    )
+    assert immutable_branch.status_code == 409, immutable_branch.text
+    assert immutable_branch.json()["detail"]["code"] == "purchase_branch_immutable"
+    foreign_scope = client.put(
+        f"/api/v1/purchases/{created['id']}",
+        headers={
+            **manager_headers,
+            "Idempotency-Key": "auth-update-foreign-branch",
+            "If-Purchase-Preview": preview["context_fingerprint"],
+        },
+        json={
+            **payload,
+            "branch_id": foreign_branch,
+            "expected_version": 2,
+        },
+    )
+    assert foreign_scope.status_code == 403, foreign_scope.text
+    after_scope_denial = _effects(client)
+    for table in (
+        "inventory_movements",
+        "inventory_cost_states",
+        "cash_movements",
+        "purchase_documents",
+        "purchase_document_lines",
+        "purchase_update_commands",
+    ):
+        assert after_scope_denial[table] == after_edit[table]
+    with _test_session_factory(client)() as session:
+        session.execute(
+            models.role_permissions.delete().where(
+                models.role_permissions.c.role_id == manage_role,
+                models.role_permissions.c.permission_id == permission_ids["purchases.manage"],
+            )
+        )
+        session.commit()
+    revoked = client.put(
+        f"/api/v1/purchases/{created['id']}",
+        headers={
+            **manager_headers,
+            "Idempotency-Key": "auth-update-revoked",
+            "If-Purchase-Preview": preview["context_fingerprint"],
+        },
+        json={**payload, "expected_version": 2},
+    )
+    assert revoked.status_code == 403, revoked.text
+
+
+def test_edited_draft_requires_current_version_to_confirm_or_discard():
+    client, headers, suppliers = _workspace()
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=headers, json=_presentation(suppliers[0])
+    ).json()
+    payload = _purchase_payload(suppliers[0], presentation["id"])
+    created = client.post(
+        "/api/v1/purchases",
+        headers={**headers, "Idempotency-Key": "draft-transition-create"},
+        json=payload,
+    ).json()
+    preview = client.post("/api/v1/purchases/preview", headers=headers, json=payload).json()
+    edited = client.put(
+        f"/api/v1/purchases/{created['id']}",
+        headers={
+            **headers,
+            "Idempotency-Key": "draft-transition-edit",
+            "If-Purchase-Preview": preview["context_fingerprint"],
+        },
+        json={**payload, "expected_version": 1},
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["version"] == 2
+    before = _effects(client)
+    missing = client.post(
+        f"/api/v1/purchases/{created['id']}/confirm",
+        headers={**headers, "Idempotency-Key": "draft-transition-missing-version"},
+        json={"branch_id": BRANCH_ID},
+    )
+    assert missing.status_code == 409, missing.text
+    assert missing.json()["detail"]["code"] == "purchase_version_required"
+    stale_confirm = client.post(
+        f"/api/v1/purchases/{created['id']}/confirm",
+        headers={**headers, "Idempotency-Key": "draft-transition-stale-confirm"},
+        json={"branch_id": BRANCH_ID, "expected_version": 1},
+    )
+    assert stale_confirm.status_code == 409, stale_confirm.text
+    assert stale_confirm.json()["detail"]["code"] == "purchase_version_conflict"
+    stale_discard = client.post(
+        f"/api/v1/purchases/{created['id']}/discard",
+        headers=headers,
+        json={"reason": "stale", "expected_version": 1},
+    )
+    assert stale_discard.status_code == 409, stale_discard.text
+    assert stale_discard.json()["detail"]["code"] == "purchase_version_conflict"
+    assert _effects(client) == before
+    discarded = client.post(
+        f"/api/v1/purchases/{created['id']}/discard",
+        headers=headers,
+        json={"reason": "captura duplicada", "expected_version": 2},
+    )
+    assert discarded.status_code == 200, discarded.text
+    assert discarded.json()["status"] == "cancelled"
+    assert len(discarded.json()["lines"]) == len(payload["lines"])
+    assert discarded.json()["inventory_movements"] == []
+    assert discarded.json()["cash_movements"] == []
+
+
+def test_stale_draft_discard_cannot_cancel_a_purchase_confirmed_by_another_actor():
+    client, headers, suppliers = _workspace()
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=headers, json=_presentation(suppliers[0])
+    ).json()
+    payload = _purchase_payload(suppliers[0], presentation["id"])
+    created = client.post(
+        "/api/v1/purchases",
+        headers={**headers, "Idempotency-Key": "discard-confirm-create"},
+        json=payload,
+    ).json()
+    confirmed = client.post(
+        f"/api/v1/purchases/{created['id']}/confirm",
+        headers={**headers, "Idempotency-Key": "discard-confirm-command"},
+        json={"branch_id": BRANCH_ID, "expected_version": 1},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    before = _effects(client)
+
+    stale_discard = client.post(
+        f"/api/v1/purchases/{created['id']}/discard",
+        headers=headers,
+        json={"reason": "Fila obsoleta", "expected_version": 1},
+    )
+
+    assert stale_discard.status_code == 409, stale_discard.text
+    assert stale_discard.json()["detail"]["code"] == "purchase_state_conflict"
+    assert _effects(client) == before
+
+
+def test_edited_draft_can_be_confirmed_with_its_current_version():
+    client, headers, suppliers = _workspace()
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=headers, json=_presentation(suppliers[0])
+    ).json()
+    payload = _purchase_payload(suppliers[0], presentation["id"])
+    created = client.post(
+        "/api/v1/purchases",
+        headers={**headers, "Idempotency-Key": "edited-confirm-create"},
+        json=payload,
+    ).json()
+    preview = client.post("/api/v1/purchases/preview", headers=headers, json=payload).json()
+    edited = client.put(
+        f"/api/v1/purchases/{created['id']}",
+        headers={
+            **headers,
+            "Idempotency-Key": "edited-confirm-update",
+            "If-Purchase-Preview": preview["context_fingerprint"],
+        },
+        json={**payload, "expected_version": 1},
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["version"] == 2
+
+    confirmed = client.post(
+        f"/api/v1/purchases/{created['id']}/confirm",
+        headers={**headers, "Idempotency-Key": "edited-confirm-command"},
+        json={"branch_id": BRANCH_ID, "expected_version": 2},
+    )
+
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["status"] == "confirmed"
+    assert confirmed.json()["version"] == 2
+    assert confirmed.json()["inventory_movements"]
+
+
+def test_draft_update_rolls_back_lines_version_and_receipt_if_audit_fails(monkeypatch):
+    from restaurant_os import purchase_commands
+
+    client, headers, suppliers = _workspace()
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=headers, json=_presentation(suppliers[0])
+    ).json()
+    payload = _purchase_payload(suppliers[0], presentation["id"])
+    created = client.post(
+        "/api/v1/purchases",
+        headers={**headers, "Idempotency-Key": "draft-rollback-create"},
+        json=payload,
+    ).json()
+    changed = {**payload, "folio": "ROLLBACK-EDIT", "lines": [payload["lines"][0]]}
+    preview = client.post("/api/v1/purchases/preview", headers=headers, json=changed).json()
+    before = _effects(client)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("synthetic purchase audit failure")
+
+    monkeypatch.setattr(purchase_commands, "_audit", fail)
+    with pytest.raises(RuntimeError, match="synthetic purchase audit failure"):
+        client.put(
+            f"/api/v1/purchases/{created['id']}",
+            headers={
+                **headers,
+                "Idempotency-Key": "draft-rollback-edit",
+                "If-Purchase-Preview": preview["context_fingerprint"],
+            },
+            json={**changed, "expected_version": 1},
+        )
+    assert _effects(client) == before
+
+
+def test_draft_update_rolls_back_if_command_receipt_cannot_be_inserted(monkeypatch):
+    client, headers, suppliers = _workspace()
+    presentation = client.post(
+        "/api/v1/purchase-presentations", headers=headers, json=_presentation(suppliers[0])
+    ).json()
+    payload = _purchase_payload(suppliers[0], presentation["id"])
+    created = client.post(
+        "/api/v1/purchases",
+        headers={**headers, "Idempotency-Key": "receipt-rollback-create"},
+        json=payload,
+    ).json()
+    changed = {**payload, "folio": "RECEIPT-ROLLBACK"}
+    preview = client.post("/api/v1/purchases/preview", headers=headers, json=changed).json()
+    before = _effects(client)
+    original_execute = Session.execute
+
+    def fail_receipt(session, statement, *args, **kwargs):
+        if getattr(statement, "table", None) is models.purchase_update_commands:
+            raise RuntimeError("synthetic purchase command receipt failure")
+        return original_execute(session, statement, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "execute", fail_receipt)
+    with pytest.raises(RuntimeError, match="synthetic purchase command receipt failure"):
+        client.put(
+            f"/api/v1/purchases/{created['id']}",
+            headers={
+                **headers,
+                "Idempotency-Key": "receipt-rollback-update",
+                "If-Purchase-Preview": preview["context_fingerprint"],
+            },
+            json={**changed, "expected_version": 1},
+        )
+    assert _effects(client) == before
 
 
 @pytest.mark.parametrize("field", ["usable_content", "base_unit_yield"])

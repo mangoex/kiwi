@@ -1803,6 +1803,7 @@ purchase_documents = sa.Table(
     sa.Column("evidence_url", sa.String(600), nullable=True),
     sa.Column("notes", sa.String(600), nullable=True),
     sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
     sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
     sa.Column(
         "created_by_agent_identity_id",
@@ -1827,6 +1828,7 @@ purchase_documents = sa.Table(
         "AND origin = 'GROKBOT')",
         name="ck_purchase_documents_creator_origin",
     ),
+    sa.CheckConstraint("version >= 1", name="ck_purchase_documents_version"),
 )
 
 corporate_purchase_orders = sa.Table(
@@ -2055,6 +2057,21 @@ purchase_create_commands = sa.Table(
     sa.Column("result", sa.JSON(), nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("organization_id", "idempotency_key", name="uq_purchase_create_org_key"),
+)
+
+purchase_update_commands = sa.Table(
+    "purchase_update_commands", metadata,
+    sa.Column("id", sa.String(36), primary_key=True),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("branch_id", sa.String(36), sa.ForeignKey("branches.id"), nullable=False),
+    sa.Column("actor_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("purchase_id", sa.String(36), sa.ForeignKey("purchase_documents.id"), nullable=False),
+    sa.Column("idempotency_key", sa.String(180), nullable=False),
+    sa.Column("request_hash", sa.String(64), nullable=False),
+    sa.Column("expected_version", sa.Integer(), nullable=False),
+    sa.Column("result", sa.JSON(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("organization_id", "idempotency_key", name="uq_purchase_update_org_key"),
 )
 
 purchase_document_lines = sa.Table(

@@ -147,10 +147,18 @@ def context_values(
     purchase: Any, body: dict[str, Any] | None, register_id: str | None
 ) -> tuple[str, str | None]:
     context = body or {}
-    allowed = {"branch_id", "register_id", "expected_cash_shift_id", "idempotency_key"}
+    allowed = {
+        "branch_id",
+        "register_id",
+        "expected_cash_shift_id",
+        "idempotency_key",
+        "expected_version",
+    }
     if set(context) - allowed:
         raise BusinessError("workspace_payload_invalid", "Invalid confirmation fields")
     for field in context:
+        if field == "expected_version":
+            continue
         value = context[field]
         bound = 180 if field == "idempotency_key" else (32 if field == "register_id" else 36)
         if not isinstance(value, str) or not value.strip() or len(value) > bound:

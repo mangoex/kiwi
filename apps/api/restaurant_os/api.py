@@ -169,6 +169,7 @@ from restaurant_os.operations import (
     compensate_cash_movement,
     confirm_production_batch,
     confirm_purchase_document,
+    discard_purchase_document,
     confirm_waste_record,
     consume_pos_session_handoff,
     fail_print_attempt,
@@ -309,6 +310,7 @@ from restaurant_os.operations import (
     update_product,
     update_purchase_presentation_price,
     update_purchase_presentation,
+    update_purchase_document,
     update_supplier,
     delete_supplier,
     update_user,
@@ -6928,6 +6930,36 @@ def post_purchase(
     return _workspace_response(operation)
 
 
+@router.put("/purchases/{purchase_id}")
+def put_purchase(
+    purchase_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
+    idempotency_key: IdempotencyKeyDep = None,
+    reviewed_fingerprint: Annotated[str | None, Header(alias="If-Purchase-Preview")] = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        from restaurant_os.workspace_fences import require_document_context
+
+        require_document_context(
+            session, actor_id, branch_context, "purchase", target_id=purchase_id
+        )
+        return update_purchase_document(
+            session,
+            purchase_id,
+            payload,
+            actor_id,
+            idempotency_key,
+            reviewed_fingerprint,
+        )
+
+    return _workspace_response(operation)
+
+
 @router.get("/purchases/cash-context")
 def purchase_cash_context(
     session: SessionDep,
@@ -6987,7 +7019,35 @@ def cancel_purchase_endpoint(
             session, actor_id, branch_context, "purchase", target_id=purchase_id
         )
         reason = str((payload or {}).get("reason", ""))
-        return cancel_purchase_document(session, purchase_id, reason, actor_id)
+        expected_version = (payload or {}).get("expected_version")
+        return cancel_purchase_document(
+            session, purchase_id, reason, actor_id, expected_version
+        )
+
+    return _workspace_response(operation)
+
+
+@router.post("/purchases/{purchase_id}/discard")
+def discard_purchase_endpoint(
+    purchase_id: str,
+    payload: dict[str, Any] | None,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+    branch_context: BranchContextDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        from restaurant_os.workspace_fences import require_document_context
+
+        require_document_context(
+            session, actor_id, branch_context, "purchase", target_id=purchase_id
+        )
+        reason = str((payload or {}).get("reason", ""))
+        expected_version = (payload or {}).get("expected_version")
+        return discard_purchase_document(
+            session, purchase_id, reason, actor_id, expected_version
+        )
 
     return _workspace_response(operation)
 

@@ -440,9 +440,13 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
 - `PRD-FR-107`: Debe conservar bytes originales de XML y evidencia de importación cifrados,
   con hash y descarga reautorizada/auditada. Captura unverified no acredita validez fiscal ni
   crea inventario, costo, deuda o pago; no existe fallback a almacenamiento público o texto plano.
-- `PRD-FR-108`: Una compra directa debe manejar borrador, confirmación y cancelación controlada;
-  la confirmación genera entradas de inventario y, si se pagó desde caja, un retiro inmutable
-  vinculado sin duplicar el egreso.
+- `PRD-FR-108`: Una compra directa debe manejar borrador, confirmación y cancelación controlada.
+  Mientras siga en borrador, una persona autorizada de la misma sucursal puede consultar todas sus
+  partidas, corregir sus datos y descartarla antes de confirmar. Cada corrección debe ser versionada,
+  idempotente y auditada; un descarte conserva la evidencia como cancelada y no borra físicamente el
+  documento. Ninguna de estas acciones genera inventario, costo o caja. La confirmación genera
+  entradas de inventario y, si se pagó desde caja, un retiro inmutable vinculado sin duplicar el
+  egreso.
 - `PRD-FR-109`: El costo promedio ponderado móvil debe actualizarse únicamente al confirmar una
   recepción, por sucursal, almacén y artículo. Editar cotizaciones o presentaciones no lo modifica.
 - `PRD-FR-110`: Compras, retiros y movimientos de recepción deben aceptar claves de idempotencia,
@@ -721,7 +725,9 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   una o varias presentaciones de insumos, cantidades, precios y método de pago. Efectivo es el valor
   predeterminado y, al confirmar con turno abierto, crea un retiro inmutable de caja vinculado. Los
   demás medios no afectan caja. La recepción, costo promedio, idempotencia, cancelación y
-  compensaciones siguen las reglas de `PRD-FR-108` a `PRD-FR-111`.
+  compensaciones siguen las reglas de `PRD-FR-108` a `PRD-FR-111`. La lista de compras pendientes
+  permite ver el detalle, reabrir el editor y retirar un borrador; una cuenta de sólo lectura puede
+  consultar el detalle, pero no modificarlo ni descartarlo.
   Incremento `PUR-CASH-001` (diseñado, pendiente de implementación): el editor compartido de
   Administración y POS muestra Efectivo, Transferencia, Tarjeta y Otro en un único selector;
   Efectivo significa efectivo de caja, no dinero personal del comprador. La sucursal procede del
