@@ -1,5 +1,20 @@
 import type { PurchaseCreateInputV1, PurchaseDocumentType, PurchasePaymentMethod } from '../../../contracts/purchase-workspace-v1';
 
+export type PurchaseDecimalKey = 'quantity' | 'unit_price' | 'discount' | 'tax';
+// Presentation only. Never use this rounded string in a preview or command.
+export function formatPurchaseDecimal(value: string | number | null | undefined): string {
+  const match = String(value ?? '').trim().replace(',', '.').match(/^(-?)(\d+)(?:\.(\d+))?$/);
+  if (!match) return '—';
+  const [, sign, whole, fraction = ''] = match;
+  let cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0').slice(0, 2));
+  if (fraction.length > 2 && fraction[2] >= '5') cents += 1n;
+  return `${sign && cents !== 0n ? '-' : ''}${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
+}
+export function purchaseCaptureError(input: string | undefined): string {
+  if (input === undefined) return '';
+  return /^\d+(?:[.,]\d{1,2})?$/.test(input.trim()) ? '' : 'Usa máximo 2 decimales, sin signos ni exponentes.';
+}
+
 export interface PurchaseDraftLine {
   id: string;
   presentation_id: string;
@@ -7,6 +22,7 @@ export interface PurchaseDraftLine {
   unit_price: string;
   discount: string;
   tax: string;
+  manualInputs?: Partial<Record<PurchaseDecimalKey, string>>;
   ai_description?: string;
   ai_match_status?: 'matched' | 'cross_supplier' | 'unmatched';
 }
@@ -54,6 +70,7 @@ export type PurchaseDraftAction =
   | { type: 'cash'; value: boolean }
   | { type: 'supplierException'; value: boolean }
   | { type: 'line'; id: string; key: 'presentation_id' | 'quantity' | 'unit_price' | 'discount' | 'tax'; value: string }
+  | { type: 'capture'; id: string; key: PurchaseDecimalKey; value: string }
   | { type: 'applyExtraction'; extraction: PurchaseAiExtractionInput }
   | { type: 'add'; id: string; afterId?: string }
   | { type: 'remove'; id: string }
@@ -150,7 +167,10 @@ export function purchaseDraftReducer(state: PurchaseDraft, action: PurchaseDraft
       message: '',
     };
   }
-  if (action.type === 'line') return { ...state, lines: state.lines.map(line => line.id === action.id ? { ...line, [action.key]: action.value, ...(action.key === 'presentation_id' && action.value ? { ai_match_status: 'matched' as const } : {}) } : line) };
+  if (action.type === 'capture') return { ...state, lines: state.lines.map(line => line.id === action.id ? {
+    ...line, [action.key]: action.value.trim().replace(',', '.'), manualInputs: { ...line.manualInputs, [action.key]: action.value },
+  } : line) };
+  if (action.type === 'line') return { ...state, lines: state.lines.map(line => line.id === action.id ? { ...line, [action.key]: action.value, manualInputs: { ...line.manualInputs, [action.key]: undefined }, ...(action.key === 'presentation_id' && action.value ? { ai_match_status: 'matched' as const } : {}) } : line) };
   if (action.type === 'add' && state.lines.length < 200) {
     const index = action.afterId ? state.lines.findIndex(line => line.id === action.afterId) : -1;
     const lines = [...state.lines];
@@ -195,7 +215,7 @@ export function purchasePreviewReady(draft: PurchaseDraft): boolean {
     || draft.lines.length > 200
     || (draft.supplier_catalog_exception && !draft.supplier_catalog_exception_reason.trim())
   ) return false;
-  return draft.lines.every(line => [
+  return draft.lines.every(line => Object.values(line.manualInputs || {}).every(input => !purchaseCaptureError(input)) && [
     line.presentation_id,
     line.quantity,
     line.unit_price,

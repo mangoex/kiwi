@@ -100,6 +100,11 @@ el texto capturado separado del valor del comando. Sólo esos campos manualmente
 validan contra el límite de dos decimales; los valores cargados o propuestos por IA conservan
 su precisión original. El foco no modifica valores y el blur sólo formatea el texto visible.
 Los errores de captura bloquean preview y guardado; los metadatos de UI no se serializan.
+En los modales compartidos de compras, `purchaseDraft.ts` formatea únicamente la presentación con
+enteros exactos y conserva los valores recibidos para preview/comandos. `manualInputs` identifica
+capturas explícitas; errores de más de dos decimales bloquean preview y guardado, sin redondear.
+`PurchaseDecimalField` sólo formatea el texto al desenfocar; foco y guardado sin cambios preservan
+el original, también después de recuperar la sesión. Los metadatos manuales no integran el payload.
 La extensión a las demás interfaces permanece pendiente.
 
 ### SDD-ADR-011 Impresión

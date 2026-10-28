@@ -10,6 +10,7 @@ import { SuggestedPurchasesModal } from './SuggestedPurchasesModal';
 import type { PurchaseCashContextV1 } from '../../../../../packages/contracts/purchase-workspace-v1';
 import { createPurchaseAttempt, isDefinitivePurchaseRejection, purchaseAttemptKey, purchaseMethodLabels, purchaseScopeKey, readPurchaseAttempt, selectedPurchaseRegister, type PurchaseAttempt } from './purchaseConfirmation';
 import { CorporatePurchaseWorkspace } from './CorporatePurchaseWorkspace';
+import { formatPurchaseDecimal } from '../../../../../packages/ui/src/components/purchaseDraft';
 
 interface Supplier { id: string; commercial_name: string; }
 interface Presentation { id: string; supplier_id: string; supplier_name: string; item_id: string; item_name: string; item_sku: string; name: string; last_net_price: number; base_unit_yield: number; base_unit_code: string; }
@@ -261,7 +262,7 @@ const BranchPurchaseWorkspace = () => {
                       </span>
                     </td>
                     <td>
-                      <strong style={{ fontSize: '1rem', color: '#0f172a' }}>${purchase.total}</strong>
+                      <strong style={{ fontSize: '1rem', color: '#0f172a' }}>${formatPurchaseDecimal(purchase.total)}</strong>
                     </td>
                     <td>
                       <span style={{ fontSize: '0.85rem', color: '#475467', fontWeight: 500 }}>
@@ -323,9 +324,9 @@ const BranchPurchaseWorkspace = () => {
                 <tr key={cost.item_id}>
                   <td style={{ color: '#64748b', fontWeight: 600 }}>{cost.item_sku}</td>
                   <td><strong style={{ color: '#1e293b' }}>{cost.item_name}</strong></td>
-                  <td style={{ fontWeight: 600 }}>{Number(cost.quantity_on_hand)} {cost.unit_code}</td>
-                  <td><strong style={{ color: '#047857' }}>${Number(cost.average_unit_cost).toFixed(4)}</strong></td>
-                  <td style={{ color: '#475467' }}>${Number((cost as InventoryCost & { last_unit_cost?: number }).last_unit_cost || 0).toFixed(4)}</td>
+                  <td style={{ fontWeight: 600 }}>{formatPurchaseDecimal(cost.quantity_on_hand)} {cost.unit_code}</td>
+                  <td><strong style={{ color: '#047857' }}>${formatPurchaseDecimal(cost.average_unit_cost)}</strong></td>
+                  <td style={{ color: '#475467' }}>${formatPurchaseDecimal((cost as InventoryCost & { last_unit_cost?: number }).last_unit_cost)}</td>
                 </tr>
               ))}
             </tbody>

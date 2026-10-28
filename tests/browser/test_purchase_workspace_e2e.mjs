@@ -66,7 +66,7 @@ try {
       await row.locator('select').selectOption(presentations[index === 1 ? 1 : 0].id);
       for (let field = 0; field < 4; field++) await row.locator('input').nth(field).fill(amounts[index][field]);
     }
-    await workspace.locator('.purchase-summary').getByText('Total: $562.015000', { exact: true }).waitFor();
+    await workspace.locator('.purchase-summary').getByText('Total: $562.02', { exact: true }).waitFor();
     let delayedStarted;
     const oldPreviewStarted = new Promise(resolve => { delayedStarted = resolve; });
     const delayPreview = async route => {
@@ -78,17 +78,18 @@ try {
     };
     await page.route('**/api/v1/purchases/preview', delayPreview);
     await workspace.locator('.purchase-line').first().getByLabel('Cantidad', { exact: true }).fill('7');
+    assert.equal(await workspace.locator('.purchase-line').first().getByLabel('Cantidad', { exact: true }).inputValue(), '7', 'Focus must not replace text while the user types');
     await oldPreviewStarted;
     await workspace.locator('.purchase-line').first().getByLabel('Cantidad', { exact: true }).fill('2');
-    await workspace.locator('.purchase-summary').getByText('Total: $562.015000', { exact: true }).waitFor();
+    await workspace.locator('.purchase-summary').getByText('Total: $562.02', { exact: true }).waitFor();
     await page.waitForTimeout(650);
-    assert.match(await workspace.locator('.purchase-summary').innerText(), /562.015000/);
+    assert.match(await workspace.locator('.purchase-summary').innerText(), /562\.02/);
     await page.unroute('**/api/v1/purchases/preview', delayPreview);
     await workspace.getByLabel(/^Proveedor/).selectOption(supplier2.id);
     assert.equal(await workspace.locator('.purchase-line').count(), 3);
     assert.equal(await workspace.getByRole('button', { name: 'Guardar borrador' }).isDisabled(), true);
     await workspace.getByLabel(/^Proveedor/).selectOption(supplier.id);
-    await workspace.locator('.purchase-summary').getByText('Total: $562.015000', { exact: true }).waitFor();
+    await workspace.locator('.purchase-summary').getByText('Total: $562.02', { exact: true }).waitFor();
     await workspace.getByRole('button', { name: 'Registrar presentación sin perder la nota' }).click();
     await page.getByRole('button', { name: 'Volver a la nota', exact: true }).click();
     assert.equal(await workspace.locator('.purchase-line').count(), 3);
@@ -167,6 +168,8 @@ try {
     let review = page.getByRole('heading', { name: 'Revisar nota registrada' });
     await review.waitFor();
     assert.equal(await page.getByRole('dialog').locator('tbody tr').count(), 3);
+    assert.doesNotMatch(await page.locator('.purchase-review').innerText(), /\d+\.\d{3,}/, 'Review presents two decimals only');
+    await page.screenshot({ path: 'output/playwright/purchase-review-desktop.png', fullPage: true, animations: 'disabled' });
     await page.getByRole('button', { name: 'Cerrar revisión', exact: true }).click();
     await tableRow.getByRole('button', { name: 'Editar', exact: true }).click();
     const editWorkspace = page.locator('.purchase-workspace');
@@ -179,8 +182,18 @@ try {
       if (Number(await candidate.getByLabel('Precio por presentación antes de descuento ($)', { exact: true }).inputValue()) === 250) primaryRow = candidate;
     }
     assert.ok(primaryRow, 'The persisted $250 line must be editable regardless of read order');
+    const priceInput = primaryRow.getByLabel('Precio por presentación antes de descuento ($)', { exact: true });
+    assert.equal(await priceInput.inputValue(), '250.00');
+    await priceInput.focus();
+    await priceInput.blur();
+    await priceInput.fill('250.123');
+    assert.equal(await priceInput.getAttribute('aria-invalid'), 'true');
+    assert.equal(await editWorkspace.getByRole('button', { name: 'Guardar cambios', exact: true }).isDisabled(), true);
+    assert.equal(await priceInput.inputValue(), '250.123', 'Invalid precision remains visible, never silently rounded');
+    await priceInput.fill('250.00');
+    await priceInput.blur();
     await primaryRow.getByLabel('Cantidad', { exact: true }).fill('3');
-    await editWorkspace.locator('.purchase-summary').getByText('Total: $812.015000', { exact: true }).waitFor();
+    await editWorkspace.locator('.purchase-summary').getByText('Total: $812.02', { exact: true }).waitFor();
     await editWorkspace.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
     await page.getByRole('heading', { name: 'Editar compra pendiente' }).waitFor({ state: 'hidden' });
     const editedPurchase = (await (await page.request.get(origin + '/api/v1/purchases?branch_id=' + manifest.branch_id, { headers })).json()).find(row => row.id === purchase.id);
@@ -217,7 +230,7 @@ try {
       await page.getByRole('button', { name: 'Confirmar recepción de esta nota' }).waitFor();
       assert.deepEqual(attempts[1], attempts[0], 'Recovery uses the exact original rejected intent');
       assert.equal(await page.getByRole('button', { name: 'Cerrar revisión' }).isDisabled(), false, 'A definitive rejection releases recovery');
-      await dialog.getByText('Turno revisado: ' + newShift.id.slice(-8), { exact: true }).waitFor();
+      await dialog.getByText('Turno revisado', { exact: true }).locator('..').getByText(newShift.id.slice(-8), { exact: true }).waitFor();
       await page.getByRole('button', { name: 'Confirmar recepción de esta nota' }).click();
       await review.waitFor({ state: 'hidden' });
       assert.notEqual(attempts[2].key, attempts[0].key);
@@ -306,5 +319,30 @@ try {
   await page.evaluate(id => localStorage.removeItem('purchase_confirmation_' + id), legacyDraft.id);
   await page.reload();
   await post('/purchases/' + legacyDraft.id + '/discard', { reason: 'Descartar fixture legacy' });
+  const precisePayload = { branch_id: manifest.branch_id, supplier_id: supplier.id, document_type: 'note', folio: 'PRECISION-' + suffix, document_date: '2026-10-09', payment_method: 'other', paid_from_cash: false, lines: [{ presentation_id: presentations[0].id, quantity: '6.123456', unit_price: '19.525678', discount: '0.000000', tax: '0.005000' }] };
+  const precisePurchase = await post('/purchases', precisePayload, { 'Idempotency-Key': 'precision-seed-' + suffix });
+  await page.goto(origin + '/admin/purchases');
+  await page.locator('tr').filter({ hasText: precisePurchase.folio }).getByRole('button', { name: 'Editar', exact: true }).click();
+  const precisionEditor = page.locator('.purchase-workspace');
+  const preciseRow = precisionEditor.locator('.purchase-line').first();
+  for (const [label, shown] of [['Cantidad', '6.12'], ['Precio por presentación antes de descuento ($)', '19.53'], ['Impuesto ($)', '0.01']]) {
+    const input = preciseRow.getByLabel(label, { exact: true });
+    assert.equal(await input.inputValue(), shown);
+    await input.focus();
+    await input.blur();
+  }
+  const updatedPreview = page.waitForResponse(response => response.url().endsWith('/purchases/preview') && response.request().postDataJSON().notes === 'Cabecera actualizada');
+  await precisionEditor.getByLabel('Notas', { exact: true }).fill('Cabecera actualizada');
+  assert.equal((await updatedPreview).ok(), true);
+  const preciseSave = page.waitForRequest(request => request.method() === 'PUT' && request.url().endsWith('/purchases/' + precisePurchase.id));
+  await precisionEditor.getByRole('button', { name: 'Guardar cambios', exact: true }).click();
+  const savedBody = (await preciseSave).postDataJSON();
+  assert.deepEqual(savedBody.lines, precisePayload.lines, 'Focus/blur and header-only save preserve all six original decimals');
+  await precisionEditor.waitFor({ state: 'hidden' });
+  const persistedPrecise = (await (await page.request.get(origin + '/api/v1/purchases?branch_id=' + manifest.branch_id, { headers })).json()).find(row => row.id === precisePurchase.id);
+  assert.equal(persistedPrecise.lines[0].unit_price, '19.525678');
+  assert.equal(persistedPrecise.lines[0].presentation_quantity, '6.123456');
+  await post('/purchases/' + precisePurchase.id + '/discard', { reason: 'Cerrar fixture de precisión', expected_version: persistedPrecise.version });
+  console.log('Purchase precision: two-decimal display, manual validation and exact header-only save passed');
   assert.deepEqual(errors, []);
 } catch (error) { await page.screenshot({ path: 'output/playwright/sr-workspace-error.png', fullPage: true }); console.error((await page.locator('body').innerText()).slice(-5000), errors); throw error; } finally { await browser.close(); }
