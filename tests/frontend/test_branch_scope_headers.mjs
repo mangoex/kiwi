@@ -6,6 +6,7 @@ const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), '
 const adminSession = read('apps/admin-web/src/lib/adminSession.tsx');
 const adminLayout = read('apps/admin-web/src/components/AdminLayout.tsx');
 const overview = read('apps/admin-web/src/features/dashboard/Overview.tsx');
+const copilot = read('apps/admin-web/src/features/dashboard/ExecutiveCopilot.tsx');
 const productsList = read('apps/admin-web/src/features/catalog/ProductsList.tsx');
 const adminStyles = read('apps/admin-web/src/App.css');
 const productsStyles = read('apps/admin-web/src/features/catalog/ProductosWindow.css');
@@ -42,7 +43,10 @@ assert.doesNotMatch(overview, /<option value="">Todas las sucursales<\/option>/)
 assert.doesNotMatch(overview, /fetchApi<Branch\[]>\('\/branches'\)/);
 assert.match(overview, /dashboardBranchId/);
 assert.doesNotMatch(overview, /configurationScope/);
-assert.match(overview, /new AbortController\(\)/);
+assert.match(overview, /key=\{JSON\.stringify\(\[session\.user\.id, selectedBranch\]\)\}/);
+assert.match(copilot, /new AbortController\(\)/);
+assert.match(copilot, /signal: request\.signal/);
+assert.match(copilot, /if \(!request\.signal\.aborted\) setInsights\(response\)/);
 
 assert.match(adminStyles, /\.admin-content\s*\{[^}]*padding:\s*20px 32px 32px/s);
 assert.match(adminStyles, /\.configuration-scope-indicator/);

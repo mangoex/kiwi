@@ -4695,26 +4695,18 @@ autorización separada.
 
 ### 54.1 Paleta determinista
 
-**Presentación vigente:** rige la paleta cromática clara por CatalogMenuGroupId sobre superficies
-limpias: ll usa verde Kiwi, ood coral, drinks azul, other violeta y avorites ámbar.
-Cada entrada contiene un tono sólido para su botón superior y variables pastel/borde/texto para el centro.
-La identidad proviene exclusivamente del ID canónico; nombres de categorías o productos no se interpretan para elegir color.
-
-La presentación define una paleta local por `CatalogMenuGroupId`, sin campos nuevos de catálogo ni
-persistencia: `all` usa verde Kiwi, `food` coral, `drinks` azul, `other` violeta y `favorites` ámbar.
-Cada entrada contiene un tono sólido para su botón superior y variables pastel/borde/texto para el
-centro. La identidad proviene exclusivamente del ID canónico; nombres de categorías o productos no
-se interpretan para elegir color.
+El menú superior usa botones blancos y texto oscuro, conforme a PRD-FR-260 y al cambio de marca
+Mimenu de `35e3396`. Cada `CatalogMenuGroupId` conserva icono, etiqueta y clase explícita. Las
+variables pastel del área central se derivan del ID canónico (`all`, `food`, `drinks`, `other`,
+`favorites`), sin inferir clasificación a partir de nombres ni agregar persistencia.
 
 ### 54.2 Aplicación y accesibilidad
 
-Todos los botones de `pos-sale-menu` conservan icono y etiqueta sobre su tono sólido. El grupo
-activo se distingue además por `aria-pressed`, borde interior y elevación; hover/foco no dependen de
-alterar el contenido. `pos-sale-screen` publica la clase del grupo activo y sus variables alcanzan
-sólo `pos-sale-category-panel`, tarjetas de grupo/subgrupo/producto, visuales y contexto progresivo.
-Cabecera, navegación lateral, carrito, precios, favoritos y controles funcionales no heredan la
-paleta. Los textos usan tonos oscuros predeterminados sobre pastel y blancos sobre sólidos para
-mantener contraste; el modo sin iconos de §53 conserva la misma jerarquía cromática.
+Los botones de `pos-sale-menu` conservan contraste AA de texto en reposo, hover y selección. El
+grupo activo se distingue por `aria-pressed`, borde y elevación; foco mantiene contorno visible.
+`pos-sale-screen` publica la clase de `activeMenuGroup` para las superficies centrales; sus
+variables existentes de superficie y texto conservan contraste AA. El modo sin iconos de §53
+no retira los iconos del menú superior ni altera navegación, clasificación, precios o carrito.
 
 ### 54.3 Compatibilidad
 
@@ -5238,6 +5230,12 @@ una sola sucursal. No autoriza despliegue, migración, configuración ni modific
 productivos.
 
 ### 58.1 Dos contextos independientes
+
+El selector de consulta del panel (`dashboardBranchId`) conserva su alcance propio. El Copiloto
+se remonta por actor y sucursal consultada: cambiar cualquiera limpia resultados, error y prompt,
+aborta la consulta anterior y descarta su resolución incluso si el transporte ya la había recibido.
+Así una respuesta financiera de A nunca se atribuye a B. Esto no cambia autorización del servidor
+ni el contexto operativo POS.
 
 El sistema conserva dos conceptos distintos:
 

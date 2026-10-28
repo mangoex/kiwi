@@ -141,7 +141,7 @@ async function verifyLogin(browser, colorScheme = 'light') {
   checkpoint('Login password filled');
   await page.getByRole('button', { name: 'Iniciar Sesión' }).press('Enter');
   checkpoint('Login submitted');
-  await page.getByRole('heading', { name: 'Panel administrativo' }).waitFor();
+  await page.getByRole('heading', { name: 'Copiloto Ejecutivo' }).waitFor();
   checkpoint('Login completed');
   assert.deepEqual(errors, []);
   await context.close();
@@ -182,7 +182,7 @@ async function verifyViewport(browser, viewport) {
   assert.ok((await productSelector.locator('option:checked').innerText()).includes(products[0].name));
   assert.equal(await page.locator('html').getAttribute('data-admin-modern'), 'true');
   assert.equal(await page.locator('html').getAttribute('data-admin-retro'), null);
-  assert.equal(await page.locator('.admin-sidebar-logo-icon').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(48, 48, 48)');
+  assert.equal(await page.locator('.admin-sidebar-logo-icon').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(22, 163, 74)');
   assert.equal(await page.locator('.admin-sidebar-logo-icon svg').getAttribute('aria-hidden'), 'true');
   assert.match(await productSelector.evaluate(element => getComputedStyle(element).fontFamily), /Inter|Segoe UI|Arial|sans-serif/);
   mkdirSync(screenshotDir, { recursive: true });
@@ -341,8 +341,62 @@ async function verifyViewport(browser, viewport) {
   await context.close();
 }
 
+async function verifyCopilotScope(browser) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  await prepareUser(page);
+  await mockApi(page, { inventory: 'empty', user: syntheticUser() });
+  let release;
+  let started;
+  let delivered;
+  const requestStarted = new Promise(resolve => { started = resolve; });
+  const responseGate = new Promise(resolve => { release = resolve; });
+  const responseDelivered = new Promise(resolve => { delivered = resolve; });
+  await page.route('**/api/v1/admin-ai/executive-insights', async route => {
+    const { prompt, branch_id } = route.request().postDataJSON();
+    assert.equal(branch_id, branchId);
+    if (prompt === 'consulta diferida') { started(); await responseGate; }
+    try {
+      await route.fulfill({ json: { answer: prompt === 'consulta diferida' ? 'Resultado tardío de Centro' : 'Resultado de Centro', data_points: [] } });
+    } catch (error) {
+      assert.match(route.request().failure()?.errorText || '', /ABORTED|CANCELLED/i,
+        `Only the cancelled old request may fail delivery: ${error}`);
+    } finally {
+      if (prompt === 'consulta diferida') delivered();
+    }
+  });
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    const scope = page.getByRole('combobox', { name: 'Sucursal del panel' });
+    const prompt = page.getByRole('textbox', { name: 'Consulta para el Copiloto Ejecutivo' });
+    await scope.selectOption(branchId);
+    await prompt.fill('consulta inicial');
+    await page.getByRole('button', { name: 'Consultar', exact: true }).click();
+    await page.getByText('Resultado de Centro', { exact: true }).waitFor();
+    await scope.selectOption(otherBranchId);
+    assert.equal(await page.getByText('Resultado de Centro', { exact: true }).count(), 0,
+      'Changing branch must immediately clear the previous financial result');
+    await scope.selectOption(branchId);
+    await prompt.fill('consulta diferida');
+    await page.getByRole('button', { name: 'Consultar', exact: true }).click();
+    await requestStarted;
+    await scope.selectOption(otherBranchId);
+    release();
+    await responseDelivered;
+    await prompt.fill('consulta nueva');
+    // An explicit rendering barrier follows the released response; the component is idle in B.
+    await page.getByRole('button', { name: 'Consultar', exact: true }).waitFor();
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await page.getByText('Resultado tardío de Centro', { exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Consultar', exact: true }).isEnabled(), true);
+    await page.screenshot({ path: join(screenshotDir, 'executive-copilot-scope.png'), fullPage: true });
+    checkpoint('Executive Copilot clears previous results and rejects late branch responses');
+  } finally { release(); await context.close(); }
+}
+
 const browser = await chromium.launch({ headless: true, ...(process.env.ADMINRETRO_CHROME_PATH ? { executablePath: process.env.ADMINRETRO_CHROME_PATH } : {}) });
 try {
+  await verifyCopilotScope(browser);
   await verifyLogin(browser);
   await verifyLogin(browser, 'dark');
   for (const width of requestedViewports) {

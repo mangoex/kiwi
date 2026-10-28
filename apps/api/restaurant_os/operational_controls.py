@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
@@ -114,7 +115,7 @@ def evaluate_consumption_variance_alerts(
     threshold.
     """
     ensure_phase2_tables(session)
-    snapshots = (
+    snapshots: Sequence[object] = (
         session.execute(
             sa.select(models.order_line_consumption_snapshots.c.components).where(
                 models.order_line_consumption_snapshots.c.branch_id == branch_id

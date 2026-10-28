@@ -63,7 +63,9 @@ de CI y se reporta como no verificado; no se sustituye con SQLite.
 
 La prueba semántica exige una clase por `CatalogMenuGroupId`, la base clara compartida activa,
 contraste entre texto y superficies neutras y estado `active` con borde visible. Conserva etiquetas,
-iconos y navegación canónica. QA visual verifica hover y foco legibles sin reintroducir colores.
+iconos y navegación canónica. La regresión de marca `35e3396` verifica contraste AA del texto
+en reposo, hover y activo sobre botones blancos; exige borde activo y contorno de foco.
+Conserva la comprobación AA de las variables pastel centrales existentes.
 
 ### TDD-TC-301 Centro claro neutro
 

@@ -12,8 +12,8 @@ assert.match(app, /document\.documentElement\.dataset\.adminModern = 'true'/);
 assert.doesNotMatch(app, /dataset\.adminRetro =/);
 assert.match(app, /document\.documentElement\.removeAttribute\('data-admin-retro'\)/);
 assert.match(layout, /className="admin-retro admin-layout"/);
-assert.match(layout, /KiwiPOS/);
-assert.match(layout, /<svg aria-hidden="true"/);
+assert.match(layout, />Mimenu\s+<span[^>]*>Admin<\/span>/);
+assert.match(layout, /<Utensils\s+size=\{18\}/);
 assert.doesNotMatch(layout, /🥝/u);
 assert.match(login, /className="admin-retro admin-login"/);
 

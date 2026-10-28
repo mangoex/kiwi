@@ -171,5 +171,7 @@ mutación. Confirmación UI envía `expected_version`; una confirmación obsolet
 editadas sin nueva revisión. Migración sube documentos existentes a versión 1, persiste recibos y
 bloquea downgrade con ediciones. El E2E espera la fila draft visible antes de confirmar desde otra
 sesión; exige `409 purchase_state_conflict` al descartarla y después la acción Cancelar actualizada.
+Tras rechazar un turno obsoleto, espera que la revisión muestre el nuevo turno antes de confirmar
+con otra intención; verifica que el replay previo mantuvo exactamente su key/body original.
 Gates: pytest/ruff/mypy focales, contrato, prueba frontend, typecheck,
 migración SQLite/PostgreSQL focal, `git diff --check`, QA visual de tabla/modal y auditoría Sol fresca.

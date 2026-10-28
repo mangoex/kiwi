@@ -9,7 +9,11 @@ const Overview: React.FC = () => {
 
   return (
     <main className="admin-dashboard-modern">
-      <ExecutiveCopilot selectedBranchId={selectedBranch} branches={branches} />
+      <ExecutiveCopilot
+        key={JSON.stringify([session.user.id, selectedBranch])}
+        selectedBranchId={selectedBranch}
+        branches={branches}
+      />
     </main>
   );
 };

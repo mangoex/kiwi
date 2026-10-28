@@ -217,6 +217,7 @@ try {
       await page.getByRole('button', { name: 'Confirmar recepción de esta nota' }).waitFor();
       assert.deepEqual(attempts[1], attempts[0], 'Recovery uses the exact original rejected intent');
       assert.equal(await page.getByRole('button', { name: 'Cerrar revisión' }).isDisabled(), false, 'A definitive rejection releases recovery');
+      await dialog.getByText('Turno revisado: ' + newShift.id.slice(-8), { exact: true }).waitFor();
       await page.getByRole('button', { name: 'Confirmar recepción de esta nota' }).click();
       await review.waitFor({ state: 'hidden' });
       assert.notEqual(attempts[2].key, attempts[0].key);

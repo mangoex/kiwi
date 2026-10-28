@@ -60,6 +60,25 @@ la evidencia completa de sus gates.
 - Política: tres hashes se renovaron tras revisar credenciales/tokens de fixtures; se agregó
   procedencia y excepción exacta a `test_corte_ciego_phase2_through_6.py` por la contraseña local
   del actor sintético de step-up. No se cambió el scanner, ni se excluyeron rutas completas.
+- CI detectó diez errores de inferencia con SQLAlchemy 2.1.4 (versión fijada), ausentes en el
+  entorno local previo 2.0.52. Se anotan colecciones de escalares y se leen filas de sujetos de
+  revisión por mappings tipados; no cambian permisos, fórmulas, consultas ni efectos. Se crea un
+  entorno QA aislado desde el lock Windows para verificar paridad, sin alterar dependencias.
+- CI detectó una expectativa de branding obsoleta en `test_admin_retro.mjs`: se comprueba Mimenu
+  Admin/Utensils, ya introducido por `35e3396`, conservando el resto de verificaciones. El E2E
+  espera mostrar el turno renovado antes de iniciar otra confirmación tras un rechazo definitivo.
+
+La ejecución completa de semánticas descubrió expectativas anteriores al Copiloto, componentes
+elegibles y branding Mimenu. Se conservan autoridad Python, restricciones de profundidad y contraste
+AA; se reconcilian los apartados SDD/TDD desactualizados con PRD-FR-260/262 y los cambios existentes.
+Ruff identificó líneas largas previas en `executive_ai`; el formateo conserva exactamente su AST.
+
+La afirmación de aislamiento del Copiloto fue refutada: el browser mostró el resultado de Centro
+después de seleccionar Norte. Se remonta el componente por actor/sucursal y aborta la petición al
+salir; la regresión cubre respuesta cargada y diferida. Preguntas operativas: ¿qué sucursal se
+consultó? El payload conserva `branch_id`; ¿puede una respuesta anterior alterar la vista nueva?
+La regresión de navegador y la cancelación del request verifican esa frontera, sin registrar
+prompts ni respuestas financieras. La auditoría independiente revisa también este delta.
 
 Riesgo residual: el test cubre crear/editar la misma identidad y presentación, no todas las posibles
 intercalaciones del sistema. No hay migración nueva, escrituras históricas ni efectos que compensar

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   BarChart3,
@@ -123,6 +123,8 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
   const [loading, setLoading] = useState(false);
   const [insights, setInsights] = useState<ExecutiveInsightsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const activeRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => activeRequest.current?.abort(), []);
 
   const selectedBranchName = selectedBranchId
     ? branches.find(branch => branch.id === selectedBranchId)?.name || 'Sucursal seleccionada'
@@ -131,6 +133,10 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
   const handleAsk = async (queryText?: string) => {
     const q = (queryText || prompt).trim();
     if (!q) return;
+
+    activeRequest.current?.abort();
+    const request = new AbortController();
+    activeRequest.current = request;
 
     if (queryText) setPrompt(queryText);
     setLoading(true);
@@ -147,11 +153,13 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
         {
           method: 'POST',
           body: JSON.stringify(payload),
+          signal: request.signal,
         },
       );
 
-      setInsights(response);
+      if (!request.signal.aborted) setInsights(response);
     } catch (requestError: any) {
+      if (request.signal.aborted) return;
       console.error('Error fetching executive insights:', requestError);
       if (requestError?.status === 403 || requestError?.code === 'financial_access_denied') {
         setError('No cuentas con autorización financiera para consultar los datos del negocio.');
@@ -161,7 +169,7 @@ export const ExecutiveCopilot: React.FC<ExecutiveCopilotProps> = ({
         setError('No fue posible generar el informe ejecutivo.');
       }
     } finally {
-      setLoading(false);
+      if (!request.signal.aborted) setLoading(false);
     }
   };
 
