@@ -525,3 +525,5 @@ detalle y entradas PDF/XML HTTP, más listado directo del servicio, deben termin
 locks compartidos competidores. Las entradas PDF/XML usan un documento draft y conservan el
 rechazo de descarga; la carrera fiscal de auditoría cubre por separado revocación post-commit
 y cero bytes entregados. La espera se prueba con `pg_blocking_pids`, no con un retraso supuesto.
+El verificador de evidencia PostgreSQL exige recolección y aprobación de esta suite; una omisión
+o un caso omitido impiden aprobar CI.

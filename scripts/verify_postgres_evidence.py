@@ -16,6 +16,7 @@ MODULES = (
     "branch_authority",
     "branch_workspace",
     "fiscal_authority",
+    "fiscal_read_locks",
     "fiscal_emitter",
     "fiscal_command",
     "offline_authorization",
