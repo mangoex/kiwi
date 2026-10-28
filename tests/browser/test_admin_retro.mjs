@@ -366,7 +366,7 @@ async function verifyCopilotScope(browser) {
     }
   });
   try {
-    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    await page.goto(baseUrl.replace(/\/$/, '') + '/', { waitUntil: 'domcontentloaded' });
     const scope = page.getByRole('combobox', { name: 'Sucursal del panel' });
     const prompt = page.getByRole('textbox', { name: 'Consulta para el Copiloto Ejecutivo' });
     await scope.selectOption(branchId);
