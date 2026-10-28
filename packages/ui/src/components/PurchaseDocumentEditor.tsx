@@ -2,7 +2,9 @@ import React, { useEffect, useReducer, useRef, useState } from 'react';
 import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { Button } from './Button';
 import { Modal } from './Modal';
-import { branchLocalDate, initialPurchaseDraft, purchaseDraftFromDocument, purchaseDraftReducer, purchasePayload, purchasePreviewReady, restorePurchaseDraft, type PersistedPurchaseDraft, type PurchaseDraft } from './purchaseDraft';
+import { branchLocalDate, formatPurchaseDecimal, initialPurchaseDraft, purchaseCaptureError, purchaseDraftFromDocument, purchaseDraftReducer, purchasePayload, purchasePreviewReady, restorePurchaseDraft, type PersistedPurchaseDraft, type PurchaseDraft } from './purchaseDraft';
+import { PurchaseDecimalField } from './PurchaseDecimalField';
+import { PurchaseSummary } from './PurchaseSummary';
 import { usePythonPreview, type WorkspaceRequest } from './usePythonPreview';
 import './PurchaseDocumentEditor.css';
 import { registerWorkspaceNavigationGuard, confirmWorkspaceNavigation } from './workspaceNavigation';
@@ -87,7 +89,8 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { if (initialSupplierId && !editingPurchase) dispatch({ type: 'header', key: 'supplier_id', value: initialSupplierId }); }, [initialSupplierId, editingPurchase]);
   const exceptionReasonValid = !draft.supplier_catalog_exception || Boolean(draft.supplier_catalog_exception_reason.trim());
-  const compatible = Boolean(draft.document_date) && exceptionReasonValid && draft.lines.every(line => presentations.some(pres => (
+  const captureValid = draft.lines.every(line => Object.values(line.manualInputs || {}).every(input => !purchaseCaptureError(input)));
+  const compatible = captureValid && Boolean(draft.document_date) && exceptionReasonValid && draft.lines.every(line => presentations.some(pres => (
     pres.id === line.presentation_id
     && (pres.supplier_id === draft.supplier_id || draft.supplier_catalog_exception)
   )));
@@ -180,7 +183,7 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
     }
   };
   const submit = async () => {
-    if (submitting.current || (!preview.data && draft.phase !== 'uncertain')) return;
+    if (submitting.current || (draft.phase === 'editing' && !compatible) || (!preview.data && draft.phase !== 'uncertain')) return;
     submitting.current = true;
     const fingerprint = draft.phase === 'uncertain' ? draft.reviewFingerprint : preview.data?.context_fingerprint;
     dispatch({ type: 'submit', fingerprint });
@@ -208,6 +211,7 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
   };
   return <Modal isOpen={isOpen} onClose={close} title={editingPurchase ? "Editar compra pendiente" : "Registrar nota de compra"} maxWidth="1120px" contentClassName="purchase-document-modal">
     <div className="purchase-workspace">
+      <div className="purchase-intro"><span className="purchase-eyebrow">{editingPurchase ? 'Compra pendiente' : 'Nueva compra'}</span><p>Revisa el documento y sus partidas antes de guardar el borrador.</p></div>
       {draft.message && <p role="alert">{draft.message}</p>}
       {draft.phase === 'uncertain' && <p role="status">La respuesta no se confirmó. Recupera la misma nota antes de continuar; conserva esta ventana abierta.</p>}
       <section className="purchase-ai-box" aria-label="Asistente de autocompletado de compra">
@@ -261,6 +265,8 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
         {aiNotice && <p role="status" className="purchase-ai-notice">{aiNotice}</p>}
         {aiError && <p role="alert" className="purchase-ai-error">{aiError}</p>}
       </section>
+      <section className="purchase-document-section" aria-label="Datos del documento">
+      <h4>Datos del documento</h4>
       <fieldset disabled={locked} className="purchase-fields">
         <label>Proveedor<select value={draft.supplier_id} onChange={e => dispatch({ type: 'header', key: 'supplier_id', value: e.target.value })}><option value="">Selecciona proveedor</option>{suppliers.map(item => <option key={item.id} value={item.id}>{item.commercial_name}</option>)}</select></label>
         <label>Tipo de documento<select value={draft.document_type} onChange={e => dispatch({ type: 'header', key: 'document_type', value: e.target.value })}>{[['invoice', 'Factura'], ['ticket', 'Ticket'], ['note', 'Nota'], ['receipt', 'Recibo']].map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
@@ -273,7 +279,8 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
         <label className="purchase-exception-toggle"><input type="checkbox" checked={Boolean(draft.supplier_catalog_exception)} onChange={e => dispatch({ type: 'supplierException', value: e.target.checked })} /> Compra excepcional con presentación de otro proveedor</label>
         {draft.supplier_catalog_exception && <label>Motivo de la excepción<input required maxLength={240} value={draft.supplier_catalog_exception_reason || ''} onChange={e => dispatch({ type: 'header', key: 'supplier_catalog_exception_reason', value: e.target.value })} placeholder="Ej. compra urgente por desabasto" /></label>}
       </fieldset>
-      <h4>Partidas de Compra</h4>
+      </section>
+      <div className="purchase-section-heading"><h4>Partidas de Compra</h4><span>{draft.lines.length} {draft.lines.length === 1 ? 'partida' : 'partidas'}</span></div>
       <fieldset disabled={locked} className="purchase-lines">
         {draft.lines.map((line, index) => {
           const supplierChoices = presentations.filter(item => item.supplier_id === draft.supplier_id);
@@ -298,8 +305,8 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
               if (!keepExtractedPrice) {
                 dispatch({ type: 'line', id: line.id, key: 'unit_price', value: selected ? String(selected.last_net_price) : '' });
               }
-            }}><option value="">Selecciona producto y presentación</option>{mismatch && !draft.supplier_catalog_exception && <option value={line.presentation_id}>Revisar: presentación de otro proveedor</option>}{Array.from(groupedChoices.entries()).map(([itemId, group]) => <optgroup key={itemId} label={group.label}>{group.presentations.map(item => <option key={item.id} value={item.id}>{item.name} · {item.base_unit_yield} {item.base_unit_code}{draft.supplier_catalog_exception ? ` · ${item.supplier_name}` : ''}</option>)}</optgroup>)}</select></label>
-            {(['quantity', 'unit_price', 'discount', 'tax'] as const).map((key, i) => <label key={key}>{['Cantidad', 'Precio por presentación antes de descuento ($)', 'Descuento ($)', 'Impuesto ($)'][i]}<input inputMode="decimal" value={line[key]} onChange={e => dispatch({ type: 'line', id: line.id, key, value: e.target.value })} /></label>)}
+            }}><option value="">Selecciona producto y presentación</option>{mismatch && !draft.supplier_catalog_exception && <option value={line.presentation_id}>Revisar: presentación de otro proveedor</option>}{Array.from(groupedChoices.entries()).map(([itemId, group]) => <optgroup key={itemId} label={group.label}>{group.presentations.map(item => <option key={item.id} value={item.id}>{item.name} · {formatPurchaseDecimal(item.base_unit_yield)} {item.base_unit_code}{draft.supplier_catalog_exception ? ` · ${item.supplier_name}` : ''}</option>)}</optgroup>)}</select></label>
+            {(['quantity', 'unit_price', 'discount', 'tax'] as const).map((key, i) => <PurchaseDecimalField key={key} label={['Cantidad', 'Precio por presentación antes de descuento ($)', 'Descuento ($)', 'Impuesto ($)'][i]} value={line[key]} input={line.manualInputs?.[key]} onChange={value => dispatch({ type: 'capture', id: line.id, key, value })} />)}
             <div className="purchase-line-actions" role="group" aria-label={`Acciones del renglón ${index + 1}`}>
               <Button type="button" size="sm" variant="secondary" className="purchase-line-action" aria-label={`Agregar renglón después del ${index + 1}`} title="Agregar renglón" disabled={draft.lines.length >= 200} onClick={() => {
                 const id = crypto.randomUUID(); pendingLineFocus.current = id;
@@ -313,7 +320,7 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
             {line.ai_description && !line.presentation_id && <p role="status" className="purchase-ai-hint">Concepto detectado en comprobante: <strong>{line.ai_description}</strong>. Selecciona su presentación del catálogo para conciliarlo.</p>}
             {mismatch && !draft.supplier_catalog_exception && <p role="alert">La presentación no pertenece al proveedor elegido. Selecciona una presentación compatible o activa la excepción.</p>}
             {mismatch && draft.supplier_catalog_exception && <p role="status">Esta partida se registrará como excepción con la presentación del proveedor de catálogo.</p>}
-            {calc && <p className="purchase-conversion">Entrada: {calc.base_quantity} {calc.presentation_snapshot.base_unit_code} · costo de inventario: ${calc.inventory_cost} · costo base: ${calc.cost_per_base_unit} · importe: ${calc.line_total}</p>}
+            {calc && <dl className="purchase-conversion"><div><dt>Entrada base</dt><dd>{formatPurchaseDecimal(calc.base_quantity)} {calc.presentation_snapshot.base_unit_code}</dd></div><div><dt>Costo de inventario</dt><dd>${formatPurchaseDecimal(calc.inventory_cost)}</dd></div><div><dt>Costo por unidad base</dt><dd>${formatPurchaseDecimal(calc.cost_per_base_unit)}</dd></div><div><dt>Importe</dt><dd>${formatPurchaseDecimal(calc.line_total)}</dd></div></dl>}
           </div>;
         })}
         {catalogTools && <Button variant="secondary" disabled={!draft.supplier_id} onClick={() => setCatalogOpen(true)}>Registrar presentación sin perder la nota</Button>}
@@ -321,8 +328,8 @@ export function PurchaseDocumentEditor(props: PurchaseDocumentEditorProps) {
       {catalogOpen && catalogTools?.(draft.supplier_id, () => setCatalogOpen(false))}
       {preview.pending && <p role="status">Consultando importes…</p>}
       {preview.error && <p role="alert">{preview.error}</p>}
-      {preview.data && <div className="purchase-summary" aria-live="polite">Subtotal: ${preview.data.subtotal} · descuentos: ${preview.data.discount_total} · impuestos: ${preview.data.tax_total}<br /><strong>Total: ${preview.data.total}</strong></div>}
-      <p>El impuesto no integra el costo de inventario. Guardar registra el documento; confirmar después realiza la recepción y, cuando corresponde, el retiro de caja.</p>
+      {preview.data && <PurchaseSummary totals={preview.data} />}
+      <p className="purchase-footnote">El impuesto no integra el costo de inventario. Guardar registra el documento; confirmar después realiza la recepción y, cuando corresponde, el retiro de caja.</p>
       <div className="purchase-actions"><Button variant="secondary" disabled={locked} onClick={close}>Cerrar captura</Button><Button disabled={draft.phase === 'submitting' || (draft.phase === 'editing' && (!compatible || !preview.data))} onClick={() => void submit()}>{draft.phase === 'uncertain' ? (editingPurchase ? 'Recuperar cambios' : 'Recuperar nota registrada') : draft.phase === 'submitting' ? 'Guardando…' : editingPurchase ? 'Guardar cambios' : 'Guardar borrador'}</Button></div>
     </div>
   </Modal>;

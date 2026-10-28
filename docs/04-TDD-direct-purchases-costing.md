@@ -149,6 +149,26 @@ todas las partidas y ausencia de Editar/Eliminar sin `purchases.manage`. Para un
 Ver, Editar, Confirmar y Eliminar borrador, hidratación exacta del editor y que una fila cancelada en
 draft deja de ser pendiente sin ocultar cancelaciones de compras antes confirmadas.
 
+PRD-NFR-012/SDD-ADR-010: revisión y editor compartidos muestran cantidades, conversiones e importes
+con dos decimales (ROUND_HALF_UP exacto). La regresión semántica cubre fronteras de redondeo y valores
+mayores que el entero seguro de JavaScript; campos sin tocar y edición sólo de cabecera conservan
+las cadenas originales. Captura manual con tres decimales bloquea preview/guardado, acepta coma
+decimal y excluye `manualInputs` de comandos. Un intento incierto conserva payload/key.
+QA browser en escritorio y 390px verifica resumen, scroll contenido, acciones y foco; abrir/enfocar/
+desenfocar no cambia el comando original. Se comparan importes persistidos contra los exactos, no
+contra el total redondeado mostrado. No modifica fórmulas, permisos, esquema ni movimientos.
+Preguntas operativas: ¿se preserva la precisión histórica al guardar?, ¿se impide enviar una captura
+inválida?, ¿el retry conserva la misma intención? Payloads comparados y barreras de UI del recorrido
+aislado aportan esas señales sin nuevos logs financieros. Auditoría independiente revisa estas
+afirmaciones y sus intentos de refutación; no acredita latencia ni comportamiento productivo.
+
+Evidencia local 2026-10-28: el browser refutó la primera implementación de foco (reemplazar `2`
+por `7` producía `27`); el campo ahora conserva el texto visible al enfocar. La repetición de
+Admin/POS y el guardado de cabecera con cantidad `6.123456`, precio `19.525678` e impuesto `0.005000`
+pasaron conservando payload y persistencia exactos. La auditoría independiente revisó la corrección
+sin bloqueantes. La tabla de compras/costos usa el mismo formato; no cambia autoridad de cálculo.
+Riesgo residual: QA local de escritorio/390px, sin acreditar todos los dispositivos ni producción.
+
 ## TDD-TC-476 Edición idempotente, versionada y atómica
 
 BDD-SC-806. Contrato y API prueban payload explícito, rama inmutable, autorización, versión vigente,

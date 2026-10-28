@@ -4,7 +4,35 @@ import ts from 'typescript';
 
 const source = readFileSync('packages/ui/src/components/purchaseDraft.ts', 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { branchLocalDate, initialPurchaseDraft, purchaseDraftFromDocument, purchaseDraftReducer, purchasePayload, purchasePreviewReady } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const { branchLocalDate, initialPurchaseDraft, purchaseDraftFromDocument, purchaseDraftReducer, purchasePayload, purchasePreviewReady, formatPurchaseDecimal, purchaseCaptureError } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+for (const [raw, display] of [['6.000000', '6.00'], ['19.520000', '19.52'], ['562.015000', '562.02'], ['0', '0.00'], ['9007199254740993.995', '9007199254740994.00'], ['-0.005', '-0.01']]) {
+  assert.equal(formatPurchaseDecimal(raw), display);
+}
+assert.equal(formatPurchaseDecimal(undefined), '—');
+assert.equal(purchaseCaptureError(undefined), '');
+assert.equal(purchaseCaptureError('1,25'), '');
+assert.ok(purchaseCaptureError('1.234'));
+const exactDocument = { id: 'p', branch_id: 'b', supplier_id: 's', folio: 'f', document_type: 'note', document_date: '2026-10-28', payment_method: 'transfer', paid_from_cash: false, version: 1, lines: [{ id: 'l', presentation_id: 'pres', presentation_quantity: '6.123456', unit_price: '19.525678', discount: '0.000000', tax: '0.005000' }] };
+const exactDraft = purchaseDraftFromDocument('scope', exactDocument, 'key');
+const exactPayload = purchasePayload(exactDraft);
+assert.equal(purchasePreviewReady(exactDraft), true, 'Untouched historical precision remains valid');
+assert.equal(formatPurchaseDecimal(exactDraft.lines[0].unit_price), '19.53');
+assert.deepEqual(purchasePayload(exactDraft), exactPayload, 'Formatting never replaces original command values');
+const headerOnly = purchaseDraftReducer(exactDraft, { type: 'header', key: 'notes', value: 'Only notes changed' });
+assert.deepEqual(purchasePayload(headerOnly).lines, exactPayload.lines);
+let captured = purchaseDraftReducer(exactDraft, { type: 'capture', id: 'l', key: 'unit_price', value: '19.535' });
+assert.equal(purchasePreviewReady(captured), false, 'Manual excess precision blocks authoritative preview');
+assert.equal(captured.lines[0].unit_price, '19.535', 'Invalid capture is not silently rounded');
+for (const invalid of ['', '-1', '1e2', '2.000']) {
+  assert.equal(purchasePreviewReady(purchaseDraftReducer(exactDraft, { type: 'capture', id: 'l', key: 'quantity', value: invalid })), false);
+}
+captured = purchaseDraftReducer(captured, { type: 'capture', id: 'l', key: 'unit_price', value: '19,50' });
+assert.equal(purchasePreviewReady(captured), true);
+assert.equal(purchasePayload(captured).lines[0].unit_price, '19.50');
+assert.equal(purchasePayload(captured).lines[0].quantity, '6.123456');
+assert.deepEqual(Object.keys(purchasePayload(captured).lines[0]).sort(), ['discount', 'presentation_id', 'quantity', 'tax', 'unit_price']);
+const uncertainCaptured = purchaseDraftReducer(purchaseDraftReducer(captured, { type: 'submit', fingerprint: 'review' }), { type: 'uncertain', message: 'Lost' });
+assert.deepEqual(purchasePayload(purchaseDraftReducer(uncertainCaptured, { type: 'capture', id: 'l', key: 'unit_price', value: '99' })), purchasePayload(captured), 'Uncertain replay remains frozen');
 assert.equal(branchLocalDate('America/Mazatlan', new Date('2026-10-16T05:30:00Z')), '2026-10-15');
 assert.equal(branchLocalDate('America/Mazatlan', new Date('2026-10-16T07:30:00Z')), '2026-10-16');
 assert.equal(branchLocalDate('Invalid/Zone', new Date('2026-10-16T07:30:00Z')), '');
@@ -144,6 +172,8 @@ for (const path of ['apps/admin-web/src/features/purchasing/PurchasesList.tsx'])
   assert.match(readFileSync(path, 'utf8'), /<PurchaseDocumentEditor/, `${path} must use the shared editor`);
 }
 const purchasesList = readFileSync('apps/admin-web/src/features/purchasing/PurchasesList.tsx', 'utf8');
+for (const field of ['purchase.total', 'cost.quantity_on_hand', 'cost.average_unit_cost']) assert.ok(purchasesList.includes(`formatPurchaseDecimal(${field})`));
+assert.doesNotMatch(purchasesList, /toFixed\(4\)/);
 for (const action of ['Ver', 'Editar', 'Eliminar borrador']) assert.match(purchasesList, new RegExp(`>${action}<`));
 assert.match(purchasesList, /setEditingPurchase\(purchase\)/);
 assert.match(editor, /method:\s*editingPurchase\s*\?\s*'PUT'\s*:\s*'POST'/);
