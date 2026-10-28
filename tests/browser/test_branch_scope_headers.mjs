@@ -102,7 +102,9 @@ try {
     await dashboardScope.waitFor();
     assert.equal(await dashboardScope.inputValue(), '');
     assert.equal(await dashboardScope.getByRole('option', { name: 'Todas las sucursales' }).count(), 1);
-    assert.equal(await admin.locator('.admin-dashboard-filters select').count(), 1, 'Only the month filter remains in the dashboard');
+    await admin.getByRole('heading', { name: 'Copiloto Ejecutivo' }).waitFor();
+    assert.equal(await admin.locator('main').getByRole('combobox').count(), 0,
+      'The Copilot uses the single topbar branch selector, without legacy dashboard filters');
     const topbar = await admin.locator('.admin-topbar').boundingBox();
     const indicator = await admin.locator('.configuration-scope-indicator').boundingBox();
     assert.ok(topbar && indicator && indicator.y - (topbar.y + topbar.height) >= 16, `Admin content gap must be >=16px at ${label}`);
@@ -128,7 +130,8 @@ try {
 
     await dashboardScope.selectOption(branches[1].id);
     await admin.getByText('Panel de Norte', { exact: true }).waitFor();
-    await admin.getByRole('button', { name: 'Productos', exact: true }).click();
+    await admin.getByRole('button', { name: 'Catálogo y Menú', exact: true }).click();
+    await admin.getByRole('button', { name: 'Acceder a Productos', exact: true }).click();
     if (!expectV2Enabled) {
       assert.equal(await admin.getByLabel('Alcance de configuración').count(), 0);
       assert.equal(await admin.locator('.admin-configuration-scope-static').count(),0,
