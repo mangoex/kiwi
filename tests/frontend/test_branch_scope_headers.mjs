@@ -42,7 +42,7 @@ assert.doesNotMatch(overview, /<option value="">Todas las sucursales<\/option>/)
 assert.doesNotMatch(overview, /fetchApi<Branch\[]>\('\/branches'\)/);
 assert.match(overview, /dashboardBranchId/);
 assert.doesNotMatch(overview, /configurationScope/);
-assert.match(overview, /new AbortController\(\)/);
+assert.match(overview, /<ExecutiveCopilot key=\{selectedBranch \|\| 'organization'\}/);
 
 assert.match(adminStyles, /\.admin-content\s*\{[^}]*padding:\s*20px 32px 32px/s);
 assert.match(adminStyles, /\.configuration-scope-indicator/);

@@ -64,6 +64,11 @@ asignación no cruza la enumeración de un rol cuyos permisos están cambiando.
 
 ## TDD-TC-352 Cambio seguro e idempotente de sucursal
 
+Regresión del Copiloto Ejecutivo: `test_branch_scope_headers.mjs` verifica el montaje ligado a la
+sucursal y `test_admin_executive_copilot_ux.mjs` ejecuta el componente con respuestas diferidas.
+Una segunda consulta cancela la primera; desmontar cancela la pendiente; un transporte que ignore
+AbortSignal no publica resultados ni errores obsoletos. El nuevo contexto empieza sin resultados.
+
 API y frontend prueban `POST /auth/branch-selections`: destino válido, no autorizado/inactivo,
 versión obsoleta, replay idéntico, key con payload distinto, turno OPEN/CLOSING, comando incierto,
 grant offline y reconciliación pendiente. Fallo conserva contexto anterior; éxito cancela respuestas

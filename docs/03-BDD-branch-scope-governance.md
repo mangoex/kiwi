@@ -130,6 +130,8 @@ Feature: La configuración parte de todas las sucursales y la operación cambia 
     Given un actor sin bloqueadores tiene un borrador aislado en la sucursal A
     When confirma cambiar a la sucursal B
     Then consultas y formularios de A se cancelan o desmontan
+    And el Copiloto Ejecutivo inicia B sin resultados ni errores de A
+    And una respuesta tardía de A o de una consulta sustituida no reemplaza el resultado vigente
     And caja, gateway, grant, carrito y borrador de A no aparecen en B
     And al volver a A el borrador sólo se recupera con el mismo usuario sucursal y caja
 

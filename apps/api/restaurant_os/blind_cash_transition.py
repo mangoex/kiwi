@@ -149,7 +149,9 @@ def preflight(
     if len(supplied) != len(evidence.users) or set(supplied) - {row.id for row in people}:
         block("review_subjects_invalid")
     users = []
-    for user_id, version in people:
+    for person in people:
+        user_id = person.id
+        version = person.authorization_version
         permissions: Sequence[str] = session.scalars(
             sa.select(models.permissions.c.code)
             .select_from(assignments.join(models.role_permissions).join(models.permissions))

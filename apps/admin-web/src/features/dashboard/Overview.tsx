@@ -9,7 +9,7 @@ const Overview: React.FC = () => {
 
   return (
     <main className="admin-dashboard-modern">
-      <ExecutiveCopilot selectedBranchId={selectedBranch} branches={branches} />
+      <ExecutiveCopilot key={selectedBranch || 'organization'} selectedBranchId={selectedBranch} branches={branches} />
     </main>
   );
 };

@@ -2,8 +2,8 @@
 
 Cambio R3 acotado a la lectura de stock y su contrato. Autoridad: PRD-FR-271, SDD §59.4,
 BDD-SC-650, TDD-TC-358/360; contrato de consumo en `docs/14-grokbot-agent-tools-api.md`.
-Se activaron esos documentos, matriz y OpenAPI. No se modifica UI, esquema, permisos, fórmulas
-de inventario, configuración productiva ni servicios de escritura.
+Se activaron esos documentos, matriz y OpenAPI. No se modifica esquema, permisos, fórmulas de inventario, configuración productiva ni servicios
+de escritura. El cierre de CI incluye la regresión de contexto del Copiloto Ejecutivo descrita abajo.
 Se incluye un refactor R1 en `inventory_ai.py`: renombrar la variable local de un bucle para
 evitar reutilizar `pres` con tipos incompatibles y cerrar el gate mypy normal. Conserva query,
 orden y cálculo; no activa cambios adicionales de PRD/SDD/BDD/TDD ni una fase RED artificial.
@@ -76,7 +76,31 @@ módulos y Ruff aprueba `apps/api tests`. Auditoría Sol de seguimiento sin hall
 focales y semánticas de esta reparación se ejecutan antes del cierre. La integración requiere un
 nuevo CI verde del PR, no el run fallido anterior.
 
-Frontend, gateway y migraciones no se activan. El usuario autorizó explícitamente publicación y
+CI run `40625872183` aprobó políticas, Docker y dependencias. Detectó una diferencia de tipado
+SQLAlchemy en CI (desempaquetado de Row), corregida accediendo a sus columnas nombradas, y
+expectativas frontend heredadas: métricas movidas a ExecutiveCopilot, componentes de producto
+habilitados y botones de menú blancos por el cambio de marca ya integrado en main. Las pruebas
+ahora verifican esa arquitectura vigente; conservan autoridad Python, contraste y foco accesible.
+
+La prueba de alcance reveló además una regresión real: el nuevo Copiloto no cancelaba consultas
+al cambiar de sucursal. Se añadió cancelación de la consulta sustituida y al desmontar, guardas
+para resultados/errores tardíos y una key por sucursal que limpia el estado. BDD-SC-638,
+TDD-TC-352 y su matriz documentan la regresión; PRD/SDD mantienen el contrato existente.
+El RED se reconstruyó contra el componente de `6d31334`: la prueba ejecutable falla por ausencia
+de AbortSignal; con el cambio pasa incluso cuando el transporte ignora la cancelación. Pasan los
+cinco scripts frontend afectados y typecheck Admin. La secuencia semántica completa se recorrió
+localmente durante el diagnóstico; el gate canónico final queda a cargo de CI. No se altera layout
+ni estilo, por lo que no se activa QA visual; CI construye Admin antes de la publicación.
+
+| Afirmación adicional | Evidencia e intento de refutación | Resultado y riesgo residual |
+|---|---|---|
+| El copiloto no publica resultados de una consulta sustituida ni del contexto anterior | Componente ejecutado con dos respuestas fuera de orden, desmontaje con petición pendiente y rechazo tardío; contrato de montaje por sucursal | Verde local; cancelar el cliente no garantiza cancelar trabajo ya iniciado en el servidor, que sigue sujeto a su autorización |
+
+Seguimiento Sol independiente de estas correcciones: sin hallazgos accionables. La prueba de
+hooks simulados no sustituye una navegación real en navegador. La regresión Python de transición
+y la integridad de trazabilidad suman 12 pruebas aprobadas tras acceder a las columnas nombradas.
+
+Gateway y migraciones no se activan. El usuario autorizó explícitamente publicación y
 despliegue en este chat, conforme a GOV-REL-001, y después indicó que él hará el redeploy.
 La navegación automatizada se detuvo sin ejecutar el despliegue. Tras CI verde, integrar y entregar
 el SHA al usuario para redeploy y canary autenticado

@@ -16,6 +16,10 @@ const adminDashboard = readFileSync(
   join(root, 'apps/admin-web/src/features/dashboard/Overview.tsx'),
   'utf8',
 );
+const executiveCopilot = readFileSync(
+  join(root, 'apps/admin-web/src/features/dashboard/ExecutiveCopilot.tsx'),
+  'utf8',
+);
 const history = readFileSync(
   join(root, 'apps/pos-web/src/features/history/History.tsx'),
   'utf8',
@@ -52,11 +56,17 @@ assert.match(recipeManager, /component\.waste_rate/);
 assert.doesNotMatch(recipeManager, /waste_rate[^\n]*\*\s*100/);
 assert.doesNotMatch(recipeManager, /net_quantity[^\n]*\/\s*\(1\s*-\s*waste/);
 
-for (const dashboard of [posDashboard, adminDashboard]) {
+assert.match(adminDashboard, /<ExecutiveCopilot[^>]*selectedBranchId=\{selectedBranch\} branches=\{branches\}/);
+for (const dashboard of [posDashboard, executiveCopilot]) {
   assert.match(dashboard, /average_ticket_cents/);
   assert.doesNotMatch(dashboard, /total_revenue_cents\s*\/\s*data\.total_orders/);
   assert.doesNotMatch(dashboard, /totalRevenue\s*\/\s*totalOrders/);
 }
-assert.match(adminDashboard, /category\.share_bps/);
-assert.doesNotMatch(adminDashboard, /total_orders \* 0\.(?:52|31|83)/);
-assert.doesNotMatch(adminDashboard, /\(index \+ 1\) \/ topCategoryTotal/);
+assert.match(executiveCopilot, /fetchApi<ExecutiveInsightsResponse>\([\s\S]*?'\/admin-ai\/executive-insights'/);
+assert.match(executiveCopilot, /setInsights\(response\)/);
+assert.match(executiveCopilot, /insights\.data_points\.map\(/);
+assert.match(executiveCopilot, /formatMoney\(row\.average_ticket_cents\)/);
+for (const dashboard of [adminDashboard, executiveCopilot]) {
+  assert.doesNotMatch(dashboard, /total_orders \* 0\.(?:52|31|83)/);
+  assert.doesNotMatch(dashboard, /\(index \+ 1\) \/ topCategoryTotal/);
+}
