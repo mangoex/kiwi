@@ -1,5 +1,5 @@
 <!-- SEC001-SYNTHETIC-FIXTURE provenance=restaurantos-grokbot-agent-tools-doc-v1 -->
-# Kiwi Agent Tools API v1 RC4 — Guía de integración para GrokBot
+# Kiwi Agent Tools API v1 RC5 — Guía de integración para GrokBot
 
 ## 1. Objetivo
 
@@ -21,7 +21,7 @@ Todas las solicitudes deben usar HTTPS. Los secretos de los ejemplos son fictici
 
 ### Estado de esta entrega
 
-El contrato es una **candidata v1 (`1.0.0-rc.4`)** y el runtime permanece `Scaffold`, apagado por
+El contrato es una **candidata v1 (`1.0.0-rc.5`)** y el runtime permanece `Scaffold`, apagado por
 defecto y sin despliegue productivo verificado. Está listo para que GrokBot prepare sus herramientas
 y para ejecutar, después de la autorización operativa correspondiente, un canary de sólo lectura con
 Administrador. No debe presentarse todavía como integración productiva general.
@@ -75,7 +75,7 @@ credencial revocada.
 
 | Identidad | Capacidades máximas de v1 |
 |---|---|
-| `administrator` | contexto, catálogo, ventas agregadas, cortes finalizados con permiso explícito y propuestas de catálogo |
+| `administrator` | contexto, catálogo, ventas agregadas, gastos operativos, ventas por método de pago, conciliación diaria y cortes finalizados; cada lectura financiera nueva exige un permiso explícito apagado por defecto, y las propuestas de catálogo |
 | `kitchen` | contexto, catálogo, insumos, recetas y propuestas de receta |
 | `inventory` | contexto, insumos, recetas, existencias, movimientos y propuestas de insumo |
 | `purchasing` | contexto, insumos, proveedores, costos actuales, historial de compras, necesidades y borradores |
@@ -93,7 +93,10 @@ esa solicitud: el bot no debe intentar otra ruta para evadirla.
 | `GET /api/v1/agent-tools/context` | Identidad, capacidades y sucursales efectivas |
 | `GET /api/v1/agent-tools/catalog/items` | Productos, categoría, estación, precio y disponibilidad |
 | `GET /api/v1/agent-tools/sales/summary` | Ventas confirmadas agregadas por sucursal y periodo UTC |
+| `GET /api/v1/agent-tools/expenses/summary` | Gastos operativos confirmados por concepto, sucursal y periodo UTC |
+| `GET /api/v1/agent-tools/payments/by-method` | Neto de ventas confirmadas por método de pago, sucursal y periodo UTC |
 | `GET /api/v1/agent-tools/cash/cuts` | Cortes finalizados minimizados por sucursal y periodo UTC |
+| `GET /api/v1/agent-tools/cash/daily-reconciliation` | Conciliación diaria v2 minimizada por sucursal y día local |
 | `GET /api/v1/agent-tools/inventory/items` | Insumos administrativos minimizados |
 | `GET /api/v1/agent-tools/inventory/stock` | Existencia y umbrales mínimo/máximo de una sucursal |
 | `GET /api/v1/agent-tools/inventory/movements` | Movimientos minimizados de una sucursal y periodo UTC |
@@ -260,12 +263,76 @@ motivos ni evidencia. La ruta no permite abrir, contar, finalizar, reabrir ni co
 Si dos compensaciones comparten el timestamp máximo, Kiwi responde `503 dependency_unavailable`
 para evitar escoger una corrección ambigua; GrokBot no debe fabricar un resultado.
 
+Gastos operativos por concepto:
+
+```bash
+curl --get 'https://<HOST-KIWI>/api/v1/agent-tools/expenses/summary' \
+  --header 'Authorization: Bearer <TOKEN-ADMINISTRATOR>' \
+  --data-urlencode 'branch_id=<BRANCH_UUID>' \
+  --data-urlencode 'from_utc=2026-10-11T07:00:00Z' \
+  --data-urlencode 'to_utc=2026-10-12T07:00:00Z'
+```
+
+Sólo el Administrador con `agent.operating_expenses.read` puede usar esta ruta. El permiso nace
+apagado. El periodo es el mismo intervalo UTC de hasta 31 días. Kiwi suma documentos de gasto
+confirmados y resta las cancelaciones del periodo. Cada fila es un concepto del catálogo: el nombre
+sale del snapshot del documento y el código, si existe, de la configuración vigente. El catálogo no
+distingue fijo y variable, así que `grouping` vale `concept` y no debe inventarse esa clasificación.
+Los importes van en centavos MXN. Para un día de `America/Mazatlan`, la medianoche local es las
+07:00Z. No devuelve folio, notas, evidencia ni actores, y no registra ni cancela gastos.
+
+Ventas por método de pago:
+
+```bash
+curl --get 'https://<HOST-KIWI>/api/v1/agent-tools/payments/by-method' \
+  --header 'Authorization: Bearer <TOKEN-ADMINISTRATOR>' \
+  --data-urlencode 'branch_id=<BRANCH_UUID>' \
+  --data-urlencode 'from_utc=2026-10-11T07:00:00Z' \
+  --data-urlencode 'to_utc=2026-10-12T07:00:00Z'
+```
+
+Esta ruta usa `agent.payment_methods.read`, también apagado por defecto. No basta `agent.sales.read`:
+esa capacidad viene en la política inicial y su contrato no revela el método. El neto es el mismo
+`net_cents` de `sales/summary`: incluye IVA y envío, y un pedido Uber Eats, DiDi, Rappi o WhatsApp
+confirmado cuenta como venta. Efectivo, tarjeta de débito, tarjeta de crédito y transferencia se
+conservan separados. Las correcciones posteriores viajan en `corrections_by_currency` y no se restan
+del neto. No devuelve folios, clientes ni identificadores de pago.
+
+Conciliación diaria:
+
+```bash
+curl --get 'https://<HOST-KIWI>/api/v1/agent-tools/cash/daily-reconciliation' \
+  --header 'Authorization: Bearer <TOKEN-ADMINISTRATOR>' \
+  --data-urlencode 'branch_id=<BRANCH_UUID>' \
+  --data-urlencode 'from_date=2026-10-10' \
+  --data-urlencode 'to_date=2026-10-11'
+```
+
+Sólo el Administrador con `agent.cash_reconciliation.read` puede usarla. `from_date` y `to_date` son
+días civiles inclusivos de la zona de la sucursal, como máximo 31. En Mazatlán,
+`2026-10-11T06:30:00Z` todavía es 10 de octubre y `2026-10-11T07:30:00Z` ya es 11 de octubre.
+`shifts_opened` resume los turnos que se abrieron ese día, incluido un cobro que cruza la medianoche.
+`calendar_activity` resume sólo lo ocurrido dentro del día civil. Ahí están, en centavos, ventas,
+tarjeta, transferencias, depósitos, pagos a proveedor desde caja, gastos fijos desde caja, retiros,
+clientes a crédito y la diferencia de arqueo cuando el conteo está cerrado. Los reembolsos salen de
+correcciones `REFUND`; las cancelaciones, de pedidos cancelados ese día. No se suman al efectivo.
+Kiwi no guarda un gasto de producción o panadería aparte del catálogo de gastos y de los pagos a
+proveedor: `production_bakery.recorded` es `false`.
+
+Nombres, teléfonos, folio de retiro y quién recibió el efectivo sólo aparecen si Miguel activa
+además `agent.cash_personal_data.read`. Sin ese permiso la respuesta trae conteos y totales. La ruta
+no abre, cuenta, compensa ni mueve caja.
+
+El historial `purchases/history` sigue reservado a la identidad Compras con `agent.purchases.read`.
+El Administrador no puede recibir esa capacidad. Para el tablero, el pago a proveedor desde caja está
+en la conciliación y el gasto catalogado está en `expenses/summary`.
+
 ## 7. Reglas que debe seguir el Administrador Kiwi
 
 1. Consultar `context` antes de elegir sucursal o herramienta; usar la zona IANA devuelta para
    convertir expresiones como “hoy” al intervalo UTC correcto.
 2. Pedir aclaración cuando el usuario no indique sucursal y tenga más de una autorizada.
-3. Usar Administrador para productos, ventas y cortes; Cocinero para recetas; Inventarios para existencias
+3. Usar Administrador para productos, ventas, gastos, métodos de pago, conciliación y cortes; Cocinero para recetas; Inventarios para existencias
    y movimientos; Compras para proveedores, costos, historial, necesidades y borradores.
 4. No transferir tokens entre especialistas ni enviar `profile` o capacidades en un body.
 5. Explicar que una propuesta o compra `DRAFT` todavía no está aplicada.
@@ -309,6 +376,19 @@ para evitar escoger una corrección ambigua; GrokBot no debe fabricar un resulta
     caja finalizados**. Solicitar un token nuevo, confirmar que `context` contiene
     `agent.cash_cuts.read`, comparar un corte finalizado y verificar el rechazo de otra sucursal.
     El redeploy no concede esta capacidad a una identidad ya configurada.
+13. En Especialistas técnicos → Administrador, habilitar **Permitir leer gastos operativos**
+    (`agent.operating_expenses.read`). Pedir un token nuevo y comparar un periodo conocido con
+    Compras y Gastos. El catálogo no separa fijo y variable.
+14. Habilitar **Permitir leer ventas por método de pago** (`agent.payment_methods.read`). Comparar
+    el neto con Ventas y Reportes. Efectivo, tarjeta y transferencia permanecen separados; el pedido
+    externo confirmado cuenta como venta.
+15. Habilitar **Permitir leer conciliación diaria de caja** (`agent.cash_reconciliation.read`).
+    Comparar un día local con la conciliación v2. Usar `calendar_activity` para lo ocurrido ese día
+    y `shifts_opened` para el saldo del turno, incluida la diferencia de arqueo.
+16. Sólo si el tablero debe mostrar nombres y teléfonos, habilitar además **Permitir leer nombres y
+    teléfonos de conciliación** (`agent.cash_personal_data.read`). Sin ese permiso la conciliación
+    responde totales. No hace falta migración de esquema: las capacidades nuevas no se agregan solas
+    a una identidad ya guardada.
 
 La migración, configuración de secretos, activación, despliegue y canary son gates independientes.
 El contrato OpenAPI no autoriza ninguno de ellos por sí mismo.

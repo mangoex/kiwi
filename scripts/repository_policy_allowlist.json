@@ -57,12 +57,12 @@
     },
     {
       "path": "docs/14-grokbot-agent-tools-api.md",
-      "sha256": "fb1a1748f38aac0532cbd7a48f541ba56af3e128b145334545f6c2cc81dc8a6e",
+      "sha256": "b3190c88fb1fb0f3f1120e20b10d15a8f026cd5c5be2da44f1300d89d7547bf8",
       "provenance": "restaurantos-grokbot-agent-tools-doc-v1"
     },
     {
       "path": "packages/contracts/openapi/kiwi-agent-tools-v1.openapi.yaml",
-      "sha256": "c84ef08210dd6d0e29d16b36daa5d03d53bcea8a4c0a7df9a927a3bd43ee27d8",
+      "sha256": "71ac883c9e3943425c556b72e37b51685e6b03979caef53c3b593c968eb96f26",
       "provenance": "restaurantos-grokbot-agent-tools-openapi-v1"
     },
     {

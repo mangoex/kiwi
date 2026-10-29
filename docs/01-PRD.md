@@ -542,8 +542,15 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   y periodo UTC acotado sólo mediante una capacidad financiera habilitada explícitamente. La
   proyección de cortes debe usar importes enteros en centavos, incorporar la compensación más
   reciente sin reescribir el corte original y excluir identidad del cajero, usuarios autorizadores,
-  operaciones, notas, evidencias y datos de otra sucursal. Toda consulta revalida identidad,
-  capacidad y alcance.
+  operaciones, notas, evidencias y datos de otra sucursal. El mismo perfil puede leer, sólo con
+  capacidades apagadas por defecto y habilitación humana explícita, gastos operativos confirmados
+  por concepto del catálogo en un periodo UTC de hasta 31 días; ventas confirmadas por método de
+  pago usando la misma definición de neto del resumen de ventas, con IVA, envío y pedidos externos
+  incluidos; y la conciliación diaria v2 por día local de la sucursal, hasta 31 días. Nombres y
+  teléfonos de esa conciliación exigen una segunda capacidad, también apagada por defecto; sin ella
+  la respuesta contiene sólo totales. El historial de compras y sus costos siguen reservados al
+  perfil Compras. Estas lecturas no crean, editan, pagan ni compensan documentos, pagos ni caja.
+  Toda consulta revalida identidad, capacidad y alcance.
 - `PRD-FR-272`: Los bots pueden registrar únicamente intención controlada: el bot Administrador
   puede crear propuestas de catálogo; el Cocinero, propuestas de nueva versión de receta; el de
   Inventarios, propuestas de alta de insumo; y el de Compras, borradores de compra. Una propuesta o

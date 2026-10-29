@@ -8,8 +8,9 @@ locales y requieren autorización separada.
 
 Valida sintaxis OpenAPI 3.1, operación/operationId únicos, esquemas estrictos, límites, cursores,
 errores estables, `Idempotency-Key` obligatorio en todos los comandos y ausencia de rutas de
-confirmación/recepción/pago/cancelación de compras o de comandos que creen, ajusten, reviertan o
-confirmen movimientos de inventario. Se permite la lectura explícita `GET inventory/movements`.
+confirmación/recepción/cancelación de compras o de comandos que creen, ajusten, reviertan o
+confirmen movimientos de inventario. La única ruta con «payment» en el path es la lectura
+`GET payments/by-method`. Se permite la lectura explícita `GET inventory/movements`.
 
 ## TDD-TC-359 Autenticación de servicio, rotación y revocación
 
@@ -100,6 +101,34 @@ concurrente en PostgreSQL; el gate PostgreSQL verifica columnas e `indisvalid=tr
 Al habilitar o retirar `agent.cash_cuts.read`, la prueba exige un evento
 `agent.identity.policy_updated` con actor humano, versión antes/después y capacidades
 agregadas/retiradas, sin credenciales.
+
+## TDD-TC-478 Lectura de gastos operativos por concepto
+
+`test_agent_expense_cash_dashboard.py` verifica que `GET expenses/summary` exige perfil
+`administrator` y `agent.operating_expenses.read`, ausente de la política inicial. El periodo UTC
+positivo no pasa de 31 días y rechaza una marca sin zona. Una confirmación en el instante
+`2026-10-11T07:00:00Z` entra al día `America/Mazatlan`; el segundo anterior y el fin exclusivo
+quedan fuera. Los importes son centavos enteros. El catálogo no aporta fijo/variable, así que la
+agrupación es el concepto del snapshot, con el neto de confirmaciones y cancelaciones. Otra sucursal,
+Cocina y la audiencia financiera humana ausente fallan cerrado. La lectura no inserta documentos.
+
+## TDD-TC-479 Lectura de ventas por método de pago
+
+La misma suite verifica que `GET payments/by-method` no se autoriza con `agent.sales.read` solo.
+Con `agent.payment_methods.read`, el neto por moneda coincide con `sales/summary`, incluye la venta
+`delivery` y el pedido `RAPPI`, y deja la corrección en un agregado aparte. El límite de 31 días y
+la ausencia de escrituras de pagos quedan cubiertos. La capacidad nueva nace apagada.
+
+## TDD-TC-480 Conciliación diaria minimizada y datos personales
+
+La misma suite siembra la conciliación v2 en `America/Mazatlan`: un cobro anterior a las 07:00Z
+permanece en el día local anterior y uno posterior cambia de día de actividad sin abrir otro turno.
+Tarjeta, transferencia, depósito, proveedor, gasto fijo, retiro, crédito, reembolso y cancelación
+salen en centavos. La diferencia sólo aparece cuando el arqueo está contado. Sin
+`agent.cash_personal_data.read` la respuesta no contiene nombres, teléfonos ni el receptor; con esa
+capacidad explícita sí. Producción o panadería responde `not_recorded`. Un periodo de 32 días
+locales y una audiencia financiera ausente fallan cerrado. La lectura no mueve caja ni compras.
+`agent.purchases.read` sigue fuera del baseline de Administrador.
 
 ## TDD-TC-363 Idempotencia, carreras y fallo parcial
 

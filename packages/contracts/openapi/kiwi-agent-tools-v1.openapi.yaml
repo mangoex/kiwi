@@ -2,7 +2,7 @@
 openapi: 3.1.0
 info:
   title: Kiwi Agent Tools API
-  version: 1.0.0-rc.4
+  version: 1.0.0-rc.5
   description: >-
     Contrato versionado para agentes externos. Las escrituras crean propuestas o borradores;
     nunca confirman compras ni aplican movimientos de inventario.
@@ -186,6 +186,131 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CashCutPage"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /api/v1/agent-tools/expenses/summary:
+    get:
+      tags: [Agent reads]
+      operationId: getAgentExpenseSummary
+      summary: Consultar gastos operativos por concepto
+      description: >-
+        Lectura exclusiva del Administrador con agent.operating_expenses.read, apagada por defecto.
+        Agrega documentos confirmados del catálogo de gastos en centavos MXN. El catálogo no tiene
+        clasificación fijo/variable, así que cada fila es el concepto del snapshot. No devuelve folio,
+        notas, evidencia ni actores. El periodo UTC es positivo y de hasta 31 días.
+      parameters:
+        - $ref: "#/components/parameters/RequiredBranchId"
+        - name: from_utc
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to_utc
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Gastos operativos agregados por concepto
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseSummary"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /api/v1/agent-tools/payments/by-method:
+    get:
+      tags: [Agent reads]
+      operationId: getAgentPaymentsByMethod
+      summary: Consultar ventas confirmadas por método de pago
+      description: >-
+        Lectura exclusiva del Administrador con agent.payment_methods.read, apagada por defecto.
+        Usa la misma población y el mismo net_cents que sales/summary: el neto incluye IVA y
+        envío, y los pedidos externos confirmados cuentan como venta. Las correcciones posteriores
+        van aparte y no se restan del neto. No devuelve folios, clientes ni pagos individuales.
+      parameters:
+        - $ref: "#/components/parameters/RequiredBranchId"
+        - name: from_utc
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to_utc
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Totales de venta confirmada por método y moneda
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentMethodSummary"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /api/v1/agent-tools/cash/daily-reconciliation:
+    get:
+      tags: [Agent reads]
+      operationId: getAgentCashDailyReconciliation
+      summary: Consultar la conciliación diaria v2 minimizada
+      description: >-
+        Lectura exclusiva del Administrador con agent.cash_reconciliation.read, apagada por defecto.
+        Las fechas son días locales de la sucursal, de uno a 31 días. shifts_opened conserva el
+        saldo del turno abierto ese día; calendar_activity conserva los eventos del día civil.
+        Nombres y teléfonos exigen además agent.cash_personal_data.read. Sin esa capacidad la
+        respuesta trae sólo totales. No abre, cuenta ni compensa caja. El gasto de producción o
+        panadería no tiene un ledger propio y se informa como no registrado.
+      parameters:
+        - $ref: "#/components/parameters/RequiredBranchId"
+        - name: from_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Conciliación diaria minimizada, un elemento por día local
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyReconciliation"
         "400":
           $ref: "#/components/responses/InvalidRequest"
         "401":
@@ -818,6 +943,10 @@ components:
               - agent.catalog.read
               - agent.sales.read
               - agent.cash_cuts.read
+              - agent.operating_expenses.read
+              - agent.payment_methods.read
+              - agent.cash_reconciliation.read
+              - agent.cash_personal_data.read
               - agent.inventory.read
               - agent.recipes.read
               - agent.suppliers.read
@@ -1172,6 +1301,376 @@ components:
           type: integer
         compensated:
           type: boolean
+    ExpenseConceptTotal:
+      type: object
+      additionalProperties: false
+      required:
+        - concept_id
+        - concept_code
+        - concept_code_source
+        - concept_name
+        - concept_name_source
+        - net_cents
+        - confirmed_cents
+        - reversed_cents
+      properties:
+        concept_id:
+          $ref: "#/components/schemas/Uuid"
+        concept_code:
+          type: [string, "null"]
+        concept_code_source:
+          type: [string, "null"]
+          enum: [current_catalog, null]
+        concept_name:
+          type: string
+        concept_name_source:
+          type: string
+          const: document_snapshot
+        net_cents:
+          type: integer
+        confirmed_cents:
+          type: integer
+          minimum: 0
+        reversed_cents:
+          type: integer
+          minimum: 0
+    ExpenseSummary:
+      type: object
+      additionalProperties: false
+      required: [branch_id, from_utc, to_utc, currency, grouping, concepts, totals]
+      properties:
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        from_utc:
+          type: string
+          format: date-time
+        to_utc:
+          type: string
+          format: date-time
+        currency:
+          type: string
+          const: MXN
+        grouping:
+          type: string
+          const: concept
+        concepts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExpenseConceptTotal"
+        totals:
+          type: object
+          additionalProperties: false
+          required: [confirmed_cents, reversed_cents, net_cents]
+          properties:
+            confirmed_cents:
+              type: integer
+              minimum: 0
+            reversed_cents:
+              type: integer
+              minimum: 0
+            net_cents:
+              type: integer
+    PaymentMethodTotal:
+      type: object
+      additionalProperties: false
+      required:
+        - currency
+        - method
+        - operation_count
+        - net_cents
+        - external_operation_count
+        - delivery_operation_count
+      properties:
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        method:
+          type: string
+        operation_count:
+          type: integer
+          minimum: 0
+        net_cents:
+          type: integer
+          minimum: 0
+        external_operation_count:
+          type: integer
+          minimum: 0
+        delivery_operation_count:
+          type: integer
+          minimum: 0
+    PaymentCurrencyTotal:
+      type: object
+      additionalProperties: false
+      required: [currency, net_cents, operation_count]
+      properties:
+        currency:
+          type: string
+        net_cents:
+          type: integer
+        operation_count:
+          type: integer
+          minimum: 0
+    PaymentCorrectionTotal:
+      type: object
+      additionalProperties: false
+      required: [currency, correction_count, net_delta_cents]
+      properties:
+        currency:
+          type: string
+        correction_count:
+          type: integer
+          minimum: 0
+        net_delta_cents:
+          type: integer
+    PaymentMethodSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - branch_id
+        - from_utc
+        - to_utc
+        - order_count
+        - external_order_count
+        - external_orders_included
+        - net_includes_tax_and_delivery
+        - methods
+        - totals_by_currency
+        - corrections_by_currency
+      properties:
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        from_utc:
+          type: string
+          format: date-time
+        to_utc:
+          type: string
+          format: date-time
+        order_count:
+          type: integer
+          minimum: 0
+        external_order_count:
+          type: integer
+          minimum: 0
+        external_orders_included:
+          type: boolean
+          const: true
+        net_includes_tax_and_delivery:
+          type: boolean
+          const: true
+        methods:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentMethodTotal"
+        totals_by_currency:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentCurrencyTotal"
+        corrections_by_currency:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentCorrectionTotal"
+    CashAmountRow:
+      type: object
+      additionalProperties: false
+      required: [amount_cents]
+      properties:
+        supplier_name:
+          type: string
+        expense_type:
+          type: string
+        amount_cents:
+          type: integer
+        ticket:
+          type: string
+        name:
+          type: string
+        phone:
+          type: string
+        folio:
+          type: string
+        received_by:
+          type: string
+    CashPopulation:
+      type: object
+      additionalProperties: false
+      required:
+        - sales_cents
+        - card_cents
+        - transfer_cents
+        - deposit_cents
+        - supplier_payments_cents
+        - supplier_payments
+        - fixed_expenses_cents
+        - fixed_expenses
+        - cash_withdrawals_cents
+        - cash_withdrawals_count
+        - credit_clients_cents
+        - credit_clients_count
+      properties:
+        sales_cents:
+          type: integer
+        card_cents:
+          type: integer
+        transfer_cents:
+          type: integer
+        deposit_cents:
+          type: integer
+        supplier_payments_cents:
+          type: integer
+        supplier_payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/CashAmountRow"
+        fixed_expenses_cents:
+          type: integer
+        fixed_expenses:
+          type: array
+          items:
+            $ref: "#/components/schemas/CashAmountRow"
+        cash_withdrawals_cents:
+          type: integer
+        cash_withdrawals_count:
+          type: integer
+          minimum: 0
+        cash_withdrawals:
+          type: array
+          items:
+            $ref: "#/components/schemas/CashAmountRow"
+        credit_clients_cents:
+          type: integer
+        credit_clients_count:
+          type: integer
+          minimum: 0
+        credit_clients:
+          type: array
+          items:
+            $ref: "#/components/schemas/CashAmountRow"
+        transfers:
+          type: array
+          items:
+            $ref: "#/components/schemas/CashAmountRow"
+        physical_count_status:
+          type: string
+          enum: [COUNTED, PENDING, EMPTY]
+        surplus_shortage_cents:
+          type: [integer, "null"]
+    ReconciliationRefunds:
+      type: object
+      additionalProperties: false
+      required:
+        - currency
+        - correction_refunds_cents
+        - correction_refund_count
+        - cancelled_orders_cents
+        - cancelled_order_count
+      properties:
+        currency:
+          type: [string, "null"]
+        correction_refunds_cents:
+          type: integer
+          minimum: 0
+        correction_refund_count:
+          type: integer
+          minimum: 0
+        cancelled_orders_cents:
+          type: integer
+          minimum: 0
+        cancelled_order_count:
+          type: integer
+          minimum: 0
+        lines:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, ticket, name, phone, amount_cents]
+            properties:
+              kind:
+                type: string
+                enum: [correction_refund, cancellation]
+              ticket:
+                type: string
+              name:
+                type: string
+              phone:
+                type: string
+              amount_cents:
+                type: integer
+    DailyReconciliationDay:
+      type: object
+      additionalProperties: false
+      required:
+        - date
+        - timezone
+        - from_utc
+        - to_utc
+        - shifts_opened
+        - calendar_activity
+        - refunds
+        - production_bakery
+      properties:
+        date:
+          type: string
+          format: date
+        timezone:
+          type: string
+        from_utc:
+          type: string
+          format: date-time
+        to_utc:
+          type: string
+          format: date-time
+        shifts_opened:
+          $ref: "#/components/schemas/CashPopulation"
+        calendar_activity:
+          $ref: "#/components/schemas/CashPopulation"
+        refunds:
+          $ref: "#/components/schemas/ReconciliationRefunds"
+        production_bakery:
+          type: object
+          additionalProperties: false
+          required: [recorded, amount_cents, reason]
+          properties:
+            recorded:
+              type: boolean
+            amount_cents:
+              type: ["integer", "null"]
+            reason:
+              type: string
+              const: not_recorded
+    DailyReconciliation:
+      type: object
+      additionalProperties: false
+      required:
+        - branch_id
+        - timezone
+        - from_date
+        - to_date
+        - contract_version
+        - personal_data_included
+        - days
+      properties:
+        branch_id:
+          $ref: "#/components/schemas/Uuid"
+        timezone:
+          type: [string, "null"]
+        from_date:
+          type: string
+          format: date
+        to_date:
+          type: string
+          format: date
+        contract_version:
+          type: integer
+          const: 2
+        personal_data_included:
+          type: boolean
+        days:
+          type: array
+          maxItems: 31
+          items:
+            $ref: "#/components/schemas/DailyReconciliationDay"
     CashCutPage:
       type: object
       additionalProperties: false

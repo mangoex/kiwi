@@ -5899,7 +5899,7 @@ Capacidades previstas:
 
 | Identidad | Lecturas | Comandos permitidos |
 |---|---|---|
-| `administrator` | contexto, catálogo, ventas confirmadas agregadas y cortes finalizados por sucursal/periodo; caja exige capacidad explícita | propuesta de producto/configuración allowlist |
+| `administrator` | contexto, catálogo, ventas confirmadas agregadas, gastos operativos por concepto, ventas por método de pago, conciliación diaria v2 y cortes finalizados por sucursal/periodo; gastos, métodos de pago, conciliación, datos personales de conciliación y cortes exigen capacidad explícita apagada por defecto | propuesta de producto/configuración allowlist |
 | `kitchen` | catálogo, unidades y recetas efectivas | propuesta de nueva versión de receta |
 | `inventory` | insumos, unidades, existencia resumida, movimientos acotados y usos de receta | propuesta de alta de insumo |
 | `purchasing` | insumos, proveedores, presentaciones/precios, compras confirmadas y necesidades sugeridas | creación de compra `DRAFT` |
@@ -5918,7 +5918,10 @@ POST /api/v1/agent-auth/token
 GET  /api/v1/agent-tools/context
 GET  /api/v1/agent-tools/catalog/items
 GET  /api/v1/agent-tools/sales/summary
+GET  /api/v1/agent-tools/expenses/summary
+GET  /api/v1/agent-tools/payments/by-method
 GET  /api/v1/agent-tools/cash/cuts
+GET  /api/v1/agent-tools/cash/daily-reconciliation
 GET  /api/v1/agent-tools/inventory/items
 GET  /api/v1/agent-tools/inventory/stock
 GET  /api/v1/agent-tools/inventory/movements
@@ -5972,7 +5975,44 @@ autorizadores, operaciones asociadas, solicitudes de reapertura, motivos, eviden
 La capacidad queda fuera de la política predeterminada del Administrador y sólo una persona con
 `admin.manage` puede habilitarla; guardar esa política incrementa `authorization_version`, por lo que
 GrokBot debe obtener un token nuevo. No se expone ninguna ruta Agent Tools para abrir, contar,
-finalizar, reabrir, compensar o mover caja. El índice existente
+finalizar, reabrir, compensar o mover caja.
+
+`expenses/summary` exige el mismo perfil, la capacidad explícita `agent.operating_expenses.read`,
+sucursal allowlist y un intervalo UTC positivo de hasta 31 días. Agrega `expense_documents`
+confirmados por `confirmed_at` y resta las cancelaciones cuyo `cancelled_at` cae en el intervalo.
+El importe es `total_cents` entero. El catálogo `expense_concepts` no tiene clasificación fijo o
+variable: la respuesta agrupa por concepto, usa el nombre del snapshot del documento y marca el
+código vigente como `current_catalog` cuando el concepto todavía existe. No devuelve folio, notas,
+evidencia, actores ni método de pago.
+
+`payments/by-method` exige `agent.payment_methods.read`, también fuera de la política predeterminada.
+No reutiliza `agent.sales.read` porque esa capacidad viene habilitada por defecto y su contrato
+prohíbe el método de pago. La población y el neto son los de `sales/summary`: snapshots confirmados
+en `[from_utc, to_utc)`, `net_cents` incluye IVA y envío, y un pedido de canal externo
+(`UBER_EATS`, `DIDI_FOOD`, `RAPPI`, `WHATSAPP`) cuenta como venta. Las correcciones quedan en un
+agregado separado y no se restan del neto por método. Un snapshot sin pago, sin pedido de la misma
+sucursal o con un método desconocido responde `dependency_unavailable` en lugar de omitir la venta.
+No devuelve folio, cliente, teléfono ni identificadores de pago.
+
+`cash/daily-reconciliation` exige `agent.cash_reconciliation.read` y reutiliza
+`get_branch_daily_reconciliation` v2. `from_date` y `to_date` son días civiles inclusivos de la zona
+de la sucursal, de uno a 31 días. `shifts_opened` es el saldo de los turnos abiertos ese día;
+`calendar_activity` son los eventos cuya fecha local cae en ese día. Así, un cobro posterior a la
+medianoche local sigue en el turno del día anterior y aparece en la actividad del día nuevo.
+Los importes se devuelven en centavos enteros. La diferencia de arqueo sólo existe cuando el conteo
+físico está `COUNTED`. Los reembolsos salen de `order_payment_adjustments` `REFUND` aplicados ese
+día; las cancelaciones salen de pedidos `CANCELLED` con evento `ORDER_CANCELLED` en el mismo día y
+no se suman al efectivo. Kiwi no tiene un ledger distinto de producción o panadería: el campo
+`production_bakery.recorded` es falso y `amount_cents` es nulo, sin clasificar conceptos por nombre.
+Nombres, teléfonos, folio de retiro y quién recibió el efectivo sólo se incluyen si la política
+tiene además `agent.cash_personal_data.read`. Sin esa capacidad la respuesta trae conteos y totales.
+La bitácora de auditoría humana de la conciliación no se proyecta. No hay comandos de caja.
+
+`purchases/history` y `purchase-presentations` siguen exigiendo perfil `purchasing`. Abrirlas al
+Administrador cambiaría una proyección reservada y expondría costos por línea, no un agregado de
+tablero. Los pagos a proveedor hechos desde caja sí aparecen en la conciliación diaria.
+
+El índice existente
 `ix_user_cash_cuts_org_branch_period` acota los cortes y la migración reversible agrega
 `ix_agent_cash_cut_compensations_org_cut_created_id` para resolver compensaciones por organización,
 corte y tiempo. PostgreSQL lo crea/elimina concurrentemente; un índice parcial o inválido pausa la
@@ -6152,7 +6192,9 @@ duración; nunca secretos, token, idempotency key, body, conversación o texto l
 dimensiones acotadas `profile`, `operation`, `result` y `reason_code`.
 El middleware de Agent Tools emite `agent.request.accepted|denied` para cada solicitud con ruta
 normalizada, identidad autenticada cuando existe, sucursal UUID válida, resultado, código HTTP y
-duración; intentos preautenticación no registran `client_id`, secreto ni señal de red.
+duración; intentos preautenticación no registran `client_id`, secreto ni señal de red. Las lecturas
+de gastos, métodos de pago y conciliación diaria no agregan otra bitácora: responden las mismas
+preguntas de identidad, sucursal, resultado y duración. No registran nombres, teléfonos ni importes.
 
 ### 59.9 Entrega incremental y reversibilidad
 

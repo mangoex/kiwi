@@ -15,7 +15,10 @@ EXPECTED_AGENT_OPERATIONS = {
     ("get", "/api/v1/agent-tools/context"),
     ("get", "/api/v1/agent-tools/catalog/items"),
     ("get", "/api/v1/agent-tools/sales/summary"),
+    ("get", "/api/v1/agent-tools/expenses/summary"),
+    ("get", "/api/v1/agent-tools/payments/by-method"),
     ("get", "/api/v1/agent-tools/cash/cuts"),
+    ("get", "/api/v1/agent-tools/cash/daily-reconciliation"),
     ("get", "/api/v1/agent-tools/inventory/items"),
     ("get", "/api/v1/agent-tools/inventory/stock"),
     ("get", "/api/v1/agent-tools/inventory/movements"),
@@ -52,7 +55,7 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
         settings.grokbot_agent_tools_enabled = previous
 
     assert contract["openapi"] == "3.1.0"
-    assert contract["info"]["version"] == "1.0.0-rc.4"
+    assert contract["info"]["version"] == "1.0.0-rc.5"
     assert EXPECTED_AGENT_OPERATIONS <= _operations(contract)
     assert EXPECTED_AGENT_OPERATIONS <= _operations(runtime)
 
@@ -66,10 +69,14 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
     assert not any(
         forbidden in path
         for method, path in runtime_agent_operations
-        for forbidden in ("confirm", "receive", "payment", "cancel")
+        for forbidden in ("confirm", "receive", "cancel")
     )
+    assert {
+        operation for operation in runtime_agent_operations if "payment" in operation[1]
+    } == {("get", "/api/v1/agent-tools/payments/by-method")}
     assert {operation for operation in runtime_agent_operations if "cash" in operation[1]} == {
-        ("get", "/api/v1/agent-tools/cash/cuts")
+        ("get", "/api/v1/agent-tools/cash/cuts"),
+        ("get", "/api/v1/agent-tools/cash/daily-reconciliation"),
     }
     assert not any(
         method != "get" and "movement" in path for method, path in runtime_agent_operations
@@ -95,6 +102,9 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
         "PurchaseHistoryDocument",
         "PurchaseHistoryLine",
         "CashCut",
+        "ExpenseSummary",
+        "PaymentMethodSummary",
+        "DailyReconciliation",
     ):
         assert contract["components"]["schemas"][schema_name]["additionalProperties"] is False
 
@@ -185,6 +195,10 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
     ]["items"]["enum"]
     assert "agent.purchases.read" in capability_enum
     assert "agent.cash_cuts.read" in capability_enum
+    assert "agent.operating_expenses.read" in capability_enum
+    assert "agent.payment_methods.read" in capability_enum
+    assert "agent.cash_reconciliation.read" in capability_enum
+    assert "agent.cash_personal_data.read" in capability_enum
 
     error_schema = contract["components"]["schemas"]["BusinessError"]
     assert error_schema["required"] == ["detail"]
@@ -195,7 +209,10 @@ def test_tdd_tc_358_contract_matches_runtime_and_exposes_no_apply_commands() -> 
         "/api/v1/agent-auth/token",
         "/api/v1/agent-tools/catalog/items",
         "/api/v1/agent-tools/sales/summary",
+        "/api/v1/agent-tools/expenses/summary",
+        "/api/v1/agent-tools/payments/by-method",
         "/api/v1/agent-tools/cash/cuts",
+        "/api/v1/agent-tools/cash/daily-reconciliation",
         "/api/v1/agent-tools/inventory/items",
         "/api/v1/agent-tools/inventory/stock",
         "/api/v1/agent-tools/inventory/movements",
