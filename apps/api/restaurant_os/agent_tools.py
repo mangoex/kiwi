@@ -48,8 +48,15 @@ from restaurant_os.auth import (
 from restaurant_os.catalog_policy import canonical_category_name, is_numeric_sku, is_uppercase_name
 from restaurant_os.config import get_settings
 from restaurant_os.database import get_session
-from restaurant_os.operations import ORGANIZATION_ID, BusinessError, require_permission
+from restaurant_os.financial_reads import RECONCILIATION_DATASETS, require_financial_read
+from restaurant_os.operations import (
+    ORGANIZATION_ID,
+    AuthorizationError,
+    BusinessError,
+    require_permission,
+)
 from restaurant_os.purchase_workspace import create_agent_purchase_draft
+from restaurant_os.reconciliation_reports import get_branch_daily_reconciliation
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +103,10 @@ BASELINE_CAPABILITIES: dict[str, frozenset[str]] = {
             "agent.catalog.read",
             "agent.sales.read",
             "agent.cash_cuts.read",
+            "agent.operating_expenses.read",
+            "agent.payment_methods.read",
+            "agent.cash_reconciliation.read",
+            "agent.cash_personal_data.read",
             "agent.catalog.propose",
         }
     ),
@@ -127,11 +138,34 @@ BASELINE_CAPABILITIES: dict[str, frozenset[str]] = {
         }
     ),
 }
+ADMINISTRATOR_OPT_IN_CAPABILITIES = frozenset(
+    {
+        "agent.cash_cuts.read",
+        "agent.operating_expenses.read",
+        "agent.payment_methods.read",
+        "agent.cash_reconciliation.read",
+        "agent.cash_personal_data.read",
+    }
+)
 DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     **BASELINE_CAPABILITIES,
-    "administrator": BASELINE_CAPABILITIES["administrator"] - {"agent.cash_cuts.read"},
+    "administrator": BASELINE_CAPABILITIES["administrator"] - ADMINISTRATOR_OPT_IN_CAPABILITIES,
     "purchasing": BASELINE_CAPABILITIES["purchasing"] - {"agent.purchases.read"},
 }
+EXTERNAL_SALES_CHANNELS = frozenset({"UBER_EATS", "DIDI_FOOD", "RAPPI", "WHATSAPP"})
+KNOWN_PAYMENT_METHODS = frozenset(
+    {
+        "cash",
+        "debit_card",
+        "credit_card",
+        "card",
+        "transfer",
+        "bank_transfer",
+        "spei",
+        "credit",
+        "customer_credit",
+    }
+)
 TOKEN_TTL_SECONDS = 300
 
 
@@ -1314,16 +1348,52 @@ def list_agent_catalog(
     return _page(rows, limit)
 
 
-def _require_financial_audience(session: Session, branch_id: str) -> None:
-    from restaurant_os.financial_reads import require_financial_read
-    from restaurant_os.operations import AuthorizationError
-
+def _require_financial_audience(
+    session: Session,
+    branch_id: str,
+    datasets: tuple[str, ...] = ("sales",),
+) -> None:
     # No approved human-audience protocol exists in F1. A technical capability
     # cannot act as a financial grant, even when issued by a reviewed Owner.
     try:
-        require_financial_read(session, None, branch_id, ("sales",))
+        require_financial_read(session, None, branch_id, datasets)
     except AuthorizationError:
         _fail(403, "financial_access_denied", "An authorized human audience is required")
+
+
+def _utc_window(from_utc: datetime, to_utc: datetime, label: str) -> tuple[datetime, datetime]:
+    if from_utc.tzinfo is None or to_utc.tzinfo is None:
+        _fail(400, "agent_schema_invalid", "from_utc and to_utc must include a timezone")
+    start = from_utc.astimezone(timezone.utc)
+    end = to_utc.astimezone(timezone.utc)
+    if start >= end or end - start > timedelta(days=31):
+        _fail(400, "agent_schema_invalid", f"{label} period must be positive and at most 31 days")
+    return start, end
+
+
+def _administrator(principal: AgentPrincipal) -> None:
+    if principal.profile != "administrator":
+        _fail(403, "agent_capability_denied", "This read requires the administrator profile")
+
+
+def _calendar_date(value: str, field: str) -> date:
+    if len(value) != 10 or value[4] != "-" or value[7] != "-":
+        _fail(400, "agent_schema_invalid", f"{field} must be YYYY-MM-DD")
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        _fail(400, "agent_schema_invalid", f"{field} must be YYYY-MM-DD")
+    if parsed.isoformat() != value or parsed.year == 9999:
+        _fail(400, "agent_schema_invalid", f"{field} must be YYYY-MM-DD")
+    return parsed
+
+
+def _exact_cents(value: Decimal) -> int:
+    scaled = Decimal(value) * 100
+    cents = scaled.quantize(Decimal("1"))
+    if cents != scaled:
+        _fail(503, "dependency_unavailable", "Reconciliation amount is not an exact cent")
+    return int(cents)
 
 
 @router.get("/agent-tools/sales/summary")
@@ -1659,6 +1729,610 @@ def list_agent_cash_cuts(
         start=start,
         end=end,
     )
+
+
+@router.get("/agent-tools/expenses/summary")
+def get_agent_expense_summary(
+    branch_id: str,
+    from_utc: datetime,
+    to_utc: datetime,
+    session: SessionDep,
+    authorization: AuthorizationDep = None,
+    actor_header: ActorHeaderDep = None,
+) -> dict[str, Any]:
+    """Aggregate confirmed operating expenses by catalog concept. Read-only."""
+    principal = _agent(session, authorization, actor_header)
+    _capability(principal, "agent.operating_expenses.read")
+    _administrator(principal)
+    authorized_branch = _branch(session, principal, branch_id)
+    _require_financial_audience(session, authorized_branch, ("expenses",))
+    start, end = _utc_window(from_utc, to_utc, "Expense")
+    documents = models.expense_documents
+    concepts = models.expense_concepts
+    concept_name = documents.c.concept_snapshot["name"].as_string()
+    scope = (
+        documents.c.organization_id == principal.organization_id,
+        documents.c.branch_id == authorized_branch,
+        documents.c.confirmed_at.is_not(None),
+    )
+    grouped: dict[tuple[str, str, str | None], dict[str, int]] = {}
+    for stamp, sign in ((documents.c.confirmed_at, 1), (documents.c.cancelled_at, -1)):
+        rows = session.execute(
+            sa.select(
+                documents.c.concept_id,
+                concept_name.label("concept_name"),
+                concepts.c.code.label("concept_code"),
+                (sa.func.sum(documents.c.total_cents) * sign).label("net_cents"),
+            )
+            .select_from(
+                documents.outerjoin(
+                    concepts,
+                    sa.and_(
+                        concepts.c.id == documents.c.concept_id,
+                        concepts.c.organization_id == principal.organization_id,
+                    ),
+                )
+            )
+            .where(*scope, stamp >= start, stamp < end)
+            .group_by(documents.c.concept_id, concept_name, concepts.c.code)
+        ).mappings()
+        for row in rows:
+            if not isinstance(row["concept_name"], str) or not row["concept_name"].strip():
+                _fail(503, "dependency_unavailable", "Expense concept snapshot is incomplete")
+            if row["net_cents"] is None:
+                _fail(503, "dependency_unavailable", "Expense amount is incomplete")
+            key = (str(row["concept_id"]), row["concept_name"], row["concept_code"])
+            slot = grouped.setdefault(
+                key, {"net_cents": 0, "confirmed_cents": 0, "reversed_cents": 0}
+            )
+            amount = int(row["net_cents"])
+            slot["net_cents"] += amount
+            if amount > 0:
+                slot["confirmed_cents"] += amount
+            elif amount < 0:
+                slot["reversed_cents"] += -amount
+    concepts_out = [
+        {
+            "concept_id": concept_id,
+            "concept_code": concept_code,
+            "concept_code_source": "current_catalog" if concept_code else None,
+            "concept_name": name,
+            "concept_name_source": "document_snapshot",
+            "net_cents": amounts["net_cents"],
+            "confirmed_cents": amounts["confirmed_cents"],
+            "reversed_cents": amounts["reversed_cents"],
+        }
+        for (concept_id, name, concept_code), amounts in sorted(
+            grouped.items(), key=lambda item: (item[0][2] or "", item[0][1], item[0][0])
+        )
+    ]
+    return {
+        "branch_id": authorized_branch,
+        "from_utc": start,
+        "to_utc": end,
+        "currency": "MXN",
+        "grouping": "concept",
+        "concepts": concepts_out,
+        "totals": {
+            "confirmed_cents": sum(item["confirmed_cents"] for item in concepts_out),
+            "reversed_cents": sum(item["reversed_cents"] for item in concepts_out),
+            "net_cents": sum(item["net_cents"] for item in concepts_out),
+        },
+    }
+
+
+@router.get("/agent-tools/payments/by-method")
+def get_agent_payments_by_method(
+    branch_id: str,
+    from_utc: datetime,
+    to_utc: datetime,
+    session: SessionDep,
+    authorization: AuthorizationDep = None,
+    actor_header: ActorHeaderDep = None,
+) -> dict[str, Any]:
+    """Payment-method totals over the same confirmed-sale snapshots as sales/summary.
+
+    `agent.sales.read` stays on by default and must not reveal method. This opt-in flag
+    follows `agent.cash_cuts.read`: administrator only, absent from the default policy.
+    """
+    principal = _agent(session, authorization, actor_header)
+    _capability(principal, "agent.payment_methods.read")
+    _administrator(principal)
+    authorized_branch = _branch(session, principal, branch_id)
+    _require_financial_audience(session, authorized_branch, ("sales",))
+    start, end = _utc_window(from_utc, to_utc, "Payment")
+    snapshots = models.sales_operation_snapshots
+    payments = models.payments
+    orders = models.orders
+    snapshot_scope = (
+        snapshots.c.organization_id == principal.organization_id,
+        snapshots.c.branch_id == authorized_branch,
+        snapshots.c.confirmed_at >= start,
+        snapshots.c.confirmed_at < end,
+    )
+    method_name = sa.func.lower(payments.c.method)
+    linked_orders = sa.and_(
+        orders.c.id == snapshots.c.order_id,
+        orders.c.organization_id == principal.organization_id,
+        orders.c.branch_id == authorized_branch,
+    )
+    incomplete = session.scalar(
+        sa.select(sa.func.count())
+        .select_from(
+            snapshots.outerjoin(payments, payments.c.id == snapshots.c.payment_id).outerjoin(
+                orders, linked_orders
+            )
+        )
+        .where(*snapshot_scope, sa.or_(payments.c.id.is_(None), orders.c.id.is_(None)))
+    )
+    if int(incomplete or 0):
+        _fail(503, "dependency_unavailable", "Confirmed sale is missing its payment or order")
+    external_case = sa.case((orders.c.channel.in_(tuple(EXTERNAL_SALES_CHANNELS)), 1), else_=0)
+    delivery_case = sa.case((snapshots.c.service_type_snapshot == "delivery", 1), else_=0)
+    currency = sa.func.upper(snapshots.c.currency)
+    method_rows = [
+        dict(row)
+        for row in session.execute(
+            sa.select(
+                currency.label("currency"),
+                method_name.label("method"),
+                sa.func.count().label("operation_count"),
+                sa.func.sum(snapshots.c.net_cents).label("net_cents"),
+                sa.func.sum(external_case).label("external_operation_count"),
+                sa.func.sum(delivery_case).label("delivery_operation_count"),
+            )
+            .select_from(
+                snapshots.join(payments, payments.c.id == snapshots.c.payment_id).join(
+                    orders, linked_orders
+                )
+            )
+            .where(*snapshot_scope)
+            .group_by(currency, method_name)
+            .order_by(currency, method_name)
+        ).mappings()
+    ]
+    for row in method_rows:
+        if row["method"] not in KNOWN_PAYMENT_METHODS or row["net_cents"] is None:
+            _fail(503, "dependency_unavailable", "Confirmed sale payment method is unknown")
+        row["operation_count"] = int(row["operation_count"])
+        row["net_cents"] = int(row["net_cents"])
+        row["external_operation_count"] = int(row["external_operation_count"] or 0)
+        row["delivery_operation_count"] = int(row["delivery_operation_count"] or 0)
+    totals: dict[str, dict[str, int]] = {}
+    for row in method_rows:
+        bucket = totals.setdefault(row["currency"], {"net_cents": 0, "operation_count": 0})
+        bucket["net_cents"] += row["net_cents"]
+        bucket["operation_count"] += row["operation_count"]
+    summary = session.execute(
+        sa.select(
+            sa.func.count(sa.distinct(snapshots.c.order_id)).label("order_count"),
+        ).where(*snapshot_scope)
+    ).mappings().one()
+    corrections = [
+        {
+            "currency": row["currency"],
+            "correction_count": int(row["correction_count"]),
+            "net_delta_cents": int(row["net_delta_cents"] or 0),
+        }
+        for row in session.execute(
+            sa.select(
+                models.order_corrections.c.currency,
+                sa.func.count().label("correction_count"),
+                sa.func.sum(models.order_corrections.c.settlement_delta_cents).label(
+                    "net_delta_cents"
+                ),
+            )
+            .where(
+                models.order_corrections.c.organization_id == principal.organization_id,
+                models.order_corrections.c.branch_id == authorized_branch,
+                models.order_corrections.c.applied_at >= start,
+                models.order_corrections.c.applied_at < end,
+            )
+            .group_by(models.order_corrections.c.currency)
+            .order_by(models.order_corrections.c.currency)
+        ).mappings()
+    ]
+    return {
+        "branch_id": authorized_branch,
+        "from_utc": start,
+        "to_utc": end,
+        "order_count": int(summary["order_count"] or 0),
+        "external_order_count": sum(row["external_operation_count"] for row in method_rows),
+        "external_orders_included": True,
+        "net_includes_tax_and_delivery": True,
+        "methods": method_rows,
+        "totals_by_currency": [
+            {"currency": code, **amounts} for code, amounts in sorted(totals.items())
+        ],
+        "corrections_by_currency": corrections,
+    }
+
+
+def _signed_amount_rows(
+    rows: list[dict[str, Any]], source_key: str, output_key: str
+) -> tuple[list[dict[str, Any]], int]:
+    projected = [
+        {output_key: row[source_key], "amount_cents": _exact_cents(Decimal(row["amount"]))}
+        for row in rows
+    ]
+    return projected, sum(item["amount_cents"] for item in projected)
+
+
+def _require_same_total(actual: int, expected: Any, label: str) -> None:
+    if actual != _exact_cents(Decimal(expected)):
+        _fail(503, "dependency_unavailable", f"{label} total does not match the ledger")
+
+
+def _personal_amount_rows(
+    rows: list[dict[str, Any]],
+    *,
+    ticket_key: str,
+    name_key: str,
+    phone_key: str | None,
+    received_key: str | None,
+) -> tuple[list[dict[str, Any]], int]:
+    projected: list[dict[str, Any]] = []
+    for row in rows:
+        amount_cents = _exact_cents(Decimal(row["amount"]))
+        item: dict[str, Any] = {"amount_cents": amount_cents}
+        if ticket_key:
+            item["ticket"] = row[ticket_key]
+        if received_key:
+            item["folio"] = row["folio"]
+            item["received_by"] = row[received_key]
+        else:
+            item["name"] = row[name_key]
+            item["phone"] = row[phone_key or "customer_phone"]
+        projected.append(item)
+    return projected, sum(item["amount_cents"] for item in projected)
+
+
+def _cash_population(
+    balance: dict[str, Any],
+    suppliers: list[dict[str, Any]],
+    fixed_expenses: list[dict[str, Any]],
+    withdrawals: list[dict[str, Any]],
+    credits: list[dict[str, Any]],
+    transfers: list[dict[str, Any]],
+    *,
+    include_personal: bool,
+    physical_count_status: str | None,
+    surplus_shortage_cents: int | None,
+) -> dict[str, Any]:
+    supplier_rows, supplier_cents = _signed_amount_rows(suppliers, "provider_name", "supplier_name")
+    fixed_rows, fixed_cents = _signed_amount_rows(fixed_expenses, "expense_type", "expense_type")
+    _require_same_total(supplier_cents, balance["supplier_expenses"], "Supplier payment")
+    _require_same_total(fixed_cents, balance["fixed_expenses"], "Fixed expense")
+    withdrawal_cents = _exact_cents(Decimal(balance["cash_withdrawals"]))
+    credit_cents = _exact_cents(Decimal(balance["credit_sales"]))
+    transfer_cents = _exact_cents(Decimal(balance["transfer_payments"]))
+    personal_withdrawals, withdrawal_line_cents = _personal_amount_rows(
+        withdrawals,
+        ticket_key="",
+        name_key="",
+        phone_key=None,
+        received_key="recipient_name",
+    )
+    personal_credits, credit_line_cents = _personal_amount_rows(
+        credits,
+        ticket_key="ticket_folio",
+        name_key="customer_name",
+        phone_key="customer_phone",
+        received_key=None,
+    )
+    personal_transfers, transfer_line_cents = _personal_amount_rows(
+        transfers,
+        ticket_key="ticket_folio",
+        name_key="customer_name",
+        phone_key="customer_phone",
+        received_key=None,
+    )
+    _require_same_total(withdrawal_line_cents, balance["cash_withdrawals"], "Cash withdrawal")
+    _require_same_total(credit_line_cents, balance["credit_sales"], "Credit client")
+    _require_same_total(transfer_line_cents, balance["transfer_payments"], "Transfer")
+    payload: dict[str, Any] = {
+        "sales_cents": _exact_cents(Decimal(balance["total_sales_with_tax"])),
+        "card_cents": _exact_cents(Decimal(balance["card_payments"])),
+        "transfer_cents": transfer_cents,
+        "deposit_cents": _exact_cents(Decimal(balance["cash_deposits"])),
+        "supplier_payments_cents": supplier_cents,
+        "supplier_payments": supplier_rows,
+        "fixed_expenses_cents": fixed_cents,
+        "fixed_expenses": fixed_rows,
+        "cash_withdrawals_cents": withdrawal_cents,
+        "cash_withdrawals_count": len(withdrawals),
+        "credit_clients_cents": credit_cents,
+        "credit_clients_count": len(credits),
+    }
+    if physical_count_status is not None:
+        payload["physical_count_status"] = physical_count_status
+        payload["surplus_shortage_cents"] = surplus_shortage_cents
+    if include_personal:
+        payload["cash_withdrawals"] = personal_withdrawals
+        payload["credit_clients"] = personal_credits
+        payload["transfers"] = personal_transfers
+    return payload
+
+
+def _identity_line(
+    kind: str, ticket: str, snapshot: Any, owner_name: str | None, amount_cents: int
+) -> dict[str, Any]:
+    data = snapshot if isinstance(snapshot, dict) else {}
+    name = data.get("name") or owner_name or ""
+    phone = data.get("phone") or ""
+    return {
+        "kind": kind,
+        "ticket": ticket,
+        "name": str(name),
+        "phone": str(phone),
+        "amount_cents": amount_cents,
+    }
+
+
+def _day_refunds(
+    session: Session,
+    organization_id: str,
+    branch_id: str,
+    start: datetime,
+    end: datetime,
+    *,
+    include_personal: bool,
+) -> dict[str, Any]:
+    corrections = models.order_corrections
+    adjustments = models.order_payment_adjustments
+    orders = models.orders
+    events = models.order_events
+    refund_rows = [
+        dict(row)
+        for row in session.execute(
+            sa.select(
+                orders.c.id.label("order_id"),
+                orders.c.folio.label("ticket"),
+                orders.c.owner_name,
+                orders.c.customer_snapshot,
+                orders.c.currency.label("order_currency"),
+                adjustments.c.amount_cents,
+                adjustments.c.currency,
+            )
+            .select_from(
+                adjustments.join(corrections, corrections.c.id == adjustments.c.correction_id).join(
+                    orders, orders.c.id == corrections.c.order_id
+                )
+            )
+            .where(
+                corrections.c.organization_id == organization_id,
+                corrections.c.branch_id == branch_id,
+                corrections.c.applied_at >= start,
+                corrections.c.applied_at < end,
+                adjustments.c.adjustment_type == "REFUND",
+                adjustments.c.status == "CONFIRMED",
+                orders.c.organization_id == organization_id,
+                orders.c.branch_id == branch_id,
+            )
+            .order_by(corrections.c.applied_at, corrections.c.id)
+        ).mappings()
+    ]
+    cancel_rows = [
+        dict(row)
+        for row in session.execute(
+            sa.select(
+                orders.c.id.label("order_id"),
+                orders.c.folio.label("ticket"),
+                orders.c.owner_name,
+                orders.c.customer_snapshot,
+                orders.c.total_cents,
+                orders.c.currency,
+            )
+            .select_from(events.join(orders, orders.c.id == events.c.order_id))
+            .where(
+                orders.c.organization_id == organization_id,
+                orders.c.branch_id == branch_id,
+                orders.c.status == "CANCELLED",
+                events.c.event_type == "ORDER_CANCELLED",
+                events.c.created_at >= start,
+                events.c.created_at < end,
+            )
+            .order_by(events.c.created_at, events.c.id)
+        ).mappings()
+    ]
+    currencies: set[str] = set()
+    refund_cents = 0
+    refund_lines: list[dict[str, Any]] = []
+    for row in refund_rows:
+        if row["currency"] != row["order_currency"] or row["amount_cents"] is None:
+            _fail(503, "dependency_unavailable", "Refund currency is inconsistent")
+        currencies.add(str(row["currency"]))
+        amount = int(row["amount_cents"])
+        refund_cents += amount
+        if include_personal:
+            refund_lines.append(
+                _identity_line(
+                    "correction_refund",
+                    str(row["ticket"]),
+                    row["customer_snapshot"],
+                    row["owner_name"],
+                    amount,
+                )
+            )
+    cancelled: dict[str, dict[str, Any]] = {}
+    for row in cancel_rows:
+        previous = cancelled.get(str(row["order_id"]))
+        if previous is not None and previous["total_cents"] != row["total_cents"]:
+            _fail(503, "dependency_unavailable", "Cancelled order amount is inconsistent")
+        cancelled.setdefault(str(row["order_id"]), row)
+    cancel_cents = 0
+    for row in cancelled.values():
+        if row["total_cents"] is None:
+            _fail(503, "dependency_unavailable", "Cancelled order amount is incomplete")
+        currencies.add(str(row["currency"]))
+        amount = int(row["total_cents"])
+        cancel_cents += amount
+        if include_personal:
+            refund_lines.append(
+                _identity_line(
+                    "cancellation",
+                    str(row["ticket"]),
+                    row["customer_snapshot"],
+                    row["owner_name"],
+                    amount,
+                )
+            )
+    if len(currencies) > 1:
+        _fail(503, "dependency_unavailable", "Refund currencies cannot be combined")
+    payload: dict[str, Any] = {
+        "currency": next(iter(currencies), None),
+        "correction_refunds_cents": refund_cents,
+        "correction_refund_count": len(refund_rows),
+        "cancelled_orders_cents": cancel_cents,
+        "cancelled_order_count": len(cancelled),
+    }
+    if include_personal:
+        payload["lines"] = refund_lines
+    return payload
+
+
+def _bound(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _reconciliation_day(
+    session: Session,
+    principal: AgentPrincipal,
+    report: dict[str, Any],
+    *,
+    include_personal: bool,
+) -> dict[str, Any]:
+    population = report["population"]
+    activity = report["activity"]
+    if (
+        activity["from_utc"] != population["from_utc"]
+        or activity["to_utc"] != population["to_utc"]
+        or activity["timezone"] != population["timezone"]
+    ):
+        _fail(503, "dependency_unavailable", "Daily reconciliation populations disagree")
+    status = report["physical_count"]["status"]
+    if status not in {"COUNTED", "PENDING", "EMPTY"}:
+        _fail(503, "dependency_unavailable", "Daily reconciliation count is unavailable")
+    difference = report["balance"]["difference"]
+    if status == "COUNTED":
+        if difference is None:
+            _fail(503, "dependency_unavailable", "Counted reconciliation has no difference")
+        surplus: int | None = _exact_cents(Decimal(difference))
+    elif difference is not None:
+        _fail(503, "dependency_unavailable", "Open reconciliation reported a cash difference")
+    else:
+        surplus = None
+    start = _bound(str(population["from_utc"]))
+    end = _bound(str(population["to_utc"]))
+    return {
+        "date": report["date"],
+        "timezone": population["timezone"],
+        "from_utc": start,
+        "to_utc": end,
+        "shifts_opened": _cash_population(
+            report["balance"],
+            report["suppliers_breakdown"],
+            report["fixed_expenses_breakdown"],
+            report["withdrawals_breakdown"],
+            report["credit_clients_breakdown"],
+            report["transfers_breakdown"],
+            include_personal=include_personal,
+            physical_count_status=status,
+            surplus_shortage_cents=surplus,
+        ),
+        "calendar_activity": _cash_population(
+            activity["totals"],
+            activity["suppliers_breakdown"],
+            activity["fixed_expenses_breakdown"],
+            activity["withdrawals_breakdown"],
+            activity["credit_clients_breakdown"],
+            activity["transfers_breakdown"],
+            include_personal=include_personal,
+            physical_count_status=None,
+            surplus_shortage_cents=None,
+        ),
+        "refunds": _day_refunds(
+            session,
+            principal.organization_id,
+            str(report["branch_id"]),
+            start,
+            end,
+            include_personal=include_personal,
+        ),
+        "production_bakery": {
+            "recorded": False,
+            "amount_cents": None,
+            "reason": "not_recorded",
+        },
+    }
+
+
+@router.get("/agent-tools/cash/daily-reconciliation")
+def get_agent_cash_daily_reconciliation(
+    branch_id: str,
+    from_date: str,
+    to_date: str,
+    session: SessionDep,
+    authorization: AuthorizationDep = None,
+    actor_header: ActorHeaderDep = None,
+) -> dict[str, Any]:
+    """Minimized daily reconciliation v2. Names and phones require a second opt-in flag."""
+    principal = _agent(session, authorization, actor_header)
+    _capability(principal, "agent.cash_reconciliation.read")
+    _administrator(principal)
+    authorized_branch = _branch(session, principal, branch_id)
+    include_personal = (
+        "agent.cash_personal_data.read" in principal.capabilities
+        and "agent.cash_personal_data.read" in BASELINE_CAPABILITIES[principal.profile]
+    )
+    _require_financial_audience(session, authorized_branch, RECONCILIATION_DATASETS)
+    start_day = _calendar_date(from_date, "from_date")
+    end_day = _calendar_date(to_date, "to_date")
+    if start_day > end_day or (end_day - start_day).days >= 31:
+        _fail(
+            400,
+            "agent_schema_invalid",
+            "Reconciliation period must cover one to 31 local days",
+        )
+    days: list[dict[str, Any]] = []
+    timezone_name: str | None = None
+    current = start_day
+    while current <= end_day:
+        try:
+            report = get_branch_daily_reconciliation(
+                session, authorized_branch, current.isoformat(), None
+            )
+        except AuthorizationError:
+            _fail(403, "financial_access_denied", "An authorized human audience is required")
+        except BusinessError as exc:
+            if exc.code in {"report_period_invalid", "report_timezone_invalid", "branch_not_found"}:
+                _fail(
+                    400,
+                    "agent_schema_invalid",
+                    "Reconciliation date or branch timezone is invalid",
+                )
+            _fail(503, "dependency_unavailable", "Daily reconciliation is unavailable")
+        day = _reconciliation_day(
+            session, principal, report, include_personal=include_personal
+        )
+        if timezone_name is None:
+            timezone_name = str(day["timezone"])
+        elif timezone_name != day["timezone"]:
+            _fail(503, "dependency_unavailable", "Branch timezone changed during the period")
+        days.append(day)
+        current += timedelta(days=1)
+    return {
+        "branch_id": authorized_branch,
+        "timezone": timezone_name,
+        "from_date": start_day.isoformat(),
+        "to_date": end_day.isoformat(),
+        "contract_version": 2,
+        "personal_data_included": include_personal,
+        "days": days,
+    }
 
 
 @router.get("/agent-tools/inventory/items")

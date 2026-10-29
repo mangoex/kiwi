@@ -118,6 +118,41 @@ Feature: Conectar un orquestador con cuatro identidades técnicas sin entregar a
     And habilitar o retirar el permiso conserva el actor y el delta de capacidades en auditoría
     And Agent Tools no ofrece comandos para abrir, contar, finalizar, reabrir, compensar o mover caja
 
+  @BDD-SC-808
+  Scenario: Administrador consulta gastos operativos por concepto con permiso explícito
+    Given una persona habilitó agent.operating_expenses.read para Administrador y sólo autorizó Centro
+    And el catálogo de gastos no clasifica fijo ni variable
+    And existen gastos confirmados de Centro dentro y fuera del día local America/Mazatlan
+    When consulta el día local convertido a un periodo UTC de hasta treinta y un días
+    Then recibe cada concepto del snapshot con importes enteros en centavos y el neto de confirmaciones y cancelaciones
+    And no recibe folio, notas, evidencia, actores ni gastos de otra sucursal
+    But la capacidad apagada, otra identidad, otra sucursal o un periodo inválido falla cerrado
+    And la consulta no modifica documentos de gasto
+
+  @BDD-SC-809
+  Scenario: Administrador consulta ventas por método sin alterar el neto de ventas
+    Given una persona habilitó agent.payment_methods.read y agent.sales.read sólo para Administrador
+    And hay ventas confirmadas en efectivo, tarjeta, transferencia y un pedido externo dentro del día local
+    And una entrega incluye el envío en el neto y una corrección posterior no reescribe el snapshot
+    When consulta el mismo periodo UTC en ventas y en métodos de pago
+    Then el neto por moneda coincide, incluye IVA y envío, y el pedido externo cuenta como venta
+    And la corrección queda separada y no se resta del neto por método
+    But agent.sales.read por sí solo, otra sucursal o un periodo mayor a treinta y un días falla cerrado
+    And la consulta no modifica pagos ni snapshots
+
+  @BDD-SC-810
+  Scenario: Administrador consulta la conciliación diaria sin datos personales salvo permiso aparte
+    Given una persona habilitó agent.cash_reconciliation.read para Administrador y la zona de Centro es America/Mazatlan
+    And la conciliación v2 tiene tarjeta, transferencia, depósito, proveedor, gasto fijo, retiro, crédito, reembolso y cancelación
+    And no existe un ledger distinto de producción o panadería
+    When consulta el día local del turno y el día local siguiente
+    Then el saldo del turno abierto y la actividad del día civil se devuelven en centavos, con la diferencia sólo si el arqueo está contado
+    And sin agent.cash_personal_data.read no recibe nombres, teléfonos ni quién recibió el retiro
+    And con esa segunda capacidad, apagada por defecto, recibe ticket, nombre, teléfono y receptor
+    And la producción o panadería se informa como no registrada
+    But un periodo de más de treinta y un días, otra sucursal o la capacidad apagada falla cerrado
+    And Agent Tools no ofrece comandos para abrir, contar, compensar o mover caja
+
   @BDD-SC-654
   Scenario: Un comando repetido es idempotente y un conflicto no escribe
     Given una propuesta fue aceptada con una Idempotency-Key y un cuerpo canónico

@@ -955,21 +955,33 @@ export default function IntegrationsHub() {
                   )}
 
                   {identity.profile === 'administrator' && (
-                    <label style={{ display: 'flex', gap: 9, alignItems: 'center', marginBottom: 10, fontSize: '0.85rem' }}>
-                      <input
-                        type="checkbox"
-                        aria-label="Permitir leer cortes de caja finalizados"
-                        checked={identity.capabilities.includes('agent.cash_cuts.read')}
-                        disabled={!grokBotConfig?.id || updateGrokBotIdentityMutation.isPending}
-                        onChange={(event) => updateGrokBotIdentityMutation.mutate({
-                          ...identity,
-                          capabilities: event.target.checked
-                            ? [...identity.capabilities, 'agent.cash_cuts.read']
-                            : identity.capabilities.filter((capability) => capability !== 'agent.cash_cuts.read'),
-                        })}
-                      />
-                      Permitir leer cortes de caja finalizados
-                    </label>
+                    <>
+                      {(
+                        [
+                          ['agent.cash_cuts.read', 'Permitir leer cortes de caja finalizados'],
+                          ['agent.operating_expenses.read', 'Permitir leer gastos operativos'],
+                          ['agent.payment_methods.read', 'Permitir leer ventas por método de pago'],
+                          ['agent.cash_reconciliation.read', 'Permitir leer conciliación diaria de caja'],
+                          ['agent.cash_personal_data.read', 'Permitir leer nombres y teléfonos de conciliación'],
+                        ] as const
+                      ).map(([capability, label]) => (
+                        <label key={capability} style={{ display: 'flex', gap: 9, alignItems: 'center', marginBottom: 10, fontSize: '0.85rem' }}>
+                          <input
+                            type="checkbox"
+                            aria-label={label}
+                            checked={identity.capabilities.includes(capability)}
+                            disabled={!grokBotConfig?.id || updateGrokBotIdentityMutation.isPending}
+                            onChange={(event) => updateGrokBotIdentityMutation.mutate({
+                              ...identity,
+                              capabilities: event.target.checked
+                                ? [...identity.capabilities, capability]
+                                : identity.capabilities.filter((current) => current !== capability),
+                            })}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </>
                   )}
 
                   <label style={{ display: 'flex', gap: 9, alignItems: 'center', marginBottom: 10, fontSize: '0.85rem' }}>
