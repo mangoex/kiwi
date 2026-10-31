@@ -7887,6 +7887,24 @@ autoridad separada; issuer, resource/audience y scopes se fijan por configuraci�
 cerrada ante configuración incompleta, autoridad indisponible, Redis ausente o incapacidad de
 reautorizar. Nunca se rebaja a una identidad anónima o a un perfil predeterminado.
 
+WorkOS AuthKit/Connect es la primera autoridad OAuth soportada para clientes MCP interactivos, sin
+introducir su SDK ni llamadas a su API en el camino de cada request. Kiwi valida localmente el JWT
+con el JWKS del dominio AuthKit, exige como `aud` el resource indicator exacto de `/mcp` y conserva
+`restaurantos:mcp.read` como scope mínimo. WorkOS debe publicar ese scope como default del ambiente
+para clientes CIMD/DCR o asignarlo a un cliente registrado; no se rebaja a `openid`. El canary usa
+Authorization Code con PKCE. Los tokens M2M de WorkOS quedan fuera del primer rollout porque su
+audience no es configurable por aplicación para representar el resource indicator MCP.
+El `iss` canónico es exactamente el publicado por metadata de AuthKit, sin `/` final; la
+normalización de URL de configuración no puede cambiar el valor comparado con el claim ni el valor
+de `authorization_servers` publicado por protected-resource metadata.
+
+Después de verificar firma y claims, Kiwi resuelve el tuple canónico `(iss, client_id, sub)` contra
+un vínculo OAuth administrado y auditado. `sub`, `client_id`, `org_id`, scopes adicionales, prompt y
+`_meta` nunca seleccionan por sí mismos organización, perfil, capacidades o sucursales. `org_id` se
+trata sólo como contexto externo no autoritativo; la organización y política efectivas provienen de
+la identidad interna vinculada. Un tuple no registrado, ambiguo o revocado falla cerrado. El vínculo
+no guarda access tokens ni refresh tokens y sus identificadores no se registran en logs operativos.
+
 ### 72.2 Registro de herramientas y paridad
 
 Un manifiesto interno versionado es la fuente de correspondencia entre nombre MCP, operación Agent
@@ -7910,6 +7928,16 @@ nunca un efecto aplicado. `operation_status` sigue disponible durante drenado pa
 preexistentes y reautoriza antes de entregar el resultado.
 
 ### 72.3 Identidades independientes y migración
+
+La fase A agrega `external_agent_oauth_bindings` como unión neutral al proveedor entre una identidad
+existente y un tuple verificado `(issuer, subject, oauth_client_id)`. Cada identidad admite un vínculo
+activo y el tuple completo es único. Crear, reemplazar o revocar el vínculo exige administrador
+humano, `expected_authorization_version`, auditoría sin `subject` en payload y deshabilita la identidad;
+la reactivación explícita conserva capacidades y sucursales. Una identidad puede habilitarse cuando
+tiene una credencial Agent Tools vigente o un vínculo OAuth. La migración es aditiva y su downgrade
+se bloquea si existe cualquier vínculo para no borrar autoridad o trazabilidad. Los valores
+persistidos usan la forma ASCII canónica; `subject` y `oauth_client_id` se limitan a 255 caracteres
+para mantener acotado y portable el índice único compuesto.
 
 El modelo vigente de una identidad por `(integration_id, profile)` no satisface aislamiento de
 varios bots del mismo perfil. Antes del canary multibot se agrega una revisión forward-only que

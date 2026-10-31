@@ -3643,6 +3643,30 @@ external_agent_identities = sa.Table(
     ),
 )
 
+external_agent_oauth_bindings = sa.Table(
+    "external_agent_oauth_bindings",
+    metadata,
+    sa.Column(
+        "identity_id",
+        sa.String(36),
+        sa.ForeignKey("external_agent_identities.id"),
+        primary_key=True,
+    ),
+    sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id"), nullable=False),
+    sa.Column("issuer", sa.String(600), nullable=False),
+    sa.Column("subject", sa.String(255), nullable=False),
+    sa.Column("oauth_client_id", sa.String(255), nullable=False),
+    sa.Column("created_by_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint(
+        "issuer",
+        "subject",
+        "oauth_client_id",
+        name="uq_external_agent_oauth_bindings_tuple",
+    ),
+)
+
 external_agent_identity_branches = sa.Table(
     "external_agent_identity_branches",
     metadata,

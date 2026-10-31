@@ -238,6 +238,31 @@ def _validate_external_https_url(value: Any, field: str) -> str | None:
     return normalized
 
 
+def _canonical_oauth_issuer(value: Any) -> str:
+    issuer = _validate_external_https_url(value, "issuer")
+    if issuer is None:
+        _fail(400, "agent_schema_invalid", "issuer is required")
+    parsed = urlparse(issuer)
+    if parsed.query or parsed.fragment:
+        _fail(400, "agent_schema_invalid", "issuer must not include query or fragment")
+    if not issuer.isascii():
+        _fail(400, "agent_schema_invalid", "issuer must use its canonical ASCII form")
+    return issuer.rstrip("/")
+
+
+def _oauth_identifier(value: Any, field: str) -> str:
+    if not isinstance(value, str):
+        _fail(400, "agent_schema_invalid", f"{field} must be a string")
+    normalized = value.strip()
+    if not 1 <= len(normalized) <= 255 or normalized != value:
+        _fail(400, "agent_schema_invalid", f"{field} requires 1 to 255 characters")
+    if not normalized.isascii() or any(
+        character.isspace() or ord(character) < 33 for character in normalized
+    ):
+        _fail(400, "agent_schema_invalid", f"{field} contains unsupported characters")
+    return normalized
+
+
 def _integration_row(session: Session) -> dict[str, Any] | None:
     row = (
         session.execute(
@@ -278,20 +303,46 @@ def _identity_rows(session: Session, integration_id: str) -> list[dict[str, Any]
     by_identity: dict[str, list[str]] = {}
     for branch in branches:
         by_identity.setdefault(str(branch["identity_id"]), []).append(str(branch["branch_id"]))
-    return [
-        {
-            "id": str(row["id"]),
-            "profile": str(row["profile"]),
-            "client_id": row["client_id"],
-            "is_enabled": bool(row["is_enabled"]),
-            "corporate_scope": bool(row["corporate_scope"]),
-            "authorization_version": int(row["authorization_version"]),
-            "capabilities": list(row["capabilities"] or []),
-            "branch_ids": sorted(by_identity.get(str(row["id"]), [])),
-            "last_rotated_at": row["last_rotated_at"],
-        }
-        for row in rows
-    ]
+    bindings = (
+        session.execute(
+            sa.select(models.external_agent_oauth_bindings).where(
+                models.external_agent_oauth_bindings.c.identity_id.in_(
+                    [str(row["id"]) for row in rows]
+                )
+            )
+        )
+        .mappings()
+        .all()
+        if rows
+        else []
+    )
+    by_binding = {str(binding["identity_id"]): dict(binding) for binding in bindings}
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        binding = by_binding.get(str(row["id"]))
+        oauth_binding = None
+        if binding is not None:
+            subject = str(binding["subject"])
+            oauth_binding = {
+                "issuer": str(binding["issuer"]),
+                "client_id": str(binding["oauth_client_id"]),
+                "subject_hint": f"...{subject[-4:]}",
+            }
+        result.append(
+            {
+                "id": str(row["id"]),
+                "profile": str(row["profile"]),
+                "client_id": row["client_id"],
+                "is_enabled": bool(row["is_enabled"]),
+                "corporate_scope": bool(row["corporate_scope"]),
+                "authorization_version": int(row["authorization_version"]),
+                "capabilities": list(row["capabilities"] or []),
+                "branch_ids": sorted(by_identity.get(str(row["id"]), [])),
+                "last_rotated_at": row["last_rotated_at"],
+                "oauth_binding": oauth_binding,
+            }
+        )
+    return result
 
 
 def _config_view(session: Session) -> dict[str, Any]:
@@ -308,6 +359,7 @@ def _config_view(session: Session) -> dict[str, Any]:
                 "capabilities": sorted(DEFAULT_CAPABILITIES[profile]),
                 "branch_ids": [],
                 "last_rotated_at": None,
+                "oauth_binding": None,
             }
             for profile in PROFILES
         ]
@@ -489,6 +541,175 @@ def _identity(session: Session, profile: str) -> dict[str, Any]:
     return dict(row)
 
 
+def _has_oauth_binding(session: Session, identity_id: str) -> bool:
+    return (
+        session.scalar(
+            sa.select(models.external_agent_oauth_bindings.c.identity_id).where(
+                models.external_agent_oauth_bindings.c.identity_id == identity_id
+            )
+        )
+        is not None
+    )
+
+
+def _expected_authorization_version(payload: dict[str, Any], identity: dict[str, Any]) -> int:
+    expected_version = payload.get("expected_authorization_version")
+    if not isinstance(expected_version, int) or isinstance(expected_version, bool):
+        _fail(400, "agent_schema_invalid", "expected_authorization_version is required")
+    if expected_version != int(identity["authorization_version"]):
+        _fail(409, "stale_reference", "Identity policy changed; reload before saving")
+    return expected_version
+
+
+@router.put("/integrations/grokbot/identities/{profile}/oauth-binding")
+def bind_grokbot_identity_oauth(
+    profile: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _human_admin(session, authorization)
+    identity = _identity(session, profile)
+    allowed = {"issuer", "subject", "client_id", "expected_authorization_version"}
+    if set(payload) - allowed:
+        _fail(400, "agent_schema_invalid", "Unsupported OAuth binding field")
+    expected_version = _expected_authorization_version(payload, identity)
+    issuer = _canonical_oauth_issuer(payload.get("issuer"))
+    subject = _oauth_identifier(payload.get("subject"), "subject")
+    oauth_client_id = _oauth_identifier(payload.get("client_id"), "client_id")
+    conflict = session.scalar(
+        sa.select(models.external_agent_oauth_bindings.c.identity_id).where(
+            models.external_agent_oauth_bindings.c.issuer == issuer,
+            models.external_agent_oauth_bindings.c.subject == subject,
+            models.external_agent_oauth_bindings.c.oauth_client_id == oauth_client_id,
+            models.external_agent_oauth_bindings.c.identity_id != identity["id"],
+        )
+    )
+    if conflict is not None:
+        _fail(409, "oauth_binding_conflict", "OAuth identity is already bound")
+    now = _now()
+    existing = _has_oauth_binding(session, str(identity["id"]))
+    if existing:
+        session.execute(
+            sa.update(models.external_agent_oauth_bindings)
+            .where(models.external_agent_oauth_bindings.c.identity_id == identity["id"])
+            .values(
+                issuer=issuer,
+                subject=subject,
+                oauth_client_id=oauth_client_id,
+                updated_at=now,
+            )
+        )
+    else:
+        session.execute(
+            models.external_agent_oauth_bindings.insert().values(
+                identity_id=identity["id"],
+                organization_id=ORGANIZATION_ID,
+                issuer=issuer,
+                subject=subject,
+                oauth_client_id=oauth_client_id,
+                created_by_user_id=actor_id,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    updated = session.execute(
+        sa.update(models.external_agent_identities)
+        .where(
+            models.external_agent_identities.c.id == identity["id"],
+            models.external_agent_identities.c.authorization_version == expected_version,
+        )
+        .values(
+            is_enabled=False,
+            authorization_version=expected_version + 1,
+            updated_at=now,
+        )
+    )
+    if getattr(updated, "rowcount", 0) != 1:
+        session.rollback()
+        _fail(409, "stale_reference", "Identity policy changed; reload before saving")
+    _audit(
+        session,
+        "agent.oauth_binding.updated",
+        "external_agent_identity",
+        str(identity["id"]),
+        actor_user_id=actor_id,
+        payload={
+            "profile": profile,
+            "provider": "OAUTH",
+            "authorization_version_before": expected_version,
+            "authorization_version_after": expected_version + 1,
+        },
+    )
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        _fail(409, "oauth_binding_conflict", "OAuth identity is already bound")
+    integration = _integration_row(session)
+    assert integration is not None
+    return next(
+        row for row in _identity_rows(session, str(integration["id"])) if row["profile"] == profile
+    )
+
+
+@router.post("/integrations/grokbot/identities/{profile}/oauth-binding/revoke")
+def revoke_grokbot_identity_oauth(
+    profile: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _human_admin(session, authorization)
+    identity = _identity(session, profile)
+    if set(payload) != {"expected_authorization_version"}:
+        _fail(400, "agent_schema_invalid", "Only expected_authorization_version is accepted")
+    expected_version = _expected_authorization_version(payload, identity)
+    removed = session.execute(
+        sa.delete(models.external_agent_oauth_bindings).where(
+            models.external_agent_oauth_bindings.c.identity_id == identity["id"]
+        )
+    )
+    if getattr(removed, "rowcount", 0) != 1:
+        session.rollback()
+        _fail(409, "oauth_binding_not_configured", "OAuth identity binding does not exist")
+    now = _now()
+    updated = session.execute(
+        sa.update(models.external_agent_identities)
+        .where(
+            models.external_agent_identities.c.id == identity["id"],
+            models.external_agent_identities.c.authorization_version == expected_version,
+        )
+        .values(
+            is_enabled=False,
+            authorization_version=expected_version + 1,
+            updated_at=now,
+        )
+    )
+    if getattr(updated, "rowcount", 0) != 1:
+        session.rollback()
+        _fail(409, "stale_reference", "Identity policy changed; reload before saving")
+    _audit(
+        session,
+        "agent.oauth_binding.revoked",
+        "external_agent_identity",
+        str(identity["id"]),
+        actor_user_id=actor_id,
+        payload={
+            "profile": profile,
+            "provider": "OAUTH",
+            "authorization_version_before": expected_version,
+            "authorization_version_after": expected_version + 1,
+        },
+    )
+    session.commit()
+    integration = _integration_row(session)
+    assert integration is not None
+    return next(
+        row for row in _identity_rows(session, str(integration["id"])) if row["profile"] == profile
+    )
+
+
 @router.put("/integrations/grokbot/identities/{profile}")
 def update_grokbot_identity(
     profile: str,
@@ -507,11 +728,7 @@ def update_grokbot_identity(
     }
     if set(payload) - allowed:
         _fail(400, "agent_schema_invalid", "Unsupported identity policy field")
-    expected_version = payload.get("expected_authorization_version")
-    if not isinstance(expected_version, int) or isinstance(expected_version, bool):
-        _fail(400, "agent_schema_invalid", "expected_authorization_version is required")
-    if expected_version != int(identity["authorization_version"]):
-        _fail(409, "stale_reference", "Identity policy changed; reload before saving")
+    expected_version = _expected_authorization_version(payload, identity)
     capabilities = payload.get("capabilities", identity["capabilities"])
     if not isinstance(capabilities, list) or not all(
         isinstance(value, str) for value in capabilities
@@ -552,8 +769,16 @@ def update_grokbot_identity(
     corporate_scope = payload.get("corporate_scope", identity["corporate_scope"])
     if not isinstance(enabled, bool) or not isinstance(corporate_scope, bool):
         _fail(400, "agent_schema_invalid", "Identity flags must be boolean")
-    if enabled and not identity.get("client_id"):
-        _fail(409, "agent_unauthorized", "Rotate a credential before enabling the identity")
+    if (
+        enabled
+        and not identity.get("client_id")
+        and not _has_oauth_binding(session, str(identity["id"]))
+    ):
+        _fail(
+            409,
+            "agent_unauthorized",
+            "Configure an Agent Tools credential or OAuth binding before enabling the identity",
+        )
     now = _now()
     updated = session.execute(
         sa.update(models.external_agent_identities)
@@ -857,12 +1082,28 @@ def _agent(
     return _principal_from_row(session, dict(identity), integration)
 
 
-def _agent_for_external_subject(session: Session, subject: str) -> AgentPrincipal:
-    """Resolve an OAuth subject through the current persisted Agent Tools authority."""
+def _agent_for_external_oauth(
+    session: Session,
+    *,
+    issuer: str,
+    subject: str,
+    client_id: str,
+) -> AgentPrincipal:
+    """Resolve a verified OAuth tuple through the persisted Agent Tools authority."""
     identity = (
         session.execute(
-            sa.select(models.external_agent_identities).where(
-                models.external_agent_identities.c.id == subject,
+            sa.select(models.external_agent_identities)
+            .join(
+                models.external_agent_oauth_bindings,
+                models.external_agent_oauth_bindings.c.identity_id
+                == models.external_agent_identities.c.id,
+            )
+            .where(
+                models.external_agent_identities.c.organization_id == ORGANIZATION_ID,
+                models.external_agent_oauth_bindings.c.organization_id == ORGANIZATION_ID,
+                models.external_agent_oauth_bindings.c.issuer == issuer,
+                models.external_agent_oauth_bindings.c.subject == subject,
+                models.external_agent_oauth_bindings.c.oauth_client_id == client_id,
             )
         )
         .mappings()

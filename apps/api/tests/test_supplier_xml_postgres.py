@@ -149,7 +149,7 @@ def test_real_downgrade_blocks_history_and_keeps_all_rows(pg):
         assert _snapshot(connection, TABLES) == before
         assert (
             connection.scalar(sa.text("SELECT version_num FROM alembic_version"))
-            == "0104_purchase_draft_edits"
+            == "0105_mcp_oauth_bindings"
         )
 
 
