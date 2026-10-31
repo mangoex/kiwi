@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import ipaddress
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, AnyHttpUrl, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,6 +44,14 @@ class Settings(BaseSettings):
     grokbot_agent_global_rate_limit_per_minute: int = Field(default=600, ge=1, le=10000)
     grokbot_agent_identity_rate_limit_per_minute: int = Field(default=120, ge=1, le=5000)
     grokbot_agent_rate_limit_hmac_secret: str | None = Field(default=None, min_length=32)
+    mcp_enabled: bool = Field(default=False)
+    mcp_issuer_url: AnyHttpUrl | None = None
+    mcp_jwks_url: AnyHttpUrl | None = None
+    mcp_resource_server_url: AnyHttpUrl | None = None
+    mcp_required_scope: str = Field(default="restaurantos:mcp.read", min_length=1, max_length=128)
+    mcp_max_request_body_bytes: int = Field(default=131_072, ge=1024, le=1_048_576)
+    mcp_jwks_cache_ttl_seconds: int = Field(default=300, ge=30, le=3600)
+    mcp_jwks_timeout_seconds: float = Field(default=3.0, ge=0.5, le=10.0)
     admin_ai_openrouter_model: str = Field(default="google/gemini-3.1-flash-lite")
     admin_ai_openrouter_timeout_seconds: float = Field(default=10.0, ge=1.0, le=30.0)
     openrouter_api_key: str | None = Field(default=None, min_length=16)
@@ -120,6 +129,44 @@ class Settings(BaseSettings):
                     "RESTAURANTOS_GROKBOT_AGENT_RATE_LIMIT_HMAC_SECRET is required when "
                     "GrokBot Agent Tools are enabled"
                 )
+        if self.mcp_enabled:
+            if not self.grokbot_agent_tools_enabled:
+                raise ValueError(
+                    "RESTAURANTOS_GROKBOT_AGENT_TOOLS_ENABLED must be true when MCP is enabled"
+                )
+            if self.mcp_issuer_url is None:
+                raise ValueError("RESTAURANTOS_MCP_ISSUER_URL is required when MCP is enabled")
+            if self.mcp_jwks_url is None:
+                raise ValueError("RESTAURANTOS_MCP_JWKS_URL is required when MCP is enabled")
+            if self.mcp_resource_server_url is None:
+                raise ValueError(
+                    "RESTAURANTOS_MCP_RESOURCE_SERVER_URL is required when MCP is enabled"
+                )
+            if not str(self.mcp_resource_server_url).rstrip("/").endswith("/mcp"):
+                raise ValueError("RESTAURANTOS_MCP_RESOURCE_SERVER_URL must end with /mcp")
+            if self.environment == "production" and (
+                self.mcp_issuer_url.scheme != "https"
+                or self.mcp_jwks_url.scheme != "https"
+                or self.mcp_resource_server_url.scheme != "https"
+            ):
+                raise ValueError("MCP issuer, JWKS and resource URLs must use HTTPS in production")
+            if self.environment == "production":
+                for label, url in (
+                    ("issuer", self.mcp_issuer_url),
+                    ("JWKS", self.mcp_jwks_url),
+                    ("resource", self.mcp_resource_server_url),
+                ):
+                    if url.username or url.password:
+                        raise ValueError(f"MCP {label} URL must not contain user information")
+                    host = (url.host or "").removeprefix("[").removesuffix("]")
+                    if host.lower() == "localhost" or host.lower().endswith(".localhost"):
+                        raise ValueError(f"MCP {label} URL must use an external host")
+                    try:
+                        address = ipaddress.ip_address(host)
+                    except ValueError:
+                        continue
+                    if not address.is_global:
+                        raise ValueError(f"MCP {label} URL must use a global IP address")
         if (
             self.environment == "production"
             and self.public_order_intents_enabled

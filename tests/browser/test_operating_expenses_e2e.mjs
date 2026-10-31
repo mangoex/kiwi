@@ -86,14 +86,19 @@ try {
     }
     await workspace.getByRole('button',{name:'Anular gasto',exact:true}).waitFor();
   }
-  const day = new Date().toLocaleDateString('en-CA',{timeZone:'America/Mazatlan'});
-  await workspace.getByLabel('Desde',{exact:true}).fill(day);
-  await workspace.getByLabel('Hasta',{exact:true}).fill(day);
-  await workspace.locator('.expense-metrics').getByText('$1,300.00',{exact:true}).first().waitFor();
-  await page.screenshot({path:'output/playwright/exp001-desktop.png',fullPage:true});
   const list = await (await page.request.get(origin+'/api/v1/expenses?branch_id='+manifest.branch_id,{headers})).json();
   assert.equal(list.items.length,2);
   assert.equal(list.items.filter(d=>d.cash_movement_id).length,1);
+  const confirmedAt = list.items.map(document=>Date.parse(document.confirmed_at));
+  assert.ok(confirmedAt.every(Number.isFinite));
+  // Pad the UTC confirmation dates so the branch-local report remains deterministic at midnight.
+  const oneDay = 24*60*60*1000;
+  const fromDay = new Date(Math.min(...confirmedAt)-oneDay).toISOString().slice(0,10);
+  const toDay = new Date(Math.max(...confirmedAt)+oneDay).toISOString().slice(0,10);
+  await workspace.getByLabel('Desde',{exact:true}).fill(fromDay);
+  await workspace.getByLabel('Hasta',{exact:true}).fill(toDay);
+  await workspace.locator('.expense-metrics').getByText('$1,300.00',{exact:true}).first().waitFor();
+  await page.screenshot({path:'output/playwright/exp001-desktop.png',fullPage:true});
   const cash = list.items.find(d=>d.payment_method === 'cash');
   await workspace.locator('button.expense-row').filter({hasText:'Efectivo'}).click();
   await workspace.getByRole('button',{name:'Anular gasto',exact:true}).click();
