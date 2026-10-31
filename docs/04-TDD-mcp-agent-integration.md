@@ -113,10 +113,12 @@ respondió 502 hasta revertir el paquete. El release exige ahora tanto la prueba
 como el build real de las imágenes Docker en CI; resolver imports en el entorno local no sustituye
 ese gate.
 
-TDD-TC-493 tiene evidencia local focal de Ruff, mypy, trazabilidad, locks y regresiones Agent Tools.
+TDD-TC-493 tiene evidencia local focal de Ruff, mypy, trazabilidad, locks y regresiones Agent Tools,
+y evidencia CI completa 41178917384 sobre `18b7f055`, incluida la construcción de ambas imágenes
+Docker desde locks congelados.
 Esto no completa TDD-TS-163: siguen pendientes la paridad de las dieciséis lecturas, toda la matriz
 de perfiles/capacidades/sucursales, schemas cerrados, allowlist/egress DNS para JWKS, límite por
-identidad OAuth ya verificada, límites globales y redacción, CI completa y los casos de fases B/C.
+identidad OAuth ya verificada, límites globales y redacción, y los casos de fases B/C.
 La auditoría R3 independiente no encontró P0; el poisoning de bucket se corrigió, pero ratificó esos
 bloqueantes de release. PostgreSQL, migraciones y browser no se activan para este scaffold sin
 cambios de persistencia, concurrencia o UI.
