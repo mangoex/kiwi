@@ -823,6 +823,200 @@ def test_tdd_tc_359_identity_policy_rejects_stale_concurrent_updates() -> None:
     assert stale.json()["detail"]["code"] == "stale_reference"
 
 
+def test_tdd_tc_495_oauth_binding_is_versioned_redacted_and_revocable() -> None:
+    factory = _factory()
+    client = _client(factory)
+    saved = client.put(
+        "/api/v1/integrations/grokbot/config",
+        headers=_admin_headers(),
+        json={
+            "display_name": "Administrador Kiwi",
+            "base_url": "https://grokbot.example.com",
+            "callback_url": "https://grokbot.example.com/callback",
+            "is_enabled": True,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    identity = next(row for row in saved.json()["identities"] if row["profile"] == "administrator")
+    subject = "user_01JWORKOSADMIN7890"
+    binding_payload = {
+        "issuer": "https://auth.example.com/",
+        "subject": subject,
+        "client_id": "client_grokbot_mcp",
+        "expected_authorization_version": identity["authorization_version"],
+    }
+
+    bound = client.put(
+        "/api/v1/integrations/grokbot/identities/administrator/oauth-binding",
+        headers=_admin_headers(),
+        json=binding_payload,
+    )
+    assert bound.status_code == 200, bound.text
+    bound_identity = bound.json()
+    assert bound_identity["is_enabled"] is False
+    assert bound_identity["authorization_version"] == identity["authorization_version"] + 1
+    assert bound_identity["oauth_binding"] == {
+        "issuer": "https://auth.example.com",
+        "client_id": "client_grokbot_mcp",
+        "subject_hint": "...7890",
+    }
+    assert subject not in bound.text
+
+    enabled = client.put(
+        "/api/v1/integrations/grokbot/identities/administrator",
+        headers=_admin_headers(),
+        json={
+            "is_enabled": True,
+            "corporate_scope": False,
+            "capabilities": bound_identity["capabilities"],
+            "branch_ids": [BRANCH_ID],
+            "expected_authorization_version": bound_identity["authorization_version"],
+        },
+    )
+    assert enabled.status_code == 200, enabled.text
+    assert enabled.json()["is_enabled"] is True
+
+    stale = client.put(
+        "/api/v1/integrations/grokbot/identities/administrator/oauth-binding",
+        headers=_admin_headers(),
+        json=binding_payload,
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "stale_reference"
+
+    replacement_subject = "user_01JWORKOSADMIN5678"
+    replaced = client.put(
+        "/api/v1/integrations/grokbot/identities/administrator/oauth-binding",
+        headers=_admin_headers(),
+        json={
+            "issuer": "https://auth.example.com/",
+            "subject": replacement_subject,
+            "client_id": "client_grokbot_mcp_v2",
+            "expected_authorization_version": enabled.json()["authorization_version"],
+        },
+    )
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["is_enabled"] is False
+    assert replaced.json()["oauth_binding"]["subject_hint"] == "...5678"
+    assert subject not in replaced.text
+    assert replacement_subject not in replaced.text
+
+    revoked = client.post(
+        "/api/v1/integrations/grokbot/identities/administrator/oauth-binding/revoke",
+        headers=_admin_headers(),
+        json={"expected_authorization_version": replaced.json()["authorization_version"]},
+    )
+    assert revoked.status_code == 200, revoked.text
+    assert revoked.json()["oauth_binding"] is None
+    assert revoked.json()["is_enabled"] is False
+
+    cannot_enable = client.put(
+        "/api/v1/integrations/grokbot/identities/administrator",
+        headers=_admin_headers(),
+        json={
+            "is_enabled": True,
+            "corporate_scope": False,
+            "capabilities": revoked.json()["capabilities"],
+            "branch_ids": [BRANCH_ID],
+            "expected_authorization_version": revoked.json()["authorization_version"],
+        },
+    )
+    assert cannot_enable.status_code == 409
+    assert cannot_enable.json()["detail"]["code"] == "agent_unauthorized"
+
+    with factory() as session:
+        events = list(
+            session.execute(
+                sa.select(models.audit_events).where(
+                    models.audit_events.c.action.in_(
+                        ["agent.oauth_binding.updated", "agent.oauth_binding.revoked"]
+                    )
+                )
+            ).mappings()
+        )
+    assert [event["action"] for event in events] == [
+        "agent.oauth_binding.updated",
+        "agent.oauth_binding.updated",
+        "agent.oauth_binding.revoked",
+    ]
+    assert all(
+        subject not in json.dumps(event["payload"])
+        and replacement_subject not in json.dumps(event["payload"])
+        for event in events
+    )
+
+
+def test_tdd_tc_495_oauth_binding_tuple_is_unique_and_issuer_is_public_https() -> None:
+    client = _client(_factory())
+    saved = client.put(
+        "/api/v1/integrations/grokbot/config",
+        headers=_admin_headers(),
+        json={"display_name": "Administrador Kiwi", "is_enabled": True},
+    )
+    assert saved.status_code == 200, saved.text
+    identities = {row["profile"]: row for row in saved.json()["identities"]}
+
+    private_issuer = client.put(
+        "/api/v1/integrations/grokbot/identities/administrator/oauth-binding",
+        headers=_admin_headers(),
+        json={
+            "issuer": "https://127.0.0.1/",
+            "subject": "user_private",
+            "client_id": "client_private",
+            "expected_authorization_version": identities["administrator"]["authorization_version"],
+        },
+    )
+    assert private_issuer.status_code == 400
+    assert private_issuer.json()["detail"]["code"] == "callback_destination_denied"
+
+    for field, value in (
+        ("issuer", "https://auth.example.com/é"),
+        ("subject", "üser_external"),
+        ("client_id", "c" * 256),
+    ):
+        invalid_payload = {
+            "issuer": "https://auth.example.com/",
+            "subject": "user_external",
+            "client_id": "client_external",
+            "expected_authorization_version": identities["administrator"][
+                "authorization_version"
+            ],
+        }
+        invalid_payload[field] = value
+        invalid = client.put(
+            "/api/v1/integrations/grokbot/identities/administrator/oauth-binding",
+            headers=_admin_headers(),
+            json=invalid_payload,
+        )
+        assert invalid.status_code == 400
+        assert invalid.json()["detail"]["code"] == "agent_schema_invalid"
+
+    tuple_payload = {
+        "issuer": "https://auth.example.com/",
+        "subject": "user_shared",
+        "client_id": "client_shared",
+    }
+    first = client.put(
+        "/api/v1/integrations/grokbot/identities/administrator/oauth-binding",
+        headers=_admin_headers(),
+        json={
+            **tuple_payload,
+            "expected_authorization_version": identities["administrator"]["authorization_version"],
+        },
+    )
+    assert first.status_code == 200, first.text
+    conflict = client.put(
+        "/api/v1/integrations/grokbot/identities/inventory/oauth-binding",
+        headers=_admin_headers(),
+        json={
+            **tuple_payload,
+            "expected_authorization_version": identities["inventory"]["authorization_version"],
+        },
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "oauth_binding_conflict"
+
+
 def test_tdd_tc_360_branch_reads_exclude_another_branch_catalog() -> None:
     factory = _factory()
     with factory() as session:

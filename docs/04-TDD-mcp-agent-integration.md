@@ -96,6 +96,22 @@ runtime cruza REST/MCP y ejecuta auditoría Sol independiente con contexto fresc
 completa aplicable. Browser/Admin sólo se activa si cambia la gestión visual. Publicación Git no
 acredita deploy, migración, secretos, configuración, canary ni comportamiento productivo.
 
+## TDD-TC-494 Mapeo WorkOS y reautorización fail-closed
+
+Firma tokens sintéticos con claims equivalentes a AuthKit y prueba el tuple exacto
+`(iss, client_id, sub)`: una coincidencia habilitada lista y llama herramientas; cambiar cualquiera
+de los tres valores u omitir `client_id` falla antes de dominio. Verifica que otro `org_id` externo
+no cambia organización ni alcance, que el runtime no consulta la API de WorkOS, no acepta el UUID
+interno como `sub` por compatibilidad y no persiste access/refresh tokens.
+
+## TDD-TC-495 Ciclo de vida y migración del vínculo OAuth
+
+Prueba alta, reemplazo, revocación, conflicto de tuple, versión obsoleta, permisos humanos y auditoría
+redactada. Cada mutación incrementa `authorization_version`, deshabilita la identidad y exige
+reactivación explícita. Ejecuta upgrade/downgrade vacío en SQLite y PostgreSQL aislados; el downgrade
+con cualquier vínculo se bloquea. Comprueba que una identidad sin secreto Agent Tools puede
+habilitarse con un vínculo OAuth y que quitar ambos mecanismos impide habilitarla.
+
 ## Evidencia local parcial — 2026-10-30
 
 `apps/api/tests/test_mcp_contract.py` ejecuta parcialmente TDD-TC-481/482/483/484/492: manifiesto de
@@ -122,3 +138,24 @@ identidad OAuth ya verificada, límites globales y redacción, y los casos de fa
 La auditoría R3 independiente no encontró P0; el poisoning de bucket se corrigió, pero ratificó esos
 bloqueantes de release. PostgreSQL, migraciones y browser no se activan para este scaffold sin
 cambios de persistencia, concurrencia o UI.
+
+## Evidencia local incremental — 2026-10-31
+
+TDD-TC-494/495 inició con tres fallos RED esperados: endpoint de vínculo inexistente, tabla/modelo
+ausente y revisión Alembic no localizada. Después de implementar el tuple OAuth persistido se
+aprobaron 27 pruebas focales de Agent Tools, contrato MCP y migración; seis regresiones críticas se
+repitieron tras la revisión AppSec y aprobaron. Las nueve pruebas de trazabilidad y las doce de
+capacidad/linealidad Alembic aprobaron. Ruff focal, mypy focal y `git diff --check` aprobaron.
+
+La verificación contra la documentación vigente de WorkOS agregó una regresión RED: `AnyHttpUrl`
+normalizaba el issuer configurado con `/` final y rechazaba el `iss` canónico sin slash de AuthKit.
+El verificador ahora compara el valor canónico sin slash; el JWT con variante slash queda rechazado.
+La auditoría independiente detectó que protected-resource metadata todavía publicaba la variante
+con slash; la regresión ahora exige que `authorization_servers` use el mismo issuer canónico.
+
+El roundtrip SQLite, incluido downgrade vacío y bloqueo con historia, aprobó. El caso PostgreSQL
+quedó implementado pero se omitió localmente porque `GROKBOT_TEST_POSTGRES_URL` no está disponible;
+debe ejecutarse en CI o en una base aislada antes de integrar. No se ejecutaron CI, imágenes Docker,
+migración real, configuración WorkOS/Easypanel, browser, deploy ni canary. La auditoría Sol
+independiente R3 emitió PASS sin bloqueantes P0-P2 después de corregir la metadata del issuer, alinear
+el tratamiento no autoritativo de `org_id` y acotar los identificadores del índice OAuth.

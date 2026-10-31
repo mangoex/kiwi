@@ -91,3 +91,19 @@ Feature: Conectar varios bots mediante un solo MCP sin ampliar la autoridad de A
     Then las lecturas conocidas coinciden con REST
     And otra sucursal, perfil y herramienta no autorizados fallan cerrado
     And las cuatro escrituras permanecen ausentes hasta una fase posterior aprobada
+
+  @BDD-SC-823
+  Scenario: Un token WorkOS sólo adquiere autoridad mediante un vínculo persistido
+    Given WorkOS emitió un JWT válido para el resource MCP y el scope requerido
+    When Kiwi reautoriza el tuple verificado issuer, client_id y sub
+    Then sólo una coincidencia activa resuelve una identidad interna
+    And org_id, prompt, argumentos y meta del cliente no cambian organización, perfil ni sucursales
+    And un tuple ausente, parcial, ambiguo o revocado falla cerrado
+
+  @BDD-SC-824
+  Scenario: Vincular o revocar WorkOS exige control humano y reactivación explícita
+    Given un administrador guarda, reemplaza o revoca el vínculo OAuth de un especialista
+    When la versión esperada coincide con la política vigente
+    Then Kiwi incrementa authorization_version, audita el actor sin guardar tokens y deshabilita la identidad
+    And el vínculo anterior deja de resolver en la siguiente solicitud
+    And sólo una reactivación administrativa vuelve a permitir llamadas con la política persistida

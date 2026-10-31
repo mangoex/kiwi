@@ -22,6 +22,7 @@ La jerarquía documental es:
 12. `codex/CODEX_IMPORT_PROMPT.md`: prompt inicial para importar este contexto a Codex.
 13. `docs/14-grokbot-agent-tools-api.md`: contrato candidato y guía compartible para preparar la
     conexión de GrokBot con las cuatro identidades técnicas de Kiwi.
+14. `docs/15-workos-mcp.md`: alta segura de WorkOS AuthKit/Connect, vínculo OAuth y canary MCP.
 
 ## Regla principal
 

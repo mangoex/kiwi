@@ -8,7 +8,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import httpx
 import jwt
@@ -21,6 +21,7 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
+from pydantic import AnyHttpUrl
 from sqlalchemy.orm import Session
 
 from restaurant_os import agent_tools
@@ -236,7 +237,7 @@ class KiwiOAuthTokenVerifier(TokenVerifier):
     async def verify_token(self, token: str) -> AccessToken | None:
         if self._settings.mcp_issuer_url is None or self._settings.mcp_resource_server_url is None:
             return None
-        issuer = str(self._settings.mcp_issuer_url)
+        issuer = str(self._settings.mcp_issuer_url).rstrip("/")
         resource = str(self._settings.mcp_resource_server_url)
         try:
             header = jwt.get_unverified_header(token)
@@ -261,17 +262,23 @@ class KiwiOAuthTokenVerifier(TokenVerifier):
                 options={"require": ["aud", "exp", "iat", "iss", "sub"]},
             )
             subject = payload["sub"]
+            client_id = payload["client_id"]
             expires_at = int(payload["exp"])
         except (httpx.HTTPError, jwt.PyJWTError, KeyError, TypeError, ValueError):
             return None
-        if not isinstance(subject, str) or not subject:
+        if (
+            not isinstance(subject, str)
+            or not subject
+            or not isinstance(client_id, str)
+            or not client_id
+        ):
             return None
         scopes = _scopes(payload.get("scope"))
         if self._settings.mcp_required_scope not in scopes:
             return None
         return AccessToken(
             token=token,
-            client_id=str(payload.get("client_id") or subject),
+            client_id=client_id,
             subject=subject,
             scopes=scopes,
             expires_at=expires_at,
@@ -290,10 +297,18 @@ def _scopes(value: object) -> list[str]:
 
 def _external_principal(session: Session) -> agent_tools.AgentPrincipal:
     access_token = get_access_token()
-    if access_token is None or not access_token.subject:
+    if access_token is None or not access_token.subject or not access_token.client_id:
+        raise ToolError("agent_unauthorized")
+    issuer = (access_token.claims or {}).get("iss")
+    if not isinstance(issuer, str) or not issuer:
         raise ToolError("agent_unauthorized")
     try:
-        return agent_tools._agent_for_external_subject(session, access_token.subject)
+        return agent_tools._agent_for_external_oauth(
+            session,
+            issuer=issuer,
+            subject=access_token.subject,
+            client_id=access_token.client_id,
+        )
     except HTTPException as exc:
         raise _safe_tool_error(exc) from exc
 
@@ -415,7 +430,10 @@ def create_mcp_server(
         description="Governed read-only RestaurantOS Agent Tools",
         token_verifier=token_verifier or KiwiOAuthTokenVerifier(settings),
         auth=AuthSettings(
-            issuer_url=settings.mcp_issuer_url,
+            # AuthSettings preserves an empty path only when it receives the
+            # canonical string. Passing Pydantic's AnyHttpUrl would reintroduce
+            # a trailing slash and publish a different OAuth issuer.
+            issuer_url=cast(AnyHttpUrl, str(settings.mcp_issuer_url).rstrip("/")),
             resource_server_url=settings.mcp_resource_server_url,
             required_scopes=[settings.mcp_required_scope],
             validate_token_resource=True,
