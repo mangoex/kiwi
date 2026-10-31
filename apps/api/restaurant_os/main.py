@@ -1,23 +1,18 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
 import logging
 import os
 import re
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
-from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy.orm import Session
 
 from restaurant_os.agent_rate_limit import RedisAgentRateLimiter
@@ -32,7 +27,6 @@ from restaurant_os.delivery_fee_api import router as delivery_fee_router
 from restaurant_os.financial_access_api import router as financial_access_router
 from restaurant_os.financial_reads_api import router as financial_reads_router
 from restaurant_os.health import readiness_payload
-from restaurant_os.mcp_server import KiwiOAuthTokenVerifier, create_mcp_server
 from restaurant_os.mobile_customer_api import router as mobile_customer_router
 from restaurant_os.phone_verification import TwilioPhoneVerifier
 from restaurant_os.public_order_rate_limit import (
@@ -58,18 +52,6 @@ def _agent_rate_identity(authorization: str, secret_key: str) -> str:
         if payload and payload.get("typ") == "agent" and payload.get("sub"):
             return f"agent:{str(payload['sub'])[:64]}"
     return "unauthenticated"
-
-
-def _mcp_preauth_rate_signal(authorization: str, secret_key: str) -> str:
-    """Bucket an untrusted bearer without trusting any of its JWT claims."""
-    scheme, separator, bearer = authorization.partition(" ")
-    bearer = bearer.strip()
-    if not separator or scheme.lower() != "bearer" or not bearer:
-        return "unauthenticated"
-    digest = hmac.new(
-        secret_key.encode("utf-8"), bearer.encode("utf-8"), hashlib.sha256
-    ).hexdigest()
-    return f"oauth-token:{digest}"
 
 
 def _agent_log_context(request: Request, identity_signal: str) -> dict[str, str | None]:
@@ -111,40 +93,7 @@ def _with_device_variant_headers(response: Response) -> Response:
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    mcp_app = None
-    mcp_token_verifier = None
-    if settings.mcp_enabled:
-        if settings.mcp_resource_server_url is None:  # guarded by Settings; keeps typing explicit
-            raise RuntimeError("MCP resource server URL is required")
-        resource_url = urlsplit(str(settings.mcp_resource_server_url))
-        if not resource_url.hostname or not resource_url.netloc:
-            raise RuntimeError("MCP resource server URL host is invalid")
-        mcp_token_verifier = KiwiOAuthTokenVerifier(settings)
-        mcp_server = create_mcp_server(settings, mcp_token_verifier)
-        mcp_app = mcp_server.streamable_http_app(
-            streamable_http_path="/mcp",
-            json_response=True,
-            stateless_http=True,
-            max_request_body_size=settings.mcp_max_request_body_bytes,
-            session_idle_timeout=None,
-            max_sessions=100,
-            host=resource_url.hostname,
-            transport_security=TransportSecuritySettings(
-                enable_dns_rebinding_protection=True,
-                allowed_hosts=[resource_url.netloc],
-                allowed_origins=[f"{resource_url.scheme}://{resource_url.netloc}"],
-            ),
-        )
-
-    @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        if mcp_app is None:
-            yield
-            return
-        async with mcp_app.router.lifespan_context(mcp_app):
-            yield
-
-    app = FastAPI(title="RestaurantOS API", version=settings.app_version, lifespan=lifespan)
+    app = FastAPI(title="RestaurantOS API", version=settings.app_version)
     app.add_middleware(WorkspaceBodyLimitMiddleware)
     app.state.public_order_intents_enabled = settings.public_order_intents_enabled
     app.state.mobile_customer_access_enabled = settings.mobile_customer_access_enabled
@@ -318,35 +267,21 @@ def create_app() -> FastAPI:
         async def governed_agent_rate_limit(
             request: Request, call_next: Callable[[Request], Awaitable[Response]]
         ) -> Response:
-            if not request.url.path.startswith(
-                ("/api/v1/agent-auth/", "/api/v1/agent-tools/", "/mcp")
-            ):
+            if not request.url.path.startswith(("/api/v1/agent-auth/", "/api/v1/agent-tools/")):
                 return await call_next(request)
             authorization = request.headers.get("authorization", "")[:4096]
             client_host = request.client.host if request.client else "unknown"
-            if request.url.path.startswith("/mcp") and mcp_token_verifier is not None:
-                _, _, bearer = authorization.partition(" ")
-                bearer = bearer.strip()
-                identity_signal = "unauthenticated"
-                preauth_signal = _mcp_preauth_rate_signal(authorization, settings.secret_key)
-                client_signal = (
-                    preauth_signal
-                    if preauth_signal != "unauthenticated"
-                    else f"unauthenticated:{client_host}"
-                )
-            else:
-                identity_signal = _agent_rate_identity(authorization, settings.secret_key)
-                client_signal = (
-                    identity_signal
-                    if identity_signal != "unauthenticated"
-                    else f"unauthenticated:{client_host}"
-                )
-            if request.url.path.startswith("/api/v1/agent-auth/"):
-                namespace = "grokbot-agent-auth"
-            elif request.url.path.startswith("/mcp"):
-                namespace = "restaurantos-mcp"
-            else:
-                namespace = "grokbot-agent-tools"
+            identity_signal = _agent_rate_identity(authorization, settings.secret_key)
+            client_signal = (
+                identity_signal
+                if identity_signal != "unauthenticated"
+                else f"unauthenticated:{client_host}"
+            )
+            namespace = (
+                "grokbot-agent-auth"
+                if request.url.path.startswith("/api/v1/agent-auth/")
+                else "grokbot-agent-tools"
+            )
             limiter = getattr(request.app.state, "grokbot_agent_rate_limiter", None)
             started = time.monotonic()
             try:
@@ -393,10 +328,6 @@ def create_app() -> FastAPI:
                         }
                     },
                 )
-            if request.url.path.startswith("/mcp") and mcp_token_verifier is not None and bearer:
-                access_token = await mcp_token_verifier.verify_token(bearer)
-                if access_token is not None and access_token.subject:
-                    identity_signal = f"agent:{access_token.subject[:64]}"
             response = await call_next(request)
             accepted = response.status_code < 400
             event = "agent.request.accepted" if accepted else "agent.request.denied"
@@ -539,12 +470,6 @@ def create_app() -> FastAPI:
             "version": settings.app_version,
             "commit": settings.git_commit,
         }
-
-    if mcp_app is not None:
-        # Keep the MCP app's authentication middleware around both /mcp and
-        # its RFC 9728 protected-resource metadata route. The mount is last so
-        # existing RestaurantOS routes retain precedence.
-        app.mount("/", mcp_app)
 
     return app
 

@@ -95,21 +95,3 @@ Ejecuta `tests/architecture/test_traceability.py`, contrato MCP focal, Ruff, myp
 runtime cruza REST/MCP y ejecuta auditoría Sol independiente con contexto fresco. CI corre la suite
 completa aplicable. Browser/Admin sólo se activa si cambia la gestión visual. Publicación Git no
 acredita deploy, migración, secretos, configuración, canary ni comportamiento productivo.
-
-## Evidencia local parcial — 2026-10-30
-
-`apps/api/tests/test_mcp_contract.py` ejecuta parcialmente TDD-TC-481/482/483/484/492: manifiesto de
-dieciséis lecturas contra OpenAPI, flag default-off, configuración fail-closed, firma JWT/JWKS,
-issuer/audience/scope/expiración, metadata RFC 9728, intercambio HTTP moderno, catálogo filtrado con
-TTL cero, revocación en la siguiente solicitud, resistencia al envenenamiento del bucket con un
-`sub` no firmado y un recorrido con el cliente oficial MCP 2.3.0. JWKS rechaza redirecciones,
-credenciales embebidas e IP literales no globales en producción y corta el stream sobre 256 KiB. La
-autoridad y datos son fixtures sintéticos; no se usaron credenciales ni red productiva.
-
-TDD-TC-493 tiene evidencia local focal de Ruff, mypy, trazabilidad, locks y regresiones Agent Tools.
-Esto no completa TDD-TS-163: siguen pendientes la paridad de las dieciséis lecturas, toda la matriz
-de perfiles/capacidades/sucursales, schemas cerrados, allowlist/egress DNS para JWKS, límite por
-identidad OAuth ya verificada, límites globales y redacción, CI completa y los casos de fases B/C.
-La auditoría R3 independiente no encontró P0; el poisoning de bucket se corrigió, pero ratificó esos
-bloqueantes de release. PostgreSQL, migraciones y browser no se activan para este scaffold sin
-cambios de persistencia, concurrencia o UI.

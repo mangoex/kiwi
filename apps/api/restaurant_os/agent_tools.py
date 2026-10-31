@@ -857,30 +857,6 @@ def _agent(
     return _principal_from_row(session, dict(identity), integration)
 
 
-def _agent_for_external_subject(session: Session, subject: str) -> AgentPrincipal:
-    """Resolve an OAuth subject through the current persisted Agent Tools authority."""
-    identity = (
-        session.execute(
-            sa.select(models.external_agent_identities).where(
-                models.external_agent_identities.c.id == subject,
-            )
-        )
-        .mappings()
-        .first()
-    )
-    integration = _integration_row(session)
-    if not identity or not integration:
-        _fail(403, "agent_disabled", "Agent authority no longer exists")
-    if (
-        identity["integration_id"] != integration["id"]
-        or not identity["is_enabled"]
-        or not integration["is_enabled"]
-        or integration["state"] != "CONNECTED"
-    ):
-        _fail(403, "agent_disabled", "Agent authority was disabled or rotated")
-    return _principal_from_row(session, dict(identity), integration)
-
-
 def _capability(principal: AgentPrincipal, capability: str) -> None:
     if (
         capability not in principal.capabilities
