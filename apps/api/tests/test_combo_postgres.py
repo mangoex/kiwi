@@ -230,7 +230,7 @@ def test_combo_postgres_downgrade_blocks_accepted_snapshot_history() -> None:
             ).mappings())
             assert after == before
             assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == (
-                "0104_purchase_draft_edits"
+                "0105_mcp_oauth_bindings"
             )
     finally:
         engine.dispose()

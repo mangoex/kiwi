@@ -14,11 +14,12 @@ import sqlalchemy as sa
 import tomllib
 import yaml
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from pydantic import ValidationError
-from restaurant_os import models
+from restaurant_os import agent_tools, models
 from restaurant_os.config import Settings, get_settings
 from restaurant_os.database import get_session
 from restaurant_os.main import create_app
@@ -27,8 +28,8 @@ from restaurant_os.mcp_server import (
     KiwiOAuthTokenVerifier,
     create_mcp_server,
 )
-from sqlalchemy.orm import Session
-from test_agent_tools import _configure, _factory
+from sqlalchemy.orm import Session, sessionmaker
+from test_agent_tools import _client, _configure, _factory
 
 ROOT = Path(__file__).resolve().parents[3]
 AGENT_OPENAPI = ROOT / "packages/contracts/openapi/kiwi-agent-tools-v1.openapi.yaml"
@@ -46,7 +47,7 @@ def _oauth_key_material() -> tuple[object, dict[str, object]]:
 def _oauth_token(private_key: object, subject: str, **claims: object) -> str:
     now = int(time.time())
     payload = {
-        "iss": "https://auth.example.com/",
+        "iss": "https://auth.example.com",
         "aud": "https://api.example.com/mcp",
         "sub": subject,
         "client_id": "mcp-test-client",
@@ -61,6 +62,36 @@ def _oauth_token(private_key: object, subject: str, **claims: object) -> str:
         algorithm="RS256",
         headers={"kid": "mcp-test-key"},
     )
+
+
+def _bind_oauth_subject(
+    factory: sessionmaker[Session],
+    *,
+    agent_client_id: str,
+    subject: str,
+    oauth_client_id: str = "mcp-test-client",
+) -> str:
+    with factory() as session:
+        identity_id = session.scalar(
+            sa.select(models.external_agent_identities.c.id).where(
+                models.external_agent_identities.c.client_id == agent_client_id
+            )
+        )
+        assert identity_id is not None
+        session.execute(
+            models.external_agent_oauth_bindings.insert().values(
+                identity_id=identity_id,
+                organization_id="018f6f73-2d0a-74f0-8f1c-000000000001",
+                issuer="https://auth.example.com",
+                subject=subject,
+                oauth_client_id=oauth_client_id,
+                created_by_user_id="018f6f73-2d0a-74f0-8f1c-000000000006",
+                created_at=sa.func.now(),
+                updated_at=sa.func.now(),
+            )
+        )
+        session.commit()
+    return str(identity_id)
 
 
 def test_tdd_tc_481_read_manifest_matches_agent_tools_contract() -> None:
@@ -184,6 +215,13 @@ def test_tdd_tc_483_token_verifier_requires_signature_issuer_resource_and_scope(
     assert accepted.subject == subject
     assert accepted.resource == "https://api.example.com/mcp"
 
+    missing_client = _oauth_token(private_key, subject, client_id=None)
+    assert asyncio.run(verifier.verify_token(missing_client)) is None
+    trailing_slash_issuer = _oauth_token(
+        private_key, subject, iss="https://auth.example.com/"
+    )
+    assert asyncio.run(verifier.verify_token(trailing_slash_issuer)) is None
+
     for claim, replacement in (
         ("iss", "https://other.example.com/"),
         ("aud", "https://api.example.com/other"),
@@ -240,6 +278,47 @@ def test_tdd_tc_483_token_verifier_requires_signature_issuer_resource_and_scope(
     assert asyncio.run(unavailable.verify_token(valid)) is None
 
 
+def test_tdd_tc_494_external_authority_requires_exact_persisted_tuple() -> None:
+    factory = _factory()
+    client = _client(factory)
+    agent_client_id, _ = _configure(
+        client,
+        "administrator",
+        ["agent.context.read", "agent.catalog.read"],
+    )
+    subject = "user_01JWORKOSADMIN0494"
+    identity_id = _bind_oauth_subject(
+        factory,
+        agent_client_id=agent_client_id,
+        subject=subject,
+        oauth_client_id="client_grokbot_mcp",
+    )
+
+    with factory() as session:
+        principal = agent_tools._agent_for_external_oauth(
+            session,
+            issuer="https://auth.example.com",
+            subject=subject,
+            client_id="client_grokbot_mcp",
+        )
+        assert principal.identity_id == identity_id
+        for issuer, external_subject, oauth_client_id in (
+            ("https://other.example.com", subject, "client_grokbot_mcp"),
+            ("https://auth.example.com", "user_other", "client_grokbot_mcp"),
+            ("https://auth.example.com", subject, "client_rakazo_mcp"),
+            ("https://auth.example.com", identity_id, "client_grokbot_mcp"),
+        ):
+            with pytest.raises(HTTPException) as denied:
+                agent_tools._agent_for_external_oauth(
+                    session,
+                    issuer=issuer,
+                    subject=external_subject,
+                    client_id=oauth_client_id,
+                )
+            assert denied.value.status_code == 403
+            assert denied.value.detail["code"] == "agent_disabled"
+
+
 def test_tdd_tc_483_http_boundary_challenges_before_tool_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -257,7 +336,7 @@ def test_tdd_tc_483_http_boundary_challenges_before_tool_execution(
         assert metadata.status_code == 200
         assert metadata.json() == {
             "resource": "https://api.example.com/mcp",
-            "authorization_servers": ["https://auth.example.com/"],
+            "authorization_servers": ["https://auth.example.com"],
             "scopes_supported": ["restaurantos:mcp.read"],
             "bearer_methods_supported": ["header"],
         }
@@ -311,14 +390,9 @@ def test_tdd_tc_482_484_modern_http_exchange_filters_calls_and_reauthorizes(
             "administrator",
             ["agent.context.read", "agent.catalog.read", "agent.sales.read"],
         )
-        with factory() as session:
-            subject = session.scalar(
-                sa.select(models.external_agent_identities.c.id).where(
-                    models.external_agent_identities.c.client_id == client_id
-                )
-            )
-        assert subject is not None
-        bearer = _oauth_token(private_key, str(subject))
+        subject = "user_01JWORKOSADMIN0001"
+        identity_id = _bind_oauth_subject(factory, agent_client_id=client_id, subject=subject)
+        bearer = _oauth_token(private_key, subject, org_id="external-untrusted-org")
         limited: list[tuple[str, str]] = []
 
         class CaptureLimiter:
@@ -337,7 +411,7 @@ def test_tdd_tc_482_484_modern_http_exchange_filters_calls_and_reauthorizes(
             client.post(
                 "/mcp",
                 headers={
-                    "Authorization": f"Bearer {_oauth_token(key, str(subject))}",
+                    "Authorization": f"Bearer {_oauth_token(key, subject)}",
                     "MCP-Protocol-Version": "2026-07-28",
                     "Mcp-Method": "tools/list",
                 },
@@ -396,12 +470,12 @@ def test_tdd_tc_482_484_modern_http_exchange_filters_calls_and_reauthorizes(
         assert called.status_code == 200, called.text
         result = called.json()["result"]
         assert result["isError"] is False
-        assert result["structuredContent"]["identity_id"] == subject
+        assert result["structuredContent"]["identity_id"] == identity_id
 
         with factory() as session:
             session.execute(
                 sa.update(models.external_agent_identities)
-                .where(models.external_agent_identities.c.id == subject)
+                .where(models.external_agent_identities.c.id == identity_id)
                 .values(is_enabled=False)
             )
             session.commit()
@@ -470,13 +544,8 @@ def test_tdd_tc_492_official_client_lists_and_calls_read_only_tools(
             "administrator",
             ["agent.context.read", "agent.catalog.read"],
         )
-    with factory() as session:
-        subject = session.scalar(
-            sa.select(models.external_agent_identities.c.id).where(
-                models.external_agent_identities.c.client_id == client_id
-            )
-        )
-    assert subject is not None
+    subject = "user_01JWORKOSADMIN0002"
+    identity_id = _bind_oauth_subject(factory, agent_client_id=client_id, subject=subject)
 
     mcp_settings = Settings(
         **common_settings,
@@ -495,7 +564,7 @@ def test_tdd_tc_492_official_client_lists_and_calls_read_only_tools(
     monkeypatch.setattr(KiwiOAuthTokenVerifier, "_fetch_jwks", fake_fetch_jwks)
     app = create_app()
     app.dependency_overrides[get_session] = override_session
-    bearer = _oauth_token(private_key, str(subject))
+    bearer = _oauth_token(private_key, subject)
 
     async def exercise_client() -> None:
         transport = httpx2.ASGITransport(app=app)
@@ -520,6 +589,6 @@ def test_tdd_tc_492_official_client_lists_and_calls_read_only_tools(
                     called = await client.call_tool("context", {})
                     assert called.is_error is False
                     assert called.structured_content is not None
-                    assert called.structured_content["identity_id"] == subject
+                    assert called.structured_content["identity_id"] == identity_id
 
     asyncio.run(exercise_client())
