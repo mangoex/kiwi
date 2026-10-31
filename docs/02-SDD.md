@@ -7827,3 +7827,121 @@ capacidad de acción distinta de lectura, concesiones explícitas por dataset/su
 DTO v2 con allowlist, replay reautorizado, reporte operativo y cierre de vías indirectas.
 Se especifica migración futura aditiva; no hay grants, esquemas ejecutables ni rutas
 nuevas instalados. Matriz conserva Disenado; evidencia baseline no prueba esta política.
+
+## 72. MCP-001 — Servidor MCP gobernado para bots externos
+
+### SDD-ADR-049 — MCP como adaptador sobre Agent Tools y servicios compartidos
+
+Se adopta un único endpoint remoto `/mcp`, montado en la aplicación FastAPI mediante el SDK oficial
+de Python y deshabilitado por defecto. MCP es una frontera de transporte y descubrimiento, no una
+nueva autoridad de dominio. La implementación extrae o reutiliza un `AgentToolsService` tipado; las
+rutas REST y cada herramienta MCP invocan el mismo servicio, con el mismo `AgentPrincipal`, esquema,
+autorización, paginación, idempotencia, auditoría y resultado. No hay HTTP interno entre ambos
+adaptadores ni una segunda implementación de reglas.
+
+Se rechazan:
+
+- acceso MCP directo a PostgreSQL o a repositorios de persistencia;
+- una herramienta genérica `call_api`, SQL, URL o nombre de operación libre;
+- generación automática de herramientas desde todas las rutas FastAPI/OpenAPI;
+- bearer, cookies o sesiones humanas y una credencial maestra compartida por bots;
+- comandos directos para aplicar propuestas, confirmar/recibir/pagar/cancelar compras, mover
+  inventario, operar caja o administrar usuarios y permisos;
+- duplicar lógica de negocio o llamar a Agent Tools por la red dentro del mismo proceso.
+
+La decisión se apoya en MCP `2026-07-28`: núcleo stateless, solicitudes autocontenidas, nombres de
+método/herramienta en headers y listas deterministas con cache hints. El servidor conserva una sola
+aplicación Streamable HTTP. La compatibilidad con clientes de la era `initialize` se habilita sólo
+si un cliente canary real la necesita y siempre bajo la misma autorización. Referencias normativas:
+[especificación 2026-07-28](https://blog.modelcontextprotocol.io/posts/2026-07-28/),
+[autorización del SDK Python](https://py.sdk.modelcontextprotocol.io/run/authorization/) y
+[clientes legacy](https://py.sdk.modelcontextprotocol.io/run/legacy-clients/).
+
+### 72.1 Componentes y flujo de autoridad
+
+```text
+Bot/host MCP
+  -> servidor de autorización
+  -> POST /mcp (Streamable HTTP)
+     -> TokenVerifier OAuth
+     -> registro allowlist de herramientas
+     -> AgentPrincipal vigente
+     -> AgentToolsService compartido
+        -> servicios/proyecciones canónicos
+        -> PostgreSQL + auditoría
+
+REST /api/v1/agent-tools
+  -> AgentPrincipal vigente
+  -> mismo AgentToolsService
+```
+
+El prompt, argumentos y `_meta` nunca establecen organización, perfil, capacidades o sucursales. El
+`TokenVerifier` valida firma, `iss`, resource/audience, expiración y scopes; después se vuelven a
+consultar integración, identidad, `authorization_version`, capacidades y allowlist de sucursales en
+cada `tools/list`, `tools/call` y recuperación. Una revocación impide llamadas nuevas y resultados
+idempotentes aun cuando el catálogo haya sido cacheado por el cliente.
+
+El endpoint publica protected-resource metadata conforme al contrato OAuth aplicable. El servidor
+MCP es resource server y no emite tokens. La emisión y administración del cliente quedan en una
+autoridad separada; issuer, resource/audience y scopes se fijan por configuración. Producción falla
+cerrada ante configuración incompleta, autoridad indisponible, Redis ausente o incapacidad de
+reautorizar. Nunca se rebaja a una identidad anónima o a un perfil predeterminado.
+
+### 72.2 Registro de herramientas y paridad
+
+Un manifiesto interno versionado es la fuente de correspondencia entre nombre MCP, operación Agent
+Tools, perfil, capacidad, scope de sucursal, esquema de entrada/salida, tipo read/write y política de
+idempotencia. Contrato OpenAPI, manifiesto, runtime REST y runtime MCP deben coincidir; drift bloquea
+el release. `tools/list` devuelve orden determinista y sólo el subconjunto autorizado, con caché
+privada ligada a identidad y `authorization_version`; no usa caché compartida entre identidades.
+
+Fase A expone estas dieciséis lecturas: `context`, `catalog_items`, `sales_summary`,
+`expenses_summary`, `payments_by_method`, `cash_cuts`, `cash_daily_reconciliation`,
+`inventory_items`, `inventory_stock`, `inventory_movements`, `recipes`, `suppliers`,
+`purchase_presentations`, `purchase_history`, `purchase_needs` y `operation_status`. Cada resultado
+estructurado conserva los schemas y códigos estables de Agent Tools. Una lectura MCP y su REST
+equivalente, ejecutadas con el mismo principal y argumentos, producen la misma proyección canónica.
+
+Fase C puede agregar cuatro herramientas de escritura: `propose_catalog`,
+`propose_inventory_item`, `propose_recipe` y `create_purchase_draft`. Exigen una clave estable de
+idempotencia suministrada por el cliente y conservada en retries; el adaptador no genera una nueva
+después de timeout. Devuelven propuesta `READY_FOR_REVIEW`, compra `DRAFT` u operación recuperable,
+nunca un efecto aplicado. `operation_status` sigue disponible durante drenado para intenciones
+preexistentes y reautoriza antes de entregar el resultado.
+
+### 72.3 Identidades independientes y migración
+
+El modelo vigente de una identidad por `(integration_id, profile)` no satisface aislamiento de
+varios bots del mismo perfil. Antes del canary multibot se agrega una revisión forward-only que
+permite varias identidades por perfil y asigna a cada una un `client_key`/nombre estable, credenciales,
+estado, versión, capacidades, sucursales y auditoría propios. La unicidad se mueve a
+`(integration_id, client_key)`; perfil deja de ser identificador. El backfill crea una identidad
+legacy por fila sin ampliar capacidades ni activar integraciones. Referencias de comandos,
+credenciales y auditoría permanecen intactas.
+
+La migración tiene preflight de duplicados, claves y referencias; ida/vuelta se prueba en SQLite y
+PostgreSQL aislados. El downgrade estructural sólo se permite si no existen varias identidades del
+mismo perfil ni historia MCP incompatible. Con historia, rollback es operativo hacia adelante:
+revocar emisión, drenar recuperación, deshabilitar `/mcp` y preservar identidades, comandos y
+auditoría.
+
+### 72.4 Límites, observabilidad y rollout
+
+El transporte limita bytes de body, profundidad/esquema, tiempo, concurrencia y tasa global/por
+identidad con dimensiones seudonimizadas y acotadas. Verifica concordancia entre headers MCP, método
+JSON-RPC y herramienta. Errores y logs omiten bearer, secretos, argumentos completos, texto libre,
+PII, importes detallados e idempotency keys. Las métricas usan operación allowlist, resultado y código
+estable; no usan IDs de bot, usuario o sucursal como labels sin límite.
+
+Preguntas operativas:
+
+1. ¿Qué cliente, perfil, herramienta y alcance intentaron operar, y cuál fue el resultado estable?
+2. ¿Aumentan denegaciones, latencia o fallos de issuer, Redis o dependencia por herramienta?
+3. ¿Cuántos replays, conflictos y operaciones inciertas existen sin duplicar efectos?
+4. ¿Una revocación o drenado sigue permitiendo una herramienta o resultado que ya no corresponde?
+
+El rollout es: (A) endpoint default-off, OAuth y dieciséis lecturas con un cliente Administrador y
+una sucursal canary; (B) modelo multibot y administración independiente; (C) cuatro escrituras
+mediadas. Cada fase exige contrato, pruebas focales, PostgreSQL cuando haya persistencia/concurrencia,
+cliente MCP real, auditoría Sol independiente y CI aplicable. Despliegue, migración, secretos,
+configuración de issuer/Redis y canary productivo conservan autorización separada.
