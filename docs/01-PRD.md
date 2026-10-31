@@ -564,6 +564,27 @@ extiende automáticamente a Cajero jefe, Supervisor o Administrador.
   misma clave con otro cuerpo falla. Los callbacks se firman con key ID, se verifican contra
   timestamp/ventana de replay y sólo notifican cambios de estado redactados. Deshabilitar o rotar una
   identidad corta nuevas llamadas sin convertir operaciones inciertas en éxito.
+- `PRD-FR-301`: Kiwi debe ofrecer un único servidor MCP remoto, deshabilitado por defecto y
+  desacoplado de proveedores de bots, sobre la autoridad existente de Agent Tools. El servidor
+  publica exclusivamente herramientas declaradas en una allowlist versionada; no expone todas las
+  rutas internas ni acepta una operación HTTP, ruta, perfil, organización, capacidad o sucursal
+  arbitrarios. Su primera habilitación es de sólo lectura, para una identidad y sucursal canary.
+- `PRD-FR-302`: Cada bot o cliente MCP debe tener identidad técnica, credencial, estado, versión de
+  autorización y auditoría independientes, incluso cuando dos bots compartan el mismo perfil
+  `administrator`, `kitchen`, `inventory` o `purchasing`. Revocar un cliente no debe revocar ni
+  atribuir llamadas a otro. La autoridad efectiva sigue siendo la intersección entre organización,
+  integración, identidad, perfil, capacidades y sucursales vigentes.
+- `PRD-FR-303`: El catálogo MCP de lectura debe corresponder uno a uno con las dieciséis lecturas
+  aprobadas de Agent Tools: contexto, catálogo, resumen de ventas, gastos, pagos por método, cortes,
+  conciliación diaria, insumos, existencias, movimientos, recetas, proveedores, presentaciones,
+  historial de compras, necesidades de compra y consulta de operación. `tools/list` sólo muestra las
+  herramientas autorizadas para la identidad vigente; cada llamada reautoriza y conserva paridad de
+  esquema, minimización, sucursal, paginación y errores con la operación REST equivalente.
+- `PRD-FR-304`: Una fase posterior puede exponer sólo cuatro escrituras MCP mediadas: propuesta de
+  catálogo, propuesta de insumo, propuesta de receta y borrador de compra. Mantienen
+  `Idempotency-Key`, recuperación de operación y los estados `READY_FOR_REVIEW` o `DRAFT`; MCP no
+  agrega comandos para aplicar propuestas, confirmar, recibir, pagar o cancelar compras, mover
+  inventario, operar caja, administrar usuarios o ampliar permisos.
 - `PRD-FR-277`: Kiwi debe admitir la integración bidireccional con Asistto Tech Provider para atender
   clientes por WhatsApp en modo coexistencia con la app móvil de WhatsApp Business. El conector expone
   un webhook entrante autenticado mediante secreto de validación, despacha respuestas hacia la URL de retorno
@@ -1701,6 +1722,15 @@ facultades concedidas (incluida captura inicial por Dueño).
   link-local, metadata, hosts internos ni resolución DNS que cambie a un destino prohibido. Toda
   ruta externa aplica límites globales y por identidad con claves seudonimizadas; producción exige
   Redis y un secreto HMAC dedicado y falla cerrada si el limitador no está disponible.
+- `PRD-NFR-033 Seguridad, compatibilidad y operación MCP`: El endpoint remoto `/mcp` actúa como
+  resource server OAuth y valida firma, emisor, audiencia/recurso, expiración y scopes antes de
+  construir un `AgentPrincipal`; no emite tokens ni reutiliza sesiones humanas. El transporte
+  principal es Streamable HTTP stateless conforme a MCP `2026-07-28`, con límites de cuerpo,
+  tiempo, concurrencia y tasa, catálogos deterministas de caché privada y compatibilidad legacy sólo
+  cuando un cliente canary la requiera. Headers, body y nombre de herramienta deben concordar. La
+  configuración productiva falla cerrada sin issuer, resource/audience, autoridad, Redis o secretos
+  requeridos. Logs, métricas y trazas no incluyen bearer, credenciales, cuerpos completos, texto
+  libre, PII, datos financieros detallados ni claves de idempotencia.
 
 ## 6. Métricas de éxito
 
