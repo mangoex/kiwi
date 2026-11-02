@@ -22,19 +22,30 @@ Referencias oficiales: [WorkOS MCP](https://workos.com/docs/authkit/mcp),
 
 ## 2. Preparar WorkOS
 
-1. Configura un dominio AuthKit HTTPS para el ambiente canary.
+1. Configura un dominio AuthKit HTTPS para el ambiente canary (por ejemplo,
+   `https://pleasing-ghost-31-staging.authkit.app`).
 2. En **Connect → Configuration**, habilita CIMD. Habilita DCR porque Grok y clientes similares
    pueden usar registro dinámico cuando no conocen un client ID previamente.
-3. Registra `https://<host>/mcp` como Resource Indicator y como recurso default para clientes que no
-   envíen `resource`.
-4. Solicita a WorkOS que `restaurantos:mcp.read` sea scope default del ambiente para clientes
-   CIMD/DCR, o asígnalo al cliente registrado. No habilites Kiwi si el token canary no contiene ese
-   scope.
+3. Registra `https://<host>/mcp` (por ejemplo,
+   `https://paperclip-kiwirestaurante.yroec7.easypanel.host/mcp`) como Resource Indicator y como
+   recurso default para clientes que no envíen `resource`.
+4. Con la configuración de default scopes habilitada en WorkOS para el equipo:
+   - En **Authorization → Permissions**, crea un permiso con slug exacto `restaurantos:mcp.read`.
+   - En **Connect → Configuration → MCP Auth → Default scopes**, selecciona `restaurantos:mcp.read` y
+     guarda.
+   - Esta configuración es por ambiente (debe repetirse en Production al salir a vivo) y otorga el
+     scope por defecto a los clientes registrados mediante DCR o CIMD en ese ambiente. El claim
+     `scope` separado por espacios incluirá `restaurantos:mcp.read` junto con scopes estándar como
+     `openid` u `offline_access`; Kiwi verifica que `restaurantos:mcp.read` esté presente y aún exige
+     el vínculo interno `(iss, client_id, sub)` antes de autorizar cualquier lectura.
 5. Conserva estos valores no secretos:
 
-   - issuer: `https://<dominio-authkit>` (usa exactamente el valor publicado, sin `/` final)
-   - JWKS: `https://<dominio-authkit>/oauth2/jwks`
-   - resource: `https://<host>/mcp`
+   - issuer: `https://<dominio-authkit>` (usa exactamente el valor publicado en `.well-known`, sin `/`
+     final; ej. `https://pleasing-ghost-31-staging.authkit.app`)
+   - JWKS: `https://<dominio-authkit>/oauth2/jwks` (ej.
+     `https://pleasing-ghost-31-staging.authkit.app/oauth2/jwks`)
+   - resource: `https://<host>/mcp` (ej.
+     `https://paperclip-kiwirestaurante.yroec7.easypanel.host/mcp`)
 
 ## 3. Variables de Kiwi, todavía con MCP apagado
 

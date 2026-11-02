@@ -208,12 +208,17 @@ def test_tdd_tc_483_token_verifier_requires_signature_issuer_resource_and_scope(
 
     verifier = KiwiOAuthTokenVerifier(settings, load_jwks)
     subject = "018f6f73-2d0a-74f0-8f1c-000000000901"
-    valid = _oauth_token(private_key, subject)
+    valid = _oauth_token(
+        private_key,
+        subject,
+        scope="openid offline_access restaurantos:mcp.read",
+    )
     accepted = asyncio.run(verifier.verify_token(valid))
     assert accepted is not None
     assert accepted.client_id == "mcp-test-client"
     assert accepted.subject == subject
     assert accepted.resource == "https://api.example.com/mcp"
+    assert accepted.scopes == ["offline_access", "openid", "restaurantos:mcp.read"]
 
     missing_client = _oauth_token(private_key, subject, client_id=None)
     assert asyncio.run(verifier.verify_token(missing_client)) is None
