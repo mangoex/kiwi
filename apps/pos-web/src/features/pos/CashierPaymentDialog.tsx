@@ -5,6 +5,8 @@ import { formatMxnCents } from './cartMoney';
 import { useCashTenderPreview, type CashTender, type OrderRequest } from './useCashTenderPreview';
 import { clearPaymentAttempt, paymentWasDefinitelyRejected, readPaymentAttempt, storePaymentAttempt, submitCashierPayment,
   type PaymentAttempt } from './cashierPayment';
+import { Printer } from 'lucide-react';
+import { ThermalReceiptModal, buildTicketPrintData, buildKitchenPrintData, type OrderLike } from '../printing';
 
 export function CashierPaymentDialog({ orderId, folio, authority, registerId, request, initialMethod,
   onClose, onPaid }: {
@@ -20,6 +22,9 @@ export function CashierPaymentDialog({ orderId, folio, authority, registerId, re
   const busyRef = useRef(false);
   const [error, setError] = useState('');
   const [paid, setPaid] = useState<{ cash_tender?: CashTender; order_status: string } | null>(null);
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [orderDetail, setOrderDetail] = useState<OrderLike | null>(null);
+  const [loadingReceipt, setLoadingReceipt] = useState(false);
   const compatible = !stored.error && (!attempt || (attempt.authority === authority && attempt.orderId === orderId));
   const preview = useCashTenderPreview(request, authority, `/orders/${orderId}/payment-preview`,
     attempt || paid ? null : { method, ...(method === 'cash' && received.trim() ? { received_cash: received } : {}) });
@@ -27,6 +32,28 @@ export function CashierPaymentDialog({ orderId, folio, authority, registerId, re
   if (preview?.data) totalRef.current = preview.data.total_cents;
   const canConfirm = compatible && !busy && (Boolean(attempt) || Boolean(preview?.data
     && preview.data.total_cents > 0 && (method !== 'cash' || preview.data.cash_tender?.can_confirm)));
+  const openReceipt = async () => {
+    if (!orderDetail) {
+      setLoadingReceipt(true);
+      try {
+        const detail = await request<OrderLike>(`/orders/${encodeURIComponent(orderId)}`);
+        setOrderDetail(detail);
+        setReceiptOpen(true);
+      } catch {
+        setOrderDetail({
+          folio,
+          total_cents: preview?.data?.total_cents || 0,
+          created_at: new Date().toISOString(),
+        });
+        setReceiptOpen(true);
+      } finally {
+        setLoadingReceipt(false);
+      }
+    } else {
+      setReceiptOpen(true);
+    }
+  };
+
 
   const confirm = async () => {
     if (busyRef.current || !canConfirm) return;
@@ -63,7 +90,12 @@ export function CashierPaymentDialog({ orderId, folio, authority, registerId, re
       <p>El cobro no cambia el estado de preparación ni confirma la entrega.</p>
       <p>Las impresiones quedan en cola; consulta su estado antes de reimprimir.</p>
       {error && <p role="alert">{error}</p>}
-      <Button onClick={onClose}>Volver a pedidos</Button>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <Button variant="primary" disabled={loadingReceipt} onClick={() => void openReceipt()} title="Ver e imprimir ticket o comanda térmica">
+          <Printer size={16} /> {loadingReceipt ? 'Cargando ticket…' : 'Imprimir Ticket / Comanda'}
+        </Button>
+        <Button variant="secondary" onClick={onClose}>Volver a pedidos</Button>
+      </div>
     </section> : <>
       {!compatible ? <p role="alert">Este cobro pendiente pertenece a otra sesión, caja o transporte. Restablece su contexto para recuperarlo.</p> : null}
       {attempt ? <section className="pos-cashier-payment-result">
@@ -88,5 +120,17 @@ export function CashierPaymentDialog({ orderId, folio, authority, registerId, re
         {busy ? 'Confirmando…' : attempt ? 'Recuperar confirmación' : 'Confirmar pago recibido'}
       </Button>
     </>}
+      {receiptOpen && orderDetail && (
+      <ThermalReceiptModal
+        isOpen={receiptOpen}
+        onClose={() => setReceiptOpen(false)}
+        ticketData={buildTicketPrintData(orderDetail, {
+          cashTender: paid?.cash_tender
+            ? { receivedCents: paid.cash_tender.received_cents, changeCents: paid.cash_tender.change_cents }
+            : null,
+        })}
+        kitchenData={buildKitchenPrintData(orderDetail)}
+      />
+    )}
   </Modal>;
 }

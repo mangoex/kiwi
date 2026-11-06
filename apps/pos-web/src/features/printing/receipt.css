@@ -1,0 +1,123 @@
+/* Estilos para vista previa e impresión de tickets térmicos (80mm / 58mm) */
+
+.thermal-receipt-modal-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-height: 80vh;
+}
+
+.thermal-receipt-tabs {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 8px;
+}
+
+.thermal-tab-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.thermal-tab-btn.active {
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+}
+
+/* Contenedor del papel térmico simulado en pantalla */
+.thermal-paper-scroll {
+  width: 100%;
+  max-height: 52vh;
+  overflow-y: auto;
+  background: #e2e8f0;
+  padding: 16px;
+  border-radius: 8px;
+  display: flex;
+  justify-content: center;
+}
+
+.thermal-paper {
+  width: 320px;
+  background: #ffffff;
+  padding: 16px 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  border-radius: 2px;
+  color: #000000;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+.thermal-receipt-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  justify-content: flex-end;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 12px;
+}
+
+/* =========================================================================
+   REGLAS CRÍTICAS PARA IMPRESIÓN FÍSICA (@media print)
+   Garantiza que sólo se imprima el rollo térmico sin encabezados de navegador
+   ========================================================================= */
+@media print {
+  @page {
+    margin: 0;
+    size: 80mm auto;
+  }
+
+  /* Ocultar absolutamente todo excepto el ticket imprimible */
+  body * {
+    visibility: hidden;
+  }
+
+  body {
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  #thermal-receipt-printable,
+  #thermal-receipt-printable * {
+    visibility: visible;
+  }
+
+  #thermal-receipt-printable {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 76mm;
+    margin: 0;
+    padding: 2mm 1mm;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    font-size: 10pt !important;
+    line-height: 1.18 !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Desactivar cualquier transición o animación */
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

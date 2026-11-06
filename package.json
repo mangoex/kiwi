@@ -39,6 +39,7 @@
     "test:pos-python-authority": "node tests/frontend/test_pos_python_authority.mjs",
     "test:kds-authority": "node tests/frontend/test_kds_authority.mjs",
     "test:pos-purchases-reprint": "node tests/frontend/test_pos_purchases_and_reprint.mjs",
+    "test:thermal-receipt-printing": "node tests/frontend/test_thermal_receipt_printing.mjs",
     "test:reconciliation-reports": "node tests/frontend/test_reconciliation_reports.mjs",
     "test:pos-session-handoff": "node tests/frontend/test_pos_session_handoff.mjs",
     "test:pos-checkout-idempotency": "node tests/frontend/test_pos_checkout_idempotency.mjs",
