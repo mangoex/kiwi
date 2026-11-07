@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { 
+import {
   LayoutDashboard, Users, Settings, BarChart2, Bell, Search, UserRound,
   LogOut, Package, Store, Carrot, ChevronLeft, ChevronRight, Camera,
-  ShoppingCart, Receipt, Share2, Utensils
+  ShoppingCart, Receipt, Share2, Utensils, Sparkles
 } from 'lucide-react';
 import { Modal, Input, Button } from '@restaurantos/ui';
 import { fetchApi, clearCashierLocalCapture } from '@restaurantos/api-client';
@@ -61,7 +61,7 @@ interface MainCategoryItem {
 
 const AdminLayout = () => {
   const branchScopeV2Enabled = import.meta.env.VITE_BRANCH_SCOPE_V2_ENABLED === 'true';
-  const adminAiAssistantEnabled = import.meta.env.VITE_ADMIN_AI_ASSISTANT_ENABLED === 'true';
+  const adminAiAssistantEnabled = import.meta.env.VITE_ADMIN_AI_ASSISTANT_ENABLED !== 'false';
   const navigate = useNavigate();
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -90,6 +90,11 @@ const AdminLayout = () => {
   const branchId = session.active_branch.id;
   const [scopeError, setScopeError] = useState('');
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  useEffect(() => {
+    const handleOpen = () => setIsAssistantOpen(true);
+    window.addEventListener('open-admin-ai-assistant', handleOpen);
+    return () => window.removeEventListener('open-admin-ai-assistant', handleOpen);
+  }, []);
   const proposalId = new URLSearchParams(location.search).get('admin_ai_proposal');
 
   const currentUser = { ...getSessionUser(), ...session.user };
@@ -193,13 +198,13 @@ const AdminLayout = () => {
       if (profileData.password.trim()) {
         payload.password = profileData.password;
       }
-      
+
       const response = await fetchApi(`/users/${currentUser.id}`, {
         method: 'PUT',
         signal: controller.signal,
         body: JSON.stringify(payload)
       });
-      
+
       if (response && !controller.signal.aborted) {
         const updatedUser = {
           ...currentUser,
@@ -207,13 +212,13 @@ const AdminLayout = () => {
           email: profileData.email
         };
         localStorage.setItem('user', JSON.stringify(updatedUser));
-        
+
         if (profileAvatar) {
           localStorage.setItem(`user_avatar_${currentUser.id}`, profileAvatar);
         } else {
           localStorage.removeItem(`user_avatar_${currentUser.id}`);
         }
-        
+
         setIsProfileModalOpen(false);
         window.location.reload();
       }
@@ -408,7 +413,7 @@ const AdminLayout = () => {
             );
           })}
         </div>
-        
+
         {/* Configuración & Logout at the bottom */}
         <div style={{ padding: '12px 12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
            <button
@@ -441,10 +446,16 @@ const AdminLayout = () => {
         <header className="admin-topbar">
           <div style={{ position: 'relative' }}>
             <Search size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: 'var(--admin-text-muted)' }} />
-            <input 
-              type="text" 
+            <input
+              type="text"
               placeholder="Busca productos, recetas, precios o pide a la IA..."
               className="admin-search-input"
+              onClick={() => setIsAssistantOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setIsAssistantOpen(true);
+                }
+              }}
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -469,8 +480,31 @@ const AdminLayout = () => {
               ) : <span className="admin-active-branch-label">{session.active_branch.name}</span>}
             </div>}
             <button style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><Bell size={18} /></button>
-            {adminAiAssistantEnabled && hasCatalogManage && <button type="button" aria-label="Abrir asistente de Menú y Recetas" title="Asistente de Menú y Recetas" onClick={() => setIsAssistantOpen(true)} style={{ background: '#fff', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--admin-text-muted)', boxShadow: 'var(--admin-card-shadow)' }}><UserRound size={18} /></button>}
-            <div 
+            {adminAiAssistantEnabled && (
+              <button
+                type="button"
+                aria-label="Abrir asistente de Menú y Recetas"
+                title="Asistente de Menú y Recetas (IA)"
+                onClick={() => setIsAssistantOpen(true)}
+                style={{
+                  background: '#f0fdf4',
+                  border: '1.5px solid #86efac',
+                  borderRadius: '50%',
+                  width: 40,
+                  height: 40,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#16a34a',
+                  boxShadow: '0 2px 8px rgba(22, 163, 74, 0.15)',
+                  transition: 'transform 0.2s'
+                }}
+              >
+                <Sparkles size={19} />
+              </button>
+            )}
+            <div
               onClick={openProfileModal}
               style={{ width: 40, height: 40, borderRadius: '50%', backgroundColor: 'var(--admin-accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, overflow: 'hidden', cursor: 'pointer', border: '2px solid var(--admin-accent)' }}
               title="Editar mi perfil"
@@ -559,7 +593,7 @@ const AdminLayout = () => {
         branchId={branchId}
         branchName={branches.find((branch) => branch.id === branchId)?.name || 'Sucursal'}
       />}
-      {adminAiAssistantEnabled && hasCatalogManage && proposalId && <AdminProposalReview proposalId={proposalId} onClose={() => navigate(`${location.pathname}${location.search.replace(/([?&])admin_ai_proposal=[^&]*&?/, '$1').replace(/[?&]$/, '')}`)} />}
+      {adminAiAssistantEnabled && proposalId && <AdminProposalReview proposalId={proposalId} onClose={() => navigate(`${location.pathname}${location.search.replace(/([?&])admin_ai_proposal=[^&]*&?/, '$1').replace(/[?&]$/, '')}`)} />}
     </div>
   );
 };
