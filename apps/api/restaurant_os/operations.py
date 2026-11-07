@@ -27855,8 +27855,6 @@ def approve_physical_count_session(
     actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
-    if session.get_bind().dialect.name == "postgresql":
-        session.execute(sa.text("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"))
     key = idempotency_key.strip()
     if not key:
         raise BusinessError(
