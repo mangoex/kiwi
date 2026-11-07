@@ -6,6 +6,14 @@ RUN corepack enable
 
 WORKDIR /app
 COPY . .
+
+ARG VITE_ADMIN_AI_ASSISTANT_ENABLED="true"
+ARG VITE_BRANCH_SCOPE_V2_ENABLED="true"
+ARG VITE_GROKBOT_AGENT_TOOLS_ENABLED="true"
+ENV VITE_ADMIN_AI_ASSISTANT_ENABLED=${VITE_ADMIN_AI_ASSISTANT_ENABLED}
+ENV VITE_BRANCH_SCOPE_V2_ENABLED=${VITE_BRANCH_SCOPE_V2_ENABLED}
+ENV VITE_GROKBOT_AGENT_TOOLS_ENABLED=${VITE_GROKBOT_AGENT_TOOLS_ENABLED}
+
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter "@restaurantos/pos-web" build
 RUN pnpm --filter "@restaurantos/admin-web" build
@@ -40,4 +48,3 @@ ENV RESTAURANTOS_PUBLIC_ORDER_INTENTS_ENABLED="true"
 
 EXPOSE 8000
 CMD ["uvicorn", "restaurant_os.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
