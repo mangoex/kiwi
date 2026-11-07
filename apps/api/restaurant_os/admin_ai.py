@@ -1731,6 +1731,19 @@ def _audit_event(
 ProviderRequester = Callable[[str, dict[str, Any], AdminAiProviderOptions], dict[str, Any]]
 
 
+def _check_copilot_inquiry(prompt: str) -> bool:
+    p = prompt.lower()
+    if any(k in p for k in ("umbral", "umbrales", "compras sugeridas", "orden de compra")):
+        return True
+    if any(k in p for k in ("mínimo", "minimo", "máximo", "maximo", "límite", "limite")) and any(
+        k in p for k in ("insumo", "inventario", "stock", "umbral")
+    ):
+        return True
+    if ("caja" in p or "cajas" in p) and any(k in p for k in ("abierta", "abiertas", "corte", "arqueo", "turno")):
+        return True
+    return False
+
+
 def create_admin_ai_response(
     session: Session,
     actor_id: str,
@@ -1819,7 +1832,24 @@ def create_admin_ai_response(
                 f"Pregunta pendiente del asistente: {pending_question}\n"
                 f"Respuesta del usuario: {normalized_prompt}"
             )
-            if provider_options is None:
+            if _check_copilot_inquiry(normalized_prompt) or _check_copilot_inquiry(follow_up_prompt):
+                from restaurant_os.copilot_engine import execute_copilot_chat
+
+                copilot_res = execute_copilot_chat(
+                    session=session,
+                    organization_id=ORGANIZATION_ID,
+                    prompt=follow_up_prompt,
+                    branch_name_or_id=branch_id,
+                    actor_id=actor_id,
+                )
+                payload = {
+                    "answer": copilot_res["answer"],
+                    "sources": copilot_res.get("tools_used", ["copilot_database_tools"]),
+                    "questions": [],
+                    "warnings": [],
+                    "change_set": [],
+                }
+            elif provider_options is None:
                 payload = curated_answer(follow_up_prompt)
             else:
                 raw = provider_requester(follow_up_prompt, context, provider_options)
@@ -1848,6 +1878,23 @@ def create_admin_ai_response(
         )
         if preflight_payload is not None:
             payload = preflight_payload
+        elif _check_copilot_inquiry(normalized_prompt):
+            from restaurant_os.copilot_engine import execute_copilot_chat
+
+            copilot_res = execute_copilot_chat(
+                session=session,
+                organization_id=ORGANIZATION_ID,
+                prompt=normalized_prompt,
+                branch_name_or_id=branch_id,
+                actor_id=actor_id,
+            )
+            payload = {
+                "answer": copilot_res["answer"],
+                "sources": copilot_res.get("tools_used", ["copilot_database_tools"]),
+                "questions": [],
+                "warnings": [],
+                "change_set": [],
+            }
         elif provider_options is None:
             payload = curated_answer(normalized_prompt)
         else:

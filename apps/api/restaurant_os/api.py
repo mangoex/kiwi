@@ -75,6 +75,7 @@ from restaurant_os.admin_ai import (
     get_proposal,
     review_proposal,
 )
+from restaurant_os.copilot_engine import execute_copilot_chat
 from restaurant_os.executive_ai import (
     ExecutiveAiProviderOptions,
     generate_executive_insights,
@@ -1419,6 +1420,27 @@ def post_executive_ai_insights(
                 base_url=settings.openrouter_base_url,
                 timeout_seconds=settings.admin_ai_openrouter_timeout_seconds,
             )
+        # If prompt queries inventory thresholds, stock, cash registers, recipes or purchasing, dispatch to copilot engine with tools
+        copilot_keywords = (
+            "umbral", "mínimo", "minimo", "máximo", "maximo", "límite", "limite",
+            "caja", "abierta", "corte", "arqueo", "proveedor", "compras sugeridas",
+        )
+        p_lower = payload.prompt.lower()
+        if any(k in p_lower for k in copilot_keywords):
+            copilot_res = execute_copilot_chat(
+                session=session,
+                organization_id=ORGANIZATION_ID,
+                prompt=payload.prompt,
+                branch_name_or_id=str(payload.branch_id) if payload.branch_id else None,
+                actor_id=actor_id,
+            )
+            return {
+                "answer": copilot_res["answer"],
+                "data_points": [copilot_res.get("data")] if copilot_res.get("data") else [],
+                "sources": copilot_res.get("tools_used", ["copilot_database_tools"]),
+                "suggested_actions": ["Verificar existencias en almacén", "Consultar cortes de caja"],
+            }
+
         result = generate_executive_insights(
             session,
             prompt=payload.prompt,
