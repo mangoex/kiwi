@@ -15,7 +15,15 @@ import {
   type DeliverySelection,
   deliverySelectionFromDraft,
 } from '@restaurantos/api-client';
-import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, Bike, Mic, Send, Sparkles, LayoutGrid, Star } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, Bike, Mic, Send, Sparkles, LayoutGrid, Star, Printer } from 'lucide-react';
+import {
+  ThermalReceiptModal,
+  buildTicketPrintData,
+  buildKitchenPrintData,
+  dispatchPosPrintJob,
+  loadPrinterConfig,
+  type OrderLike,
+} from '../printing';
 import { usePosSession } from '../../session';
 import { formatMxnCents } from './cartMoney';
 import { DeliveryFeeControl } from './DeliveryFeeControl';
@@ -422,6 +430,10 @@ const PointOfSale = () => {
 
   const [ownerName, setOwnerName] = useState('');
   const [confirmation, setConfirmation] = useState<{ id: string; folio: string; paid: boolean; change?: number; warning?: string } | null>(null);
+  const [confirmedPrintOrder, setConfirmedPrintOrder] = useState<OrderLike | null>(null);
+  const [confirmedCashTender, setConfirmedCashTender] = useState<{ receivedCents: number; changeCents: number } | null>(null);
+  const [confirmedReceiptOpen, setConfirmedReceiptOpen] = useState(false);
+  const [autoPrintStatus, setAutoPrintStatus] = useState('');
   const [orderType, setOrderType] = useState('takeout');
   const [lineEditor, setLineEditor] = useState<{ lineId: string; quantity: string; notes: string } | null>(null);
   const [heldOpen, setHeldOpen] = useState(false);
@@ -1607,6 +1619,68 @@ const PointOfSale = () => {
         window.location.href = '/pos/history';
         return;
       }
+      const selectedAddr = (selectedCustomer?.addresses || []).find((a) => a.id === selectedAddressId);
+      const selectedDriverObj = availableDrivers.find((d) => d.id === selectedDriverId);
+      const buildSnapshotOrder = (folioVal: string, totalVal: number): OrderLike => ({
+        folio: folioVal,
+        created_at: new Date().toISOString(),
+        customer_name: selectedCustomer?.name || ownerName || 'Cliente General',
+        customer_phone:
+          selectedCustomer?.phones?.[0]?.captured_number ||
+          selectedCustomer?.phones?.[0]?.normalized_number ||
+          customerPhone ||
+          null,
+        delivery_address: selectedAddr?.street || null,
+        colonia: selectedAddr?.neighborhood || null,
+        order_type: orderType,
+        driver_name: selectedDriverObj?.name || null,
+        subtotal_cents: orderQuote?.subtotal_cents ?? undefined,
+        tax_cents: orderQuote?.tax_cents ?? undefined,
+        total_cents: orderQuote?.total_cents || totalVal,
+        lines: cart.map((item, idx) => {
+          const quoteLine = orderQuote?.lines?.[idx];
+          const modTexts = [
+            ...item.modifiers.map((m) => m.text || m.option_name),
+            ...item.commentPresets.map((c) => c.text),
+            ...item.ingredientExtras.map((e) => `${e.name} x${e.portions}`),
+          ].filter(Boolean);
+          return {
+            quantity: item.quantity,
+            product_name: item.name,
+            unit_price_cents: quoteLine?.unit_price_cents ?? item.price_cents,
+            line_total_cents: quoteLine?.line_total_cents ?? item.price_cents * item.quantity,
+            selected_modifiers: modTexts.map((t) => ({ text: t, kitchen_text: t })),
+            line_notes: item.notes || null,
+          };
+        }),
+      });
+
+      const triggerAutoPrint = (
+        snapshot: OrderLike,
+        tender: { receivedCents: number; changeCents: number } | null,
+        isCashPaid: boolean
+      ) => {
+        setConfirmedPrintOrder(snapshot);
+        setConfirmedCashTender(tender);
+        setAutoPrintStatus('');
+        const printerConfig = loadPrinterConfig();
+        if (!printerConfig.autoPrintOnConfirm) return;
+        void (async () => {
+          const tData = buildTicketPrintData(snapshot, { session, cashTender: tender });
+          const kData = buildKitchenPrintData(snapshot, { session });
+          const res = await dispatchPosPrintJob({
+            ticketData: tData,
+            kitchenData: kData,
+            copies: printerConfig.autoPrintCopies,
+            kickDrawer: isCashPaid,
+            config: printerConfig,
+          });
+          if (res.ok) {
+            setAutoPrintStatus(`✓ ${res.message}`);
+          }
+        })();
+      };
+
       const orderData = await requestOrder<{ id: string; folio: string; total_cents: number; _offline?: { status?: OfflineOrderStatus } }>(
         '/orders',
         {
@@ -1617,6 +1691,8 @@ const PointOfSale = () => {
       );
       recordOfflineOrderStatus(orderData);
       if (orderType !== 'dine-in') {
+        const snapshot = buildSnapshotOrder(orderData.folio, orderData.total_cents);
+        triggerAutoPrint(snapshot, null, false);
         drafts.clearActive();
         clearPendingCheckout(checkoutIntent.key);
         checkoutIntentRef.current = null;
@@ -1635,6 +1711,7 @@ const PointOfSale = () => {
       }
       // Cobro inmediato en sucursal
       let cashChange: number | undefined;
+      let cashReceivedCents: number | undefined;
       try {
         const payment = await submitCashierPayment(requestOrder, orderData.id, {
           method: 'POST',
@@ -1648,6 +1725,7 @@ const PointOfSale = () => {
         });
         recordOfflineOrderStatus(payment);
         cashChange = payment.cash_tender?.change_cents;
+        cashReceivedCents = payment.cash_tender?.received_cents;
       } catch (payErr) {
         const msg = payErr instanceof ApiError ? payErr.message : 'Error desconocido';
         if (paymentWasDefinitelyRejected(payErr)) {
@@ -1660,6 +1738,15 @@ const PointOfSale = () => {
         setCheckoutState('idle');
         return;
       }
+      const snapshot = buildSnapshotOrder(orderData.folio, orderData.total_cents);
+      const tenderInfo =
+        cashChange !== undefined
+          ? {
+              receivedCents: cashReceivedCents ?? (orderQuote?.total_cents || orderData.total_cents) + cashChange,
+              changeCents: cashChange,
+            }
+          : null;
+      triggerAutoPrint(snapshot, tenderInfo, paymentMethod === 'cash');
       setConfirmation({ id: orderData.id, folio: orderData.folio, paid: true, change: cashChange });
       drafts.clearActive();
       clearPendingCheckout(checkoutIntent.key);
@@ -2197,12 +2284,31 @@ const PointOfSale = () => {
           {confirmation.change !== undefined && <p>Cambio: <strong>{formatMxnCents(confirmation.change)}</strong></p>}
           {confirmation.warning && <p role="alert">{confirmation.warning}</p>}
           {confirmation.paid && <p>Las impresiones están en cola; no se ha confirmado impresión física.</p>}
-          <Button onClick={() => setConfirmation(null)}>Nueva captura</Button>
-          <Button variant="secondary" onClick={() => {
-            if (confirmation) navigate(`/history?order_id=${encodeURIComponent(confirmation.id)}&branch_id=${encodeURIComponent(branchId)}`);
-          }}>Ver pedidos</Button>
+          {autoPrintStatus && <p style={{ color: '#059669', fontWeight: 600 }}>{autoPrintStatus}</p>}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+            <Button onClick={() => setConfirmation(null)}>Nueva captura</Button>
+            {confirmedPrintOrder && (
+              <Button variant="secondary" onClick={() => setConfirmedReceiptOpen(true)} title="Ver o reimprimir Ticket de Venta y Comanda de Cocina">
+                <Printer size={16} /> Imprimir Ticket / Comanda
+              </Button>
+            )}
+            <Button variant="secondary" onClick={() => {
+              if (confirmation) navigate(`/history?order_id=${encodeURIComponent(confirmation.id)}&branch_id=${encodeURIComponent(branchId)}`);
+            }}>Ver pedidos</Button>
+          </div>
         </section>}
       </Modal>
+      {confirmedReceiptOpen && confirmedPrintOrder && (
+        <ThermalReceiptModal
+          isOpen={confirmedReceiptOpen}
+          onClose={() => setConfirmedReceiptOpen(false)}
+          ticketData={buildTicketPrintData(confirmedPrintOrder, {
+            session,
+            cashTender: confirmedCashTender,
+          })}
+          kitchenData={buildKitchenPrintData(confirmedPrintOrder, { session })}
+        />
+      )}
       <Modal isOpen={Boolean(lineEditor)} onClose={() => setLineEditor(null)} title="Editar producto">
         {lineEditor && <div className="pos-cashier-line-editor">
           <label>Cantidad<input aria-label="Cantidad del producto" inputMode="numeric" value={lineEditor.quantity} onChange={(event) => setLineEditor({ ...lineEditor, quantity: event.target.value })} /></label>

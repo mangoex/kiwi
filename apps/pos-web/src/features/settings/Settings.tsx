@@ -29,6 +29,8 @@ import {
 import { UserCashCutsPanel } from './UserCashCutsPanel';
 import { userCashCutCapabilities } from './userCashCuts';
 import { OperationalCutsPanel, OperationalShiftPanel } from './OperationalCashPanels';
+import { PrinterSettingsPanel } from '../printing';
+
 
 type ShiftViewState = 'loading' | 'open' | 'closed' | 'submitting' | 'error';
 
@@ -536,10 +538,7 @@ const Settings = () => {
           )}
 
           {activeTab === 'printers' && (
-            <div>
-              <h2>Configuración de Impresoras</h2>
-              <p>La configuración de impresión local se asocia al navegador del dispositivo.</p>
-            </div>
+            <PrinterSettingsPanel branchName={activeBranchName} />
           )}
 
           {activeTab === 'sync' && (

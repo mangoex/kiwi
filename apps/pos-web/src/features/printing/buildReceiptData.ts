@@ -9,10 +9,14 @@ export interface OrderLike {
   subtotal_cents?: number;
   tax_cents?: number;
   customer_label?: string | null;
+  customer_name?: string | null;
+  owner_name?: string | null;
   customer_phone?: string | null;
   delivery_address?: string | null;
+  colonia?: string | null;
   delivery_notes?: string | null;
   service_type?: string | null;
+  order_type?: string | null;
   driver_name?: string | null;
   lines?: Array<{
     quantity: number;
@@ -112,16 +116,16 @@ export function buildTicketPrintData(
     };
   });
 
-  const serviceLabel = getServiceTypeLabel(order.service_type);
+  const serviceLabel = getServiceTypeLabel(order.service_type || order.order_type);
 
   return {
     folio: order.folio,
     orderNumber: order.order_number || order.folio,
     createdAt: formattedDate,
-    customerName: order.customer_label || 'PUBLICO GENERAL',
+    customerName: order.customer_label || order.customer_name || order.owner_name || 'PUBLICO GENERAL',
     customerPhone: order.customer_phone,
     driverName: order.driver_name,
-    colonia: order.delivery_address ? order.delivery_address.substring(0, 20) : null,
+    colonia: order.colonia || (order.delivery_address ? order.delivery_address.substring(0, 20) : null),
     zone: serviceLabel,
     serviceTypeLabel: serviceLabel,
     lines,
