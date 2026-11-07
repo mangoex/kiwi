@@ -385,3 +385,19 @@ def test_create_admin_ai_response_routes_threshold_inquiry_to_copilot(
     assert "get_inventory_stock_and_thresholds" in res["payload"]["sources"]
 
 
+def test_copilot_discovers_thresholds_when_asking_which_branch(
+    test_db: Session, copilot_seed_data: dict[str, Any]
+):
+    """Verify that asking which branch has thresholds returns Chapultepec even when branch_name_or_id is Centro."""
+    response = execute_copilot_chat(
+        session=test_db,
+        organization_id=ORGANIZATION_ID,
+        prompt="Que sucursal tiene configurado umbrales",
+        branch_name_or_id="Centro",
+    )
+    answer = response["answer"]
+    assert "Chapultepec" in answer
+    assert "Aceituna negra" in answer
+
+
+
