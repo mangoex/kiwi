@@ -9209,6 +9209,30 @@ async def post_asistto_agent_webhook(
     }
 
 
+@router.get("/integrations/asistto/debug-logs")
+def get_asistto_debug_logs(session: SessionDep) -> list[dict[str, Any]]:
+    """Public diagnostic endpoint to inspect recent webhook events received by Kiwi."""
+    rows = session.execute(
+        models.integration_webhook_logs.select()
+        .where(models.integration_webhook_logs.c.provider == "WHATSAPP")
+        .order_by(models.integration_webhook_logs.c.created_at.desc())
+        .limit(20)
+    ).mappings().all()
+    return [
+        {
+            "id": str(r["id"]),
+            "event_type": r["event_type"],
+            "event_id": r["event_id"],
+            "signature": r.get("signature"),
+            "status": r["status"],
+            "error_message": r.get("error_message"),
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "payload_raw": r.get("payload_raw"),
+        }
+        for r in rows
+    ]
+
+
 @router.get("/integrations/whatsapp/config")
 def get_whatsapp_config(
     session: SessionDep,
