@@ -9141,7 +9141,7 @@ async def post_asistto_agent_webhook(
         }
 
     config = channel_service.get_config(session, ORGANIZATION_ID, "WHATSAPP") or {}
-    target_return_url = return_url or config.get("return_url") or "https://asistto.bots2.me/webhooks/grok/212"
+    target_return_url = return_url or "https://asistto.bots2.me/webhooks/grok/212"
     outgoing_secret = (
         request.query_params.get("secret")
         or request.query_params.get("token")
