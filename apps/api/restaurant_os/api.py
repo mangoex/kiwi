@@ -9145,7 +9145,6 @@ async def post_asistto_agent_webhook(
     outgoing_secret = (
         request.query_params.get("secret")
         or request.query_params.get("token")
-        or signature
         or config.get("client_secret")
         or "53169823081989"
     )
@@ -9185,15 +9184,20 @@ async def post_asistto_agent_webhook(
 
     dispatched = False
     if target_return_url and sender_phone and answer:
-        try:
-            dispatched = channel_service.whatsapp_adapter.dispatch_outgoing_response(
-                return_url=target_return_url,
-                outgoing_secret=outgoing_secret,
-                recipient_phone=sender_phone,
-                message_text=answer,
-            )
-        except Exception as exc:
-            logger.warning("Error despachando respuesta saliente a Asistto: %s", exc)
+        for candidate_secret in (outgoing_secret, "53169823081989", signature):
+            if not candidate_secret:
+                continue
+            try:
+                dispatched = channel_service.whatsapp_adapter.dispatch_outgoing_response(
+                    return_url=target_return_url,
+                    outgoing_secret=candidate_secret,
+                    recipient_phone=sender_phone,
+                    message_text=answer,
+                )
+                if dispatched:
+                    break
+            except Exception as exc:
+                logger.warning("Error despachando respuesta saliente a Asistto: %s", exc)
 
     return {
         "ok": True,
