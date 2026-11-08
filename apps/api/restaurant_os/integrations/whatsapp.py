@@ -927,12 +927,16 @@ class WhatsAppAdapter(IOrderChannelAdapter):
         ):
             return True
 
-        auth_token = outgoing_secret or token or ""
+        auth_token = (outgoing_secret or token or "").strip()
         headers = {
             "Content-Type": "application/json",
         }
         if auth_token:
-            headers["Authorization"] = f"Bearer {auth_token}"
+            clean_token = auth_token
+            if clean_token.lower().startswith("bearer "):
+                clean_token = clean_token[7:].strip()
+            headers["Authorization"] = f"Bearer {clean_token}"
+            headers["X-API-Key"] = clean_token
 
         data = dict(payload) if payload else {}
         if recipient_phone:

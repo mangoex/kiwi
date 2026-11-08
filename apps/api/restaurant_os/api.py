@@ -9142,7 +9142,13 @@ async def post_asistto_agent_webhook(
 
     config = channel_service.get_config(session, ORGANIZATION_ID, "WHATSAPP") or {}
     target_return_url = return_url or config.get("return_url") or "https://asistto.bots2.me/webhooks/grok/212"
-    client_secret = config.get("client_secret") or ""
+    outgoing_secret = (
+        request.query_params.get("secret")
+        or request.query_params.get("token")
+        or signature
+        or config.get("client_secret")
+        or ""
+    )
 
     actor_id = f"whatsapp-{sender_phone}" if sender_phone else "whatsapp-admin"
     copilot_res = execute_copilot_chat(
@@ -9182,7 +9188,7 @@ async def post_asistto_agent_webhook(
         try:
             dispatched = channel_service.whatsapp_adapter.dispatch_outgoing_response(
                 return_url=target_return_url,
-                outgoing_secret=client_secret,
+                outgoing_secret=outgoing_secret,
                 recipient_phone=sender_phone,
                 message_text=answer,
             )
