@@ -705,3 +705,109 @@ def test_tc405_master_prompt_interpolation_and_live_db_context(client, test_db, 
     assert "Carlos Mendoza" in rendered
     assert "$145.00 MXN" in rendered
     assert "Sucursal Principal" in rendered
+
+
+# ---------------------------------------------------------------------------
+# TDD-TC-406: Endpoint de Agente Asistto / GrokBot para WhatsApp
+# ---------------------------------------------------------------------------
+
+
+def test_tc406_asistto_agent_webhook_get_handshake(client):
+    # 1. Verification challenge
+    resp = client.get("/api/v1/integrations/asistto/agent-webhook?hub.challenge=test_challenge_123")
+    assert resp.status_code == 200
+    assert resp.text == "test_challenge_123"
+
+    # 2. Ping without challenge
+    resp_ping = client.get("/api/v1/integrations/asistto/agent-webhook")
+    assert resp_ping.status_code == 200
+    data = resp_ping.json()
+    assert data["ok"] is True
+    assert data["status"] == "active"
+
+    # 3. GrokBot alias and /v1 compatibility route
+    resp_grok = client.get("/v1/integrations/grokbot/agent-webhook?challenge=grok_456")
+    assert resp_grok.status_code == 200
+    assert resp_grok.text == "grok_456"
+
+
+def test_tc406_asistto_agent_webhook_admin_queries(client, test_db, auth_headers):
+    # Configure return_url in WHATSAPP config
+    client.put(
+        "/api/v1/integrations/whatsapp/config",
+        json={
+            "is_enabled": True,
+            "return_url": "https://mock.localhost/webhooks/grok/212",
+        },
+        headers=auth_headers,
+    )
+
+    # 1. Query for cash registers / status
+    cash_query = {
+        "message": "¿Qué cajas están abiertas actualmente?",
+        "from": "526672013019",
+        "return_url": "https://mock.localhost/webhooks/grok/212",
+    }
+    resp = client.post("/api/v1/integrations/asistto/agent-webhook", json=cash_query)
+    assert resp.status_code == 200
+    res_data = resp.json()
+    assert res_data["ok"] is True
+    assert res_data["status"] == "ok"
+    assert res_data["reply"] is not None
+    assert "caja" in res_data["reply"].lower()
+    assert res_data["sender"] == "526672013019"
+    assert "get_cash_status" in res_data["tools_used"]
+    assert res_data["dispatched"] is True
+
+    # 2. Query for inventory thresholds via /grokbot alias and Meta payload format
+    meta_payload = {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messages": [
+                                {
+                                    "from": "526672013019",
+                                    "text": {"body": "¿Cuáles son los umbrales de insumos?"},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    resp_meta = client.post("/api/v1/integrations/grokbot/agent-webhook", json=meta_payload)
+    assert resp_meta.status_code == 200
+    meta_data = resp_meta.json()
+    assert meta_data["ok"] is True
+    assert meta_data["reply"] is not None
+    assert meta_data["sender"] == "526672013019"
+    assert "get_inventory_stock_and_thresholds" in meta_data["tools_used"]
+
+    # 3. Compatibility route /v1/integrations/asistto/agent-webhook
+    v1_resp = client.post(
+        "/v1/integrations/asistto/agent-webhook",
+        json={"prompt": "Ventas de hoy", "phone": "526672013019"},
+    )
+    assert v1_resp.status_code == 200
+    v1_data = v1_resp.json()
+    assert v1_data["ok"] is True
+    assert "get_sales_performance" in v1_data["tools_used"]
+
+    # 4. Empty ping handling
+    empty_resp = client.post("/api/v1/integrations/asistto/agent-webhook", json={})
+    assert empty_resp.status_code == 200
+    assert empty_resp.json()["status"] == "acknowledged"
+
+    # 5. Verify webhook log was written
+    logs = list(
+        test_db.execute(
+            models.integration_webhook_logs.select().where(
+                models.integration_webhook_logs.c.event_type == "asistto_agent_query"
+            )
+        ).mappings().all()
+    )
+    assert len(logs) >= 3
+    assert any(log["payload_raw"]["sender_phone"] == "526672013019" for log in logs)

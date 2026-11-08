@@ -9000,6 +9000,209 @@ async def post_whatsapp_webhook(
     return {"status": "acknowledged", "event_type": event_type}
 
 
+def _extract_asistto_query_and_phone(payload: dict[str, Any]) -> tuple[str, str, str | None]:
+    """Extract message query prompt, sender phone and return_url across Asistto, GrokBot and Meta formats."""
+    if not isinstance(payload, dict):
+        return "", "", None
+
+    # Check top-level prompt fields
+    prompt = (
+        payload.get("message")
+        or payload.get("text")
+        or payload.get("prompt")
+        or payload.get("query")
+        or payload.get("body")
+        or payload.get("input")
+    )
+
+    if isinstance(prompt, dict):
+        prompt = prompt.get("text") or prompt.get("body") or prompt.get("content")
+
+    data_dict = payload.get("data")
+    if not prompt and isinstance(data_dict, dict):
+        prompt = (
+            data_dict.get("message")
+            or data_dict.get("text")
+            or data_dict.get("prompt")
+            or data_dict.get("query")
+            or data_dict.get("body")
+        )
+        if isinstance(prompt, dict):
+            prompt = prompt.get("text") or prompt.get("body")
+
+    if not prompt and "entry" in payload:
+        try:
+            entry = payload["entry"]
+            if isinstance(entry, list) and entry:
+                changes = entry[0].get("changes", [])
+                if changes:
+                    val = changes[0].get("value", {})
+                    msgs = val.get("messages", [])
+                    if msgs:
+                        m0 = msgs[0]
+                        if isinstance(m0.get("text"), dict):
+                            prompt = m0["text"].get("body")
+                        elif isinstance(m0.get("text"), str):
+                            prompt = m0["text"]
+                        elif m0.get("body"):
+                            prompt = m0.get("body")
+        except Exception:
+            pass
+
+    phone = (
+        payload.get("phone")
+        or payload.get("from")
+        or payload.get("sender")
+        or payload.get("wa_id")
+        or payload.get("sender_phone")
+        or payload.get("recipient")
+        or payload.get("to")
+    )
+
+    if not phone and isinstance(data_dict, dict):
+        phone = (
+            data_dict.get("phone")
+            or data_dict.get("from")
+            or data_dict.get("sender")
+            or data_dict.get("wa_id")
+            or data_dict.get("sender_phone")
+        )
+
+    if not phone and "entry" in payload:
+        try:
+            val = payload["entry"][0]["changes"][0]["value"]
+            msgs = val.get("messages", [])
+            if msgs:
+                phone = msgs[0].get("from")
+        except Exception:
+            pass
+
+    return_url = (
+        payload.get("return_url")
+        or (data_dict.get("return_url") if isinstance(data_dict, dict) else None)
+        or payload.get("callback_url")
+        or (data_dict.get("callback_url") if isinstance(data_dict, dict) else None)
+    )
+
+    return str(prompt or "").strip(), str(phone or "").strip(), (str(return_url).strip() if return_url else None)
+
+
+@router.get("/integrations/asistto/agent-webhook")
+@router.get("/integrations/grokbot/agent-webhook")
+def get_asistto_agent_webhook(request: Request) -> Response:
+    """Handshake and verification endpoint for Asistto / GrokBot admin routing webhook."""
+    params = request.query_params
+    challenge = params.get("hub.challenge") or params.get("challenge")
+    if challenge:
+        return Response(content=challenge, media_type="text/plain")
+    return Response(
+        content=json.dumps({"ok": True, "status": "active", "service": "kiwi-copilot-agent", "agent": "kiwi-administrador"}),
+        media_type="application/json",
+    )
+
+
+@router.post("/integrations/asistto/agent-webhook")
+@router.post("/integrations/grokbot/agent-webhook")
+async def post_asistto_agent_webhook(
+    request: Request,
+    session: SessionDep,
+) -> dict[str, Any]:
+    """Inbound webhook for Asistto GrokBot administrator queries.
+
+    Connects WhatsApp queries directly to Kiwi RestaurantOS Copilot and SQL database tools.
+    Returns synchronous response body AND asynchronously dispatches to Asistto return URL.
+    """
+    body_bytes = await request.body()
+    try:
+        payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Cuerpo JSON inválido.") from None
+
+    signature = (
+        request.headers.get("authorization")
+        or request.headers.get("Authorization")
+        or request.headers.get("x-asistto-signature")
+        or request.headers.get("x-webhook-secret")
+    )
+
+    prompt, sender_phone, return_url = _extract_asistto_query_and_phone(payload)
+    if not prompt:
+        return {
+            "ok": True,
+            "status": "acknowledged",
+            "reply": "Hola, soy el Copiloto Inteligente de RestaurantOS para Kiwi. ¿En qué puedo apoyarte hoy?",
+            "text": "Hola, soy el Copiloto Inteligente de RestaurantOS para Kiwi. ¿En qué puedo apoyarte hoy?",
+            "message": "Hola, soy el Copiloto Inteligente de RestaurantOS para Kiwi. ¿En qué puedo apoyarte hoy?",
+            "answer": "Hola, soy el Copiloto Inteligente de RestaurantOS para Kiwi. ¿En qué puedo apoyarte hoy?",
+            "sender": sender_phone,
+            "to": sender_phone,
+            "tools_used": [],
+            "dispatched": False,
+        }
+
+    config = channel_service.get_config(session, ORGANIZATION_ID, "WHATSAPP") or {}
+    target_return_url = return_url or config.get("return_url") or "https://asistto.bots2.me/webhooks/grok/212"
+    client_secret = config.get("client_secret") or ""
+
+    actor_id = f"whatsapp-{sender_phone}" if sender_phone else "whatsapp-admin"
+    copilot_res = execute_copilot_chat(
+        session=session,
+        organization_id=ORGANIZATION_ID,
+        prompt=prompt,
+        branch_name_or_id=None,
+        actor_id=actor_id,
+    )
+    answer = str(copilot_res.get("answer") or "No se pudo obtener respuesta del sistema en este momento.").strip()
+    tools_used = copilot_res.get("tools_used", [])
+
+    event_id = f"asistto_{uuid.uuid4().hex[:12]}"
+    try:
+        channel_service.log_webhook(
+            session=session,
+            organization_id=ORGANIZATION_ID,
+            provider="WHATSAPP",
+            event_type="asistto_agent_query",
+            event_id=event_id,
+            signature=signature,
+            payload_raw={
+                "prompt": prompt,
+                "sender_phone": sender_phone,
+                "return_url": target_return_url,
+                "tools_used": tools_used,
+                "answer": answer,
+                "raw_payload": payload,
+            },
+            status="processed",
+        )
+    except Exception as exc:
+        logger.warning("Error registrando log de consulta de agente Asistto: %s", exc)
+
+    dispatched = False
+    if target_return_url and sender_phone and answer:
+        try:
+            dispatched = channel_service.whatsapp_adapter.dispatch_outgoing_response(
+                return_url=target_return_url,
+                outgoing_secret=client_secret,
+                recipient_phone=sender_phone,
+                message_text=answer,
+            )
+        except Exception as exc:
+            logger.warning("Error despachando respuesta saliente a Asistto: %s", exc)
+
+    return {
+        "ok": True,
+        "status": "ok",
+        "reply": answer,
+        "text": answer,
+        "message": answer,
+        "answer": answer,
+        "sender": sender_phone,
+        "to": sender_phone,
+        "tools_used": tools_used,
+        "dispatched": dispatched,
+    }
+
+
 @router.get("/integrations/whatsapp/config")
 def get_whatsapp_config(
     session: SessionDep,

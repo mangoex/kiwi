@@ -22,7 +22,13 @@ from sqlalchemy.orm import Session
 
 from restaurant_os.agent_rate_limit import RedisAgentRateLimiter
 from restaurant_os.agent_tools import router as agent_tools_router
-from restaurant_os.api import get_whatsapp_webhook, post_whatsapp_webhook, reconciliation_v2_router
+from restaurant_os.api import (
+    get_asistto_agent_webhook,
+    get_whatsapp_webhook,
+    post_asistto_agent_webhook,
+    post_whatsapp_webhook,
+    reconciliation_v2_router,
+)
 from restaurant_os.api import router as platform_router
 from restaurant_os.auth import verify_session_token
 from restaurant_os.cash_views_api import router as cash_views_router
@@ -242,6 +248,20 @@ def create_app() -> FastAPI:
         session: Annotated[Session, Depends(get_session)],
     ) -> dict[str, Any]:
         return await post_whatsapp_webhook(request, session)
+
+    # Asistto / GrokBot agent webhook compatibility aliases for /v1 routes without /api
+    @app.get("/v1/integrations/asistto/agent-webhook", include_in_schema=False)
+    @app.get("/v1/integrations/grokbot/agent-webhook", include_in_schema=False)
+    def v1_asistto_agent_webhook_get(request: Request) -> Response:
+        return get_asistto_agent_webhook(request)
+
+    @app.post("/v1/integrations/asistto/agent-webhook", include_in_schema=False)
+    @app.post("/v1/integrations/grokbot/agent-webhook", include_in_schema=False)
+    async def v1_asistto_agent_webhook_post(
+        request: Request,
+        session: Annotated[Session, Depends(get_session)],
+    ) -> dict[str, Any]:
+        return await post_asistto_agent_webhook(request, session)
 
     @app.exception_handler(RequestValidationError)
     async def governed_validation_error(request: Request, exc: RequestValidationError) -> Response:
