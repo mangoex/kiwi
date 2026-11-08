@@ -18,7 +18,7 @@ Durante la auditoría forense del repositorio `mangoex/kiwi` se identificaron la
 
 ---
 
-## 2. Topología de los 4 Agentes y Eficiencia de Modelos (Argon + Flash)
+## 2. Topología de los 4 Agentes y Eficiencia de Modelos (Argon + Fallback a Flash)
 
 Se implementó el patrón **Coordinator / Dispatcher** jerárquico donde el usuario interactúa **exclusivamente** con el Administrador (`kiwi-administrador`), quien coordina a los 3 especialistas privados:
 
@@ -29,8 +29,9 @@ Se implementó el patrón **Coordinator / Dispatcher** jerárquico donde el usua
                                          │ (Único canal de conversación)
                                          ▼
               ┌──────────────────────────────────────────────────────┐
-              │             kiwi-administrador (Argon)               │
-              │  Perfil: administrator | Modelo: inherit (Argon/Pro) │
+              │      kiwi-administrador (Argon -> Fallback Flash)    │
+              │  Perfil: administrator                               │
+              │  Modelo: inherit (Argon/Pro) con fallback a Flash    │
               │  Lecturas: Ventas, Cajas Abiertas, Cortes, Pagos,    │
               │            Gastos, Conciliación Diaria, Catálogo     │
               │  Escrituras: Propuestas de Catálogo                  │
@@ -49,9 +50,9 @@ Se implementó el patrón **Coordinator / Dispatcher** jerárquico donde el usua
 └─────────────────────────┘   └─────────────────────────┘   └─────────────────────────┘
 ```
 
-### Regla de Enrutamiento de Modelos
-- **Nivel 1 (`inherit` / Argon):** Reservado para `kiwi-administrador` cuando descompone solicitudes multi-dominio, cruza métricas financieras con operativas y sintetiza decisiones ejecutivas.
-- **Nivel 2 (`flash`):** Asignado a `kiwi-inventarios`, `kiwi-cocinero` y `kiwi-compras` para consultas estructuradas, verificaciones de umbral (`check-thresholds`), versionado de recetas (`apply-recipe`) y programación de órdenes de compra (`auto-replenish-thresholds`), reduciendo latencia y costo por token.
+### Regla de Enrutamiento y Resiliencia de Modelos
+- **Nivel 1 (`inherit` / Argon con Fallback a `flash`):** Asignado a `kiwi-administrador`. Utiliza Argon (`inherit` / `pro`) de manera preferente para sintetizar decisiones ejecutivas y cruzar métricas financieras complejas. **Mecanismo de Resiliencia:** Si la cuota de Argon se agota o se presenta error por límite de cuota/rate limit, el agente conmuta inmediatamente a `Model: 'flash'`, manteniendo la operación del restaurante ininterrumpida 24/7.
+- **Nivel 2 (`flash`):** Asignado de forma permanente a `kiwi-inventarios`, `kiwi-cocinero` y `kiwi-compras` para consultas estructuradas, verificaciones de umbral (`check-thresholds`), versionado de recetas (`apply-recipe`) y programación de órdenes de compra (`auto-replenish-thresholds`), reduciendo latencia y costo por token.
 
 ---
 

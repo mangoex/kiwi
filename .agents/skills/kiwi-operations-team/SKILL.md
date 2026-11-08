@@ -1,22 +1,28 @@
 ---
 name: kiwi-operations-team
-description: Orquestación multi-agente gobernada para RestaurantOS (Kiwi). Coordina los 4 perfiles técnicos (kiwi-administrador, kiwi-inventarios, kiwi-cocinero, kiwi-compras) combinando modelos Argon (inherit) y Flash para consultar ventas, cajas abiertas, cortes de caja, inventario, umbrales, recetas y proveedores, así como registrar recetas versionadas y programar compras automáticas por umbral.
+description: Orquestación multi-agente gobernada para RestaurantOS (Kiwi). Coordina los 4 perfiles técnicos (kiwi-administrador, kiwi-inventarios, kiwi-cocinero, kiwi-compras) con modelo Argon (inherit) y fallback automático a Flash ante agotamiento de cuota, para consultar ventas, cajas abiertas, cortes de caja, inventario, umbrales, recetas y proveedores, así como registrar recetas versionadas y programar compras automáticas por umbral.
 ---
 
 # Kiwi Operations Team (`kiwi-operations-team`)
 
 Habilidad operativa oficial para interactuar con **RestaurantOS (Kiwi)** mediante la arquitectura multi-agente gobernada (`GROKBOT-001` / `/api/v1/agent-tools/*` + puente de dominio `scripts/kiwi_agent_cli.py`).
 
-## 1. Topología de Agentes y Modelos (Argon + Flash)
+## 1. Topología de Agentes y Modelos (Argon + Fallback Flash)
 
 El sistema implementa el patrón **Coordinator / Dispatcher** con aislamiento estricto de credenciales y capacidades por perfil:
 
 | Subagente | Perfil Técnico | Modelo Recomendado | Responsabilidad Operativa |
 | :--- | :--- | :--- | :--- |
-| **`kiwi-administrador`** | `administrator` | `inherit` (Argon/Pro) | Único interlocutor con el usuario. Consulta ventas (`sales-summary`), cajas abiertas (`open-registers`), cortes de caja (`cash-cuts`), pagos por método (`payments-by-method`), gastos (`expenses-summary`), conciliación diaria (`daily-reconciliation`), propone catálogo (`propose-catalog`) y delega a especialistas. |
+| **`kiwi-administrador`** | `administrator` | `inherit` (Argon/Pro) $\rightarrow$ fallback a `flash` | Único interlocutor con el usuario. Consulta ventas (`sales-summary`), cajas abiertas (`open-registers`), cortes de caja (`cash-cuts`), pagos por método (`payments-by-method`), gastos (`expenses-summary`), conciliación diaria (`daily-reconciliation`), propone catálogo (`propose-catalog`) y delega a especialistas. Conmuta a Flash automáticamente ante agotamiento de Argon. |
 | **`kiwi-inventarios`** | `inventory` | `flash` | Consulta catálogo de insumos (`inventory-items`), existencias y umbrales (`inventory-stock`), detecta insumos en o bajo el mínimo (`check-thresholds`), consulta kardex (`inventory-movements`) y propone insumos (`propose-inventory-item`). |
 | **`kiwi-cocinero`** | `kitchen` | `flash` | Consulta productos (`catalog-items`), recetas activas (`recipes`) y registra/versiona recetas (`propose-recipe` y `apply-recipe`). |
 | **`kiwi-compras`** | `purchasing` | `flash` | Consulta proveedores (`suppliers`), presentaciones comerciales (`purchase-presentations`), necesidades (`purchase-needs`), borradores (`purchase-drafts`), programa órdenes de compra (`create-purchase-draft`) y ejecuta la rutina automática de reabastecimiento por umbral (`auto-replenish-thresholds`). |
+
+### 1.1 Resiliencia y Fallback de Modelos (Argon $\rightarrow$ Flash)
+
+- **Modo Preferente (`inherit` / Argon / Pro):** Se utiliza mientras haya cuota de Argon disponible para análisis multidominio, conciliaciones y razonamiento ejecutivo complejo.
+- **Modo Fallback Resiliente (`flash`):** Si la cuota de Argon se agota, se recibe un error de límite de cuota o rate-limit, o no hay disponibilidad de Argon, `kiwi-administrador` conmuta automáticamente a `Model: 'flash'`. El servicio NUNCA debe detenerse por falta de Argon.
+- **Especialistas (`flash`):** `kiwi-inventarios`, `kiwi-cocinero` y `kiwi-compras` operan permanentemente en `flash` para mantener baja latencia y consumo óptimo de tokens.
 
 ## 2. Puente Ejecutivo Canónico (`kiwi_agent_cli.py`)
 

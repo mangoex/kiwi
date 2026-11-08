@@ -23,7 +23,7 @@ verification, release, or authorization rules here.
 
 | Agente | Archivo de Definición | Perfil Técnico | Modelo | Rol Operativo |
 | :--- | :--- | :--- | :--- | :--- |
-| **`kiwi-administrador`** | [`agents/kiwi-administrador/agent.md`](agents/kiwi-administrador/agent.md) | `administrator` | `inherit` (Argon/Pro) | Orquestador principal e interlocutor único con el dueño. Consulta P&L, ventas, cajas abiertas, cortes de caja, gastos y coordina a los otros 3 especialistas. |
+| **`kiwi-administrador`** | [`agents/kiwi-administrador/agent.md`](agents/kiwi-administrador/agent.md) | `administrator` | `inherit` (Argon/Pro) $\rightarrow$ fallback automático a `flash` | Orquestador principal e interlocutor único con el dueño. Consulta P&L, ventas, cajas abiertas, cortes de caja, gastos y coordina a los otros 3 especialistas. Si la cuota de Argon se agota, conmuta automáticamente a Flash sin detener el servicio. |
 | **`kiwi-inventarios`** | [`agents/kiwi-inventarios/agent.md`](agents/kiwi-inventarios/agent.md) | `inventory` | `flash` | Especialista de almacén. Consulta existencias, conteos físicos, kardex y semáforo de umbrales (`check-thresholds`). |
 | **`kiwi-cocinero`** | [`agents/kiwi-cocinero/agent.md`](agents/kiwi-cocinero/agent.md) | `kitchen` | `flash` | Especialista de cocina y recetarios. Consulta productos POS y registra/versiona recetas (`apply-recipe`). |
 | **`kiwi-compras`** | [`agents/kiwi-compras/agent.md`](agents/kiwi-compras/agent.md) | `purchasing` | `flash` | Especialista de abastecimiento. Consulta proveedores, presentaciones y programa órdenes de compra en borrador (`auto-replenish-thresholds`). |
