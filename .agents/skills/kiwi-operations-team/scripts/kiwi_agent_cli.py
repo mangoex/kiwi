@@ -29,6 +29,16 @@ VENV_PYTHON = f"{VENV_DIR}/bin/python"
 if os.path.exists(VENV_PYTHON) and os.path.abspath(sys.prefix) != os.path.abspath(VENV_DIR):
     os.execv(VENV_PYTHON, [VENV_PYTHON] + sys.argv)
 
+from pathlib import Path
+
+# Asegurar que apps/api esté disponible para importar restaurant_os
+for _candidate in [
+    Path("/home/antigravity/mangoex/kiwi/apps/api"),
+    Path(__file__).resolve().parents[4] / "apps" / "api",
+]:
+    if _candidate.exists() and str(_candidate) not in sys.path:
+        sys.path.insert(0, str(_candidate))
+
 # Sanitize no_proxy/NO_PROXY for httpx (removes IPv6 ::1 bracket issue)
 for _k in ["no_proxy", "NO_PROXY"]:
     if _k in os.environ:
