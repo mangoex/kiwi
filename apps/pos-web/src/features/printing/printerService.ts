@@ -523,7 +523,7 @@ export function buildThermalPrintHtml(pages: string[], paperWidthMm: 80 | 58 = 8
     }
     .thermal-sheet {
       margin: 0;
-      padding: 1.5mm 1mm 2mm 1mm;
+      padding: 2mm 1mm 22mm 1mm;
       width: ${contentWidthMm}mm;
       white-space: pre;
       overflow-x: hidden;
@@ -830,8 +830,17 @@ export function buildWindowsPrintBridgeBat(config: PosPrinterConfig): string {
     'echo   Escuchando en: http://127.0.0.1:9123',
     `echo   Impresora Caja (Windows): ${defaultPrinterName} ^| Red TCP: ${defaultHost}:${defaultPort}`,
     'echo   Soporta impresoras del Panel de Control (caja, ensaladas, barra) e IP:9100',
-    'echo   No cierres esta ventana mientras uses el Punto de Venta o Administrador.',
     'echo ============================================================================',
+    'echo.',
+    'set "STARTUP_FOLDER=%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"',
+    'if not exist "%STARTUP_FOLDER%\\Kiwi-Print-Bridge.bat" (',
+    '  copy /Y "%~f0" "%STARTUP_FOLDER%\\Kiwi-Print-Bridge.bat" >nul 2>&1',
+    '  if exist "%STARTUP_FOLDER%\\Kiwi-Print-Bridge.bat" (',
+    '    echo [OK] Configurado para iniciar AUTOMATICAMENTE cada vez que enciendas la PC.',
+    '    echo.',
+    '  )',
+    ')',
+    'echo [LISTO] Minimizando... No cierres esta ventana mientras uses el Punto de Venta.',
     'echo.',
     '',
     'powershell -NoProfile -ExecutionPolicy Bypass -Command ^',

@@ -613,12 +613,17 @@ def format_kitchen_text(payload: dict[str, Any], width: int = 42) -> str:
 
     out.append(divider)
     out.append(pad_center("RESTAURANTOS KITCHEN", width))
+    out.append("")
+    out.append("")
+    out.append("")
+    out.append("")
 
     return "\n".join(out)
 
 
 # Códigos de control ESC/POS
 ESCPOS_INIT = b"\x1b@"
+ESCPOS_FEED_5_LINES = b"\x1bd\x05"
 ESCPOS_CUT_PARTIAL = b"\x1dV\x42\x02"
 ESCPOS_CUT_FULL = b"\x1dV\x41\x02"
 ESCPOS_KICK_DRAWER = b"\x1bp\x00\x19\xfa"
@@ -630,13 +635,19 @@ def generate_escpos_ticket(payload: dict[str, Any], kick_drawer: bool = False) -
     if kick_drawer:
         parts.append(ESCPOS_KICK_DRAWER)
     parts.append(text.encode("latin-1", errors="replace") + b"\n\n")
+    parts.append(ESCPOS_FEED_5_LINES)
     parts.append(ESCPOS_CUT_PARTIAL)
     return b"".join(parts)
 
 
 def generate_escpos_kitchen(payload: dict[str, Any]) -> bytes:
     text = format_kitchen_text(payload, 42)
-    parts = [ESCPOS_INIT, text.encode("latin-1", errors="replace") + b"\n\n", ESCPOS_CUT_FULL]
+    parts = [
+        ESCPOS_INIT,
+        text.encode("latin-1", errors="replace") + b"\n\n",
+        ESCPOS_FEED_5_LINES,
+        ESCPOS_CUT_FULL,
+    ]
     return b"".join(parts)
 
 

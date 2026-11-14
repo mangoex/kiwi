@@ -545,6 +545,10 @@ export function formatTicketText(data: TicketPrintData, width: number = 42): str
   for (const footer of footers) {
     out.push(padCenter(footer, width));
   }
+  out.push('');
+  out.push('');
+  out.push('');
+  out.push('');
 
   return out.join('\n');
 }
@@ -601,6 +605,10 @@ export function formatKitchenText(data: KitchenPrintData, width: number = 42): s
 
   out.push(divider);
   out.push(padCenter('RESTAURANTOS KITCHEN', width));
+  out.push('');
+  out.push('');
+  out.push('');
+  out.push('');
 
   return out.join('\n');
 }
@@ -615,10 +623,10 @@ export const ESCPOS = {
   ALIGN_RIGHT: new Uint8Array([0x1b, 0x61, 0x02]), // ESC a 2
   BOLD_ON: new Uint8Array([0x1b, 0x45, 0x01]), // ESC E 1
   BOLD_OFF: new Uint8Array([0x1b, 0x45, 0x00]), // ESC E 0
-  CUT_FULL: new Uint8Array([0x1d, 0x56, 0x41, 0x01]), // GS V 65 1 (alimentación mínima y corte total)
-  CUT_PARTIAL: new Uint8Array([0x1d, 0x56, 0x42, 0x01]), // GS V 66 1 (alimentación mínima y corte parcial)
+  CUT_FULL: new Uint8Array([0x1d, 0x56, 0x41, 0x01]), // GS V 65 1 (alimentación y corte total)
+  CUT_PARTIAL: new Uint8Array([0x1d, 0x56, 0x42, 0x01]), // GS V 66 1 (alimentación y corte parcial)
   KICK_DRAWER: new Uint8Array([0x1b, 0x70, 0x00, 0x19, 0xfa]), // ESC p 0 25 250 (pulso al cajón de dinero pin 2)
-  FEED_LINES: (n: number) => new Uint8Array([0x1b, 0x64, n]), // ESC d n
+  FEED_LINES: (n: number) => new Uint8Array([0x1b, 0x64, n]), // ESC d n (alimenta n líneas antes del corte)
 };
 
 /**
@@ -636,7 +644,8 @@ export function generateEscPosTicket(data: TicketPrintData, kickDrawer: boolean 
   }
 
   parts.push(textBytes);
-  parts.push(ESCPOS.FEED_LINES(1));
+  // Alimenta 5 líneas para que el papel libre completamente la cuchilla y boca de la impresora
+  parts.push(ESCPOS.FEED_LINES(5));
   parts.push(ESCPOS.CUT_PARTIAL);
 
   const totalLength = parts.reduce((acc, p) => acc + p.length, 0);
@@ -660,7 +669,8 @@ export function generateEscPosKitchen(data: KitchenPrintData): Uint8Array {
   const parts: Uint8Array[] = [
     ESCPOS.INIT,
     textBytes,
-    ESCPOS.FEED_LINES(1),
+    // Alimenta 5 líneas para que el papel libre completamente la cuchilla de corte y no quede dentro
+    ESCPOS.FEED_LINES(5),
     ESCPOS.CUT_FULL,
   ];
 

@@ -1,6 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Button } from '@restaurantos/ui';
-import { CheckCircle2, Download, Plus, Printer, RefreshCw, Trash2, Wifi } from 'lucide-react';
+import {
+  AlertCircle,
+  Check,
+  CheckCircle2,
+  Download,
+  Laptop,
+  Plus,
+  Printer,
+  RefreshCw,
+  Trash2,
+  Wifi,
+} from 'lucide-react';
 import {
   buildPythonPrintBridgeScript,
   buildWindowsPrintBridgeBat,
@@ -15,6 +25,7 @@ import {
   type PrinterConnectionMode,
 } from './printerService';
 import type { TicketPrintData, KitchenPrintData, PrintAreaDefinition } from './receiptFormatter';
+import './PrinterSettingsPanel.css';
 
 export function PrinterSettingsPanel({ branchName }: { branchName?: string }) {
   const [config, setConfig] = useState<PosPrinterConfig>(() => loadPrinterConfig());
@@ -33,7 +44,11 @@ export function PrinterSettingsPanel({ branchName }: { branchName?: string }) {
 
   const verifyBridge = async (urlToUse?: string) => {
     const targetUrl = urlToUse ?? config.bridgeUrl;
-    setBridgeStatus({ checking: true, online: false, detail: 'Verificando puente local e impresoras de la PC…' });
+    setBridgeStatus({
+      checking: true,
+      online: false,
+      detail: 'Verificando puente local e impresoras de la PC…',
+    });
     const [res, printersRes] = await Promise.all([
       checkPrintBridgeHealth(targetUrl),
       fetchLocalSystemPrinters(targetUrl),
@@ -46,10 +61,10 @@ export function PrinterSettingsPanel({ branchName }: { branchName?: string }) {
       setBridgeStatus({
         checking: false,
         online: true,
-        detail: `Conectado (${res.service || '127.0.0.1:9123'}) · ${
+        detail: `Puente Kiwi conectado en esta PC · ${
           printerCount > 0
-            ? `${printerCount} impresoras detectadas en la PC (${printersRes.printers.join(', ')})`
-            : 'Listo para enviar a impresoras de Windows (caja, ensaladas, barra) o IP:9100'
+            ? `${printerCount} impresoras detectadas: ${printersRes.printers.join(', ')}`
+            : 'Listo para imprimir automáticamente en Caja, Ensaladas, Barra'
         }`,
       });
     } else {
@@ -57,7 +72,7 @@ export function PrinterSettingsPanel({ branchName }: { branchName?: string }) {
         checking: false,
         online: false,
         detail:
-          'Puente local no detectado en este equipo. Descárgalo abajo para imprimir directo en las impresoras del Panel de Control (caja, ensaladas, barra) o usa impresión térmica 80mm.',
+          'Puente local no detectado en esta PC. Se requiere para que los tickets y comandas se impriman solos sin que salga la ventana de confirmación de Chrome.',
       });
     }
   };
@@ -104,9 +119,9 @@ export function PrinterSettingsPanel({ branchName }: { branchName?: string }) {
         }),
       });
     } catch {
-      // Continúa con persistencia local si el backend está offline
+      // Persistencia local
     }
-    setSavedNotice('Configuración de áreas e impresoras guardada en esta terminal y sincronizada.');
+    setSavedNotice('✓ Configuración de impresoras y comandas guardada correctamente.');
     void verifyBridge(saved.bridgeUrl);
     setTimeout(() => setSavedNotice(''), 4000);
   };
@@ -250,180 +265,308 @@ export function PrinterSettingsPanel({ branchName }: { branchName?: string }) {
     new Set(['caja', 'ensaladas', 'barra', 'bebidas', ...osPrinters])
   );
 
+  const getStationBadgeClass = (code: string) => {
+    if (code === 'salads') return 'psp-badge-salads';
+    if (code === 'baguettes') return 'psp-badge-baguettes';
+    if (code === 'kitchen') return 'psp-badge-kitchen';
+    if (code === 'drinks') return 'psp-badge-drinks';
+    return 'psp-badge-packing';
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 860 }}>
+    <div className="psp-container">
       <datalist id="kiwi-os-printers-list">
         {suggestedPrinters.map((pName) => (
           <option key={pName} value={pName} />
         ))}
       </datalist>
 
-      <div>
-        <h2>Configuración de Impresoras y Áreas de Impresión (Caja, Ensaladas, Barra, Bebidas)</h2>
-        <p style={{ color: '#475569', marginTop: 4 }}>
-          Asigna la impresora del Panel de Control de la computadora (ej. <code>caja</code>,{' '}
-          <code>ensaladas</code>, <code>barra</code>) o IP:9100 a la <strong>Nota del Cliente</strong>{' '}
-          y a cada <strong>Área de Impresión de Comandas</strong>
-          {branchName ? ` (${branchName})` : ''}.
-        </p>
-      </div>
-
-      {/* 1. Reglas de Impresión Automática */}
-      <section
-        style={{
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
-          borderRadius: 10,
-          padding: 16,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-        }}
-      >
-        <h3 style={{ margin: 0, fontSize: '1rem' }}>1. Impresión Automática en Punto de Venta</h3>
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontWeight: 600 }}>
-          <input
-            type="checkbox"
-            checked={config.autoPrintOnConfirm}
-            onChange={(e) => setConfig({ ...config, autoPrintOnConfirm: e.target.checked })}
-          />
-          <span>Imprimir automáticamente al confirmar o cobrar pedido en el POS</span>
-        </label>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-          <label className="settings-field">
-            <span>Documentos a imprimir en automático</span>
-            <select
-              value={config.autoPrintCopies}
-              onChange={(e) =>
-                setConfig({ ...config, autoPrintCopies: e.target.value as AutoPrintCopies })
-              }
-            >
-              <option value="both">Ticket en Caja + Comandas separadas por Área (Recomendado)</option>
-              <option value="ticket">Sólo Ticket de Venta en Caja</option>
-              <option value="kitchen">Sólo Comandas de Cocina por Área</option>
-            </select>
-          </label>
-
-          <label className="settings-field">
-            <span>Ancho de rollo térmico</span>
-            <select
-              value={config.paperWidthMm}
-              onChange={(e) =>
-                setConfig({ ...config, paperWidthMm: Number(e.target.value) === 58 ? 58 : 80 })
-              }
-            >
-              <option value={80}>80 mm (Estándar 42 columnas sin salto a la línea 34)</option>
-              <option value={58}>58 mm (Compacto 32 columnas)</option>
-            </select>
-          </label>
-        </div>
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={config.kickDrawerOnCash}
-            onChange={(e) => setConfig({ ...config, kickDrawerOnCash: e.target.checked })}
-          />
-          <span>Enviar pulso de apertura al cajón de dinero al cobrar en efectivo (ESC/POS)</span>
-        </label>
-      </section>
-
-      {/* 2. Impresora de Caja (Ticket del Cliente) */}
-      <section
-        style={{
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
-          borderRadius: 10,
-          padding: 16,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-        }}
-      >
-        <h3 style={{ margin: 0, fontSize: '1rem' }}>
-          2. Impresora de Caja (Nota de Venta del Cliente)
-        </h3>
-
-        <label className="settings-field">
-          <span>Modo de envío a impresoras</span>
-          <select
-            value={config.connectionMode}
-            onChange={(e) =>
-              setConfig({ ...config, connectionMode: e.target.value as PrinterConnectionMode })
-            }
-          >
-            <option value="network_bridge">
-              Puente Local Kiwi (Envía a impresoras de Windows: caja, ensaladas, barra o Red IP:9100)
-            </option>
-            <option value="browser_silent">
-              Impresión Térmica Aislada 80mm del Navegador (compatible con Chrome --kiosk-printing)
-            </option>
-          </select>
-        </label>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr', gap: 12 }}>
-          <label className="settings-field">
-            <span>Nombre de Impresora en Windows / PC (Caja)</span>
-            <input
-              type="text"
-              list="kiwi-os-printers-list"
-              value={config.ticketPrinterName}
-              onChange={(e) => setConfig({ ...config, ticketPrinterName: e.target.value })}
-              placeholder="Ej. caja"
-              autoComplete="off"
-            />
-          </label>
-          <label className="settings-field">
-            <span>IP de Impresora Caja (Opcional si usa Red TCP)</span>
-            <input
-              type="text"
-              value={config.ticketPrinterHost}
-              onChange={(e) => setConfig({ ...config, ticketPrinterHost: e.target.value })}
-              placeholder="Ej. 192.168.1.200"
-              autoComplete="off"
-            />
-          </label>
-          <label className="settings-field">
-            <span>Puerto TCP</span>
-            <input
-              type="number"
-              value={config.ticketPrinterPort}
-              onChange={(e) =>
-                setConfig({ ...config, ticketPrinterPort: Number(e.target.value) || 9100 })
-              }
-              placeholder="9100"
-            />
-          </label>
-        </div>
-      </section>
-
-      {/* 3. Áreas de Impresión de Comandas y Asignación de Impresora por Área */}
-      <section
-        style={{
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
-          borderRadius: 10,
-          padding: 16,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 14,
-        }}
-      >
+      {/* Encabezado */}
+      <header className="psp-header">
         <div>
-          <h3 style={{ margin: 0, fontSize: '1rem' }}>
-            3. Áreas de Impresión de Comandas y Asignación de Impresora por Área
-          </h3>
-          <p style={{ margin: '4px 0 0', fontSize: '0.84rem', color: '#475569' }}>
-            Cada producto o grupo se envía únicamente a la impresora asignada a su área (por ejemplo:{' '}
-            <strong>ENSALADAS</strong> a la impresora <code>ensaladas</code>, y{' '}
-            <strong>BAGUETTES(RAPIDO)</strong> / <strong>BARRA</strong> a la impresora{' '}
-            <code>barra</code>).
+          <h2 className="psp-title">
+            <Printer size={26} color="#10b981" />
+            Configuración de Impresoras y Comandas
+            {branchName ? ` (${branchName})` : ''}
+          </h2>
+          <p className="psp-subtitle">
+            Asigna las impresoras físicas de esta computadora a la <strong>Nota de Venta (Caja)</strong> y a cada <strong>Área de Preparación</strong> (Ensaladas, Baguettes, Barra, Bebidas).
           </p>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <button
+            type="button"
+            className="psp-btn psp-btn-secondary"
+            onClick={() => void handleTestPrint()}
+            disabled={testing}
+          >
+            <Printer size={15} />
+            {testing ? 'Probando…' : 'Probar Pedido Completo'}
+          </button>
+          <button
+            type="button"
+            className="psp-btn psp-btn-primary"
+            onClick={() => void handleSave()}
+          >
+            <CheckCircle2 size={16} />
+            Guardar Cambios
+          </button>
+        </div>
+      </header>
+
+      {/* Avisos de confirmación */}
+      {savedNotice && (
+        <div
+          role="status"
+          style={{
+            background: '#ecfdf5',
+            border: '1px solid #10b981',
+            color: '#065f46',
+            padding: '12px 16px',
+            borderRadius: 10,
+            fontWeight: 700,
+            fontSize: '0.92rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Check size={18} />
+          {savedNotice}
+        </div>
+      )}
+
+      {testNotice && (
+        <div
+          role="status"
+          style={{
+            background: '#eff6ff',
+            border: '1px solid #93c5fd',
+            color: '#1e3a8a',
+            padding: '12px 16px',
+            borderRadius: 10,
+            fontWeight: 600,
+            fontSize: '0.9rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <AlertCircle size={18} />
+          {testNotice}
+        </div>
+      )}
+
+      {/* TARJETA 1: ESTADO DEL PUENTE Y AUTOMATIZACIÓN (El corazón de la solución) */}
+      <section className="psp-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <h3 className="psp-card-title">
+              <Laptop size={20} color={bridgeStatus.online ? '#10b981' : '#f59e0b'} />
+              1. Conexión con las Impresoras de esta Computadora (Puente Kiwi)
+            </h3>
+            <p className="psp-card-desc">
+              Permite que las notas salgan solas en automático en sus impresoras sin que Chrome abra la ventana de diálogo cada vez.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="psp-btn psp-btn-secondary psp-btn-sm"
+            onClick={() => void verifyBridge(config.bridgeUrl)}
+            disabled={bridgeStatus.checking}
+          >
+            <RefreshCw size={14} className={bridgeStatus.checking ? 'spin' : ''} />
+            {bridgeStatus.checking ? 'Verificando…' : 'Detectar Impresoras PC'}
+          </button>
+        </div>
+
+        {/* Banner de estado */}
+        <div className={`psp-status-banner ${bridgeStatus.online ? 'online' : 'offline'}`}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Wifi size={20} />
+            <span style={{ fontWeight: 600 }}>{bridgeStatus.detail}</span>
+          </div>
+        </div>
+
+        {/* Si no está conectado, mostrar pasos de instalación rápida */}
+        {!bridgeStatus.online && (
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#0f172a' }}>
+              ¿Por qué sale la ventana de impresión cada vez que mandas a imprimir?
+            </div>
+            <p style={{ margin: 0, fontSize: '0.86rem', color: '#475569', lineHeight: 1.5 }}>
+              Por seguridad, los navegadores (Chrome / Edge) no pueden mandar a imprimir directamente a una impresora física sin preguntar, <strong>a menos que esté corriendo el Puente Kiwi</strong> en la computadora de caja.
+            </p>
+
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="psp-btn psp-btn-primary"
+                onClick={() =>
+                  downloadFile(
+                    'Iniciar-Impresora-Kiwi-POS.bat',
+                    buildWindowsPrintBridgeBat(config),
+                    'application/x-bat;charset=utf-8'
+                  )
+                }
+              >
+                <Download size={16} />
+                Descargar Puente para Windows (.bat)
+              </button>
+
+              <button
+                type="button"
+                className="psp-btn psp-btn-secondary psp-btn-sm"
+                onClick={() =>
+                  downloadFile(
+                    'kiwi_print_bridge.py',
+                    buildPythonPrintBridgeScript(config),
+                    'text/x-python;charset=utf-8'
+                  )
+                }
+              >
+                <Download size={14} />
+                Descargar para Mac / Linux (.py)
+              </button>
+            </div>
+
+            <ul className="psp-steps-list" style={{ marginTop: 6 }}>
+              <li className="psp-step-item">
+                <span className="psp-step-num">1</span>
+                <span>
+                  Haz clic en el botón verde arriba para descargar <strong>Iniciar-Impresora-Kiwi-POS.bat</strong> en esta PC.
+                </span>
+              </li>
+              <li className="psp-step-item">
+                <span className="psp-step-num">2</span>
+                <span>
+                  Haz <strong>doble clic</strong> sobre el archivo descargado. Se iniciará y se configurará para arrancar solo cada vez que prendas la PC.
+                </span>
+              </li>
+              <li className="psp-step-item">
+                <span className="psp-step-num">3</span>
+                <span>
+                  Pulsa <strong>"Detectar Impresoras PC"</strong> y listo: tus comandas de ensaladas, baguettes y ticket de cliente saldrán solas y en silencio.
+                </span>
+              </li>
+            </ul>
+          </div>
+        )}
+
+        {/* Impresoras detectadas */}
+        {osPrinters.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: '0.84rem', fontWeight: 600, color: '#334155' }}>
+              Impresoras instaladas en Windows (Panel de Control de esta PC):
+            </span>
+            <div className="psp-pills-container">
+              {osPrinters.map((p) => (
+                <span key={p} className="psp-pill active">
+                  <Check size={13} />
+                  {p}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* TARJETA 2: IMPRESORA DE CAJA (Ticket del Cliente) */}
+      <section className="psp-caja-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1.08rem', fontWeight: 800, color: '#0f172a' }}>
+              2. Nota del Cliente (Ticket de Venta en Caja)
+            </h3>
+            <p style={{ margin: '2px 0 0', fontSize: '0.86rem', color: '#475569' }}>
+              Aquí se imprime la cuenta completa para el cliente con subtotal, IVA y totales.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="psp-btn psp-btn-secondary psp-btn-sm"
+            disabled={testing}
+            onClick={() => void handleTestPrint('ticket')}
+          >
+            <Printer size={14} />
+            Probar Ticket de Caja
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+          <div className="psp-field">
+            <label className="psp-label">Nombre exacto de la Impresora en Windows (PC)</label>
+            <input
+              type="text"
+              list="kiwi-os-printers-list"
+              className="psp-input"
+              value={config.ticketPrinterName}
+              onChange={(e) => setConfig({ ...config, ticketPrinterName: e.target.value })}
+              placeholder="caja"
+              autoComplete="off"
+            />
+            <span className="psp-hint">Nombre en Windows (Panel de Control &gt; Dispositivos e Impresoras).</span>
+            {osPrinters.length > 0 && (
+              <div className="psp-pills-container">
+                {osPrinters.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={`psp-pill ${config.ticketPrinterName.toLowerCase() === p.toLowerCase() ? 'active' : ''}`}
+                    onClick={() => setConfig({ ...config, ticketPrinterName: p })}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="psp-field">
+            <label className="psp-label">IP de Red Ethernet (Opcional)</label>
+            <input
+              type="text"
+              className="psp-input"
+              value={config.ticketPrinterHost}
+              onChange={(e) => setConfig({ ...config, ticketPrinterHost: e.target.value })}
+              placeholder="ej. 192.168.1.200"
+              autoComplete="off"
+            />
+            <span className="psp-hint">Déjalo vacío si está conectada por cable USB a esta computadora.</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+          <label className="psp-switch">
+            <input
+              type="checkbox"
+              checked={config.kickDrawerOnCash}
+              onChange={(e) => setConfig({ ...config, kickDrawerOnCash: e.target.checked })}
+            />
+            <span className="psp-switch-slider" />
+          </label>
+          <span style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155' }}>
+            Abrir cajón de dinero automáticamente al cobrar en efectivo
+          </span>
+        </div>
+      </section>
+
+      {/* TARJETA 3: ESTACIONES Y ÁREAS DE COMANDA */}
+      <section className="psp-card">
+        <div>
+          <h3 className="psp-card-title">
+            <Printer size={20} color="#047857" />
+            3. Áreas de Impresión de Comandas (Cocina y Barra)
+          </h3>
+          <p className="psp-card-desc">
+            Cada estación recibe únicamente sus productos asignados (por ejemplo: ensaladas van a la impresora <code>ensaladas</code>, baguettes van a la impresora <code>barra</code>).
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {config.printAreas
             .filter((area) => area.code !== 'none')
             .map((area) => {
@@ -436,272 +579,267 @@ export function PrinterSettingsPanel({ branchName }: { branchName?: string }) {
               return (
                 <div
                   key={area.code}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1.6fr 1.5fr 1.3fr auto',
-                    gap: 10,
-                    alignItems: 'center',
-                    background: '#ffffff',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: 8,
-                    padding: '10px 12px',
-                  }}
+                  className={`psp-area-item ${!target.enabled || !area.printComanda ? 'disabled' : ''}`}
                 >
-                  <div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: '0.88rem' }}>
-                      <input
-                        type="checkbox"
-                        checked={target.enabled && area.printComanda}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setConfig({
-                            ...config,
-                            printAreas: config.printAreas.map((a) =>
-                              a.code === area.code ? { ...a, printComanda: checked } : a
-                            ),
-                            areaPrinters: {
-                              ...config.areaPrinters,
-                              [area.code]: { ...target, enabled: checked },
-                            },
-                          });
-                        }}
-                      />
-                      <span>{area.name}</span>
-                    </label>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginLeft: 24 }}>
-                      Código: <code>{area.code}</code> · KDS: <code>{area.station}</code>
+                  <div className="psp-area-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <label className="psp-switch">
+                        <input
+                          type="checkbox"
+                          checked={target.enabled && area.printComanda}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setConfig({
+                              ...config,
+                              printAreas: config.printAreas.map((a) =>
+                                a.code === area.code ? { ...a, printComanda: checked } : a
+                              ),
+                              areaPrinters: {
+                                ...config.areaPrinters,
+                                [area.code]: { ...target, enabled: checked },
+                              },
+                            });
+                          }}
+                        />
+                        <span className="psp-switch-slider" />
+                      </label>
+
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontWeight: 800, fontSize: '0.98rem', color: '#0f172a' }}>
+                            {area.name}
+                          </span>
+                          <span className={`psp-badge ${getStationBadgeClass(area.code)}`}>
+                            {area.code.toUpperCase()}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                          {target.enabled && area.printComanda
+                            ? `Imprime comanda separada en la impresora "${target.printerName || area.code}"`
+                            : 'Comanda desactivada para esta área'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {target.enabled && area.printComanda && (
+                        <button
+                          type="button"
+                          className="psp-btn psp-btn-secondary psp-btn-sm"
+                          disabled={testing}
+                          onClick={() => void handleTestPrint(area.code)}
+                        >
+                          <Printer size={13} />
+                          Probar
+                        </button>
+                      )}
+
+                      {!area.isSystem && (
+                        <button
+                          type="button"
+                          className="psp-btn psp-btn-danger psp-btn-sm"
+                          onClick={() => handleRemoveCustomArea(area.code)}
+                          title="Eliminar área"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  <label className="settings-field" style={{ margin: 0 }}>
-                    <span style={{ fontSize: '0.75rem' }}>Impresora en Panel de Control (PC)</span>
-                    <input
-                      type="text"
-                      list="kiwi-os-printers-list"
-                      value={target.printerName}
-                      onChange={(e) =>
-                        setConfig({
-                          ...config,
-                          areaPrinters: {
-                            ...config.areaPrinters,
-                            [area.code]: { ...target, printerName: e.target.value },
-                          },
-                        })
-                      }
-                      placeholder={`Ej. ${area.code === 'salads' ? 'ensaladas' : 'barra'}`}
-                    />
-                  </label>
+                  {target.enabled && area.printComanda && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, paddingTop: 4 }}>
+                      <div className="psp-field">
+                        <label className="psp-label">Impresora en Windows (PC)</label>
+                        <input
+                          type="text"
+                          list="kiwi-os-printers-list"
+                          className="psp-input"
+                          value={target.printerName}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              areaPrinters: {
+                                ...config.areaPrinters,
+                                [area.code]: { ...target, printerName: e.target.value },
+                              },
+                            })
+                          }
+                          placeholder={area.code === 'salads' ? 'ensaladas' : 'barra'}
+                        />
+                        {osPrinters.length > 0 && (
+                          <div className="psp-pills-container">
+                            {osPrinters.map((p) => (
+                              <button
+                                key={p}
+                                type="button"
+                                className={`psp-pill ${target.printerName.toLowerCase() === p.toLowerCase() ? 'active' : ''}`}
+                                onClick={() =>
+                                  setConfig({
+                                    ...config,
+                                    areaPrinters: {
+                                      ...config.areaPrinters,
+                                      [area.code]: { ...target, printerName: p },
+                                    },
+                                  })
+                                }
+                              >
+                                {p}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
 
-                  <label className="settings-field" style={{ margin: 0 }}>
-                    <span style={{ fontSize: '0.75rem' }}>IP de Red (Opcional)</span>
-                    <input
-                      type="text"
-                      value={target.host}
-                      onChange={(e) =>
-                        setConfig({
-                          ...config,
-                          areaPrinters: {
-                            ...config.areaPrinters,
-                            [area.code]: { ...target, host: e.target.value },
-                          },
-                        })
-                      }
-                      placeholder="Ej. 192.168.1.201"
-                    />
-                  </label>
-
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={testing}
-                      onClick={() => void handleTestPrint(area.code)}
-                      title={`Imprimir comanda de prueba en ${area.name}`}
-                    >
-                      <Printer size={14} />
-                      Probar
-                    </Button>
-                    {!area.isSystem && (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => handleRemoveCustomArea(area.code)}
-                        title="Eliminar área personalizada"
-                      >
-                        <Trash2 size={14} />
-                      </Button>
-                    )}
-                  </div>
+                      <div className="psp-field">
+                        <label className="psp-label">IP de Red Ethernet (Opcional)</label>
+                        <input
+                          type="text"
+                          className="psp-input"
+                          value={target.host}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              areaPrinters: {
+                                ...config.areaPrinters,
+                                [area.code]: { ...target, host: e.target.value },
+                              },
+                            })
+                          }
+                          placeholder="ej. 192.168.1.201"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
         </div>
 
-        {/* Agregar nueva Área de Impresión */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1.4fr 1.2fr auto',
-            gap: 8,
-            alignItems: 'flex-end',
-            paddingTop: 8,
-            borderTop: '1px dashed #cbd5e1',
-          }}
-        >
-          <label className="settings-field" style={{ margin: 0 }}>
-            <span style={{ fontSize: '0.76rem' }}>Nuevo código de área</span>
-            <input
-              type="text"
-              value={newAreaCode}
-              onChange={(e) => setNewAreaCode(e.target.value)}
-              placeholder="Ej. postres"
-            />
-          </label>
-          <label className="settings-field" style={{ margin: 0 }}>
-            <span style={{ fontSize: '0.76rem' }}>Nombre en Comanda</span>
-            <input
-              type="text"
-              value={newAreaName}
-              onChange={(e) => setNewAreaName(e.target.value)}
-              placeholder="Ej. REPOSTERIA / POSTRES"
-            />
-          </label>
-          <label className="settings-field" style={{ margin: 0 }}>
-            <span style={{ fontSize: '0.76rem' }}>Impresora asignada</span>
-            <input
-              type="text"
-              list="kiwi-os-printers-list"
-              value={newAreaPrinter}
-              onChange={(e) => setNewAreaPrinter(e.target.value)}
-              placeholder="Ej. barra"
-            />
-          </label>
-          <Button type="button" variant="secondary" onClick={handleAddCustomArea}>
-            <Plus size={15} />
-            Agregar área
-          </Button>
+        {/* Agregar nueva área */}
+        <div style={{ borderTop: '2px dashed #e2e8f0', paddingTop: 14, marginTop: 4 }}>
+          <h4 style={{ margin: '0 0 10px', fontSize: '0.92rem', fontWeight: 700, color: '#0f172a' }}>
+            + Agregar Nueva Área de Comanda (ej. Postres, Plancha, Bebidas 2)
+          </h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr)) auto', gap: 10, alignItems: 'flex-end' }}>
+            <div className="psp-field">
+              <label className="psp-label">Código único</label>
+              <input
+                type="text"
+                className="psp-input"
+                value={newAreaCode}
+                onChange={(e) => setNewAreaCode(e.target.value)}
+                placeholder="ej. postres"
+              />
+            </div>
+            <div className="psp-field">
+              <label className="psp-label">Nombre en Comanda</label>
+              <input
+                type="text"
+                className="psp-input"
+                value={newAreaName}
+                onChange={(e) => setNewAreaName(e.target.value)}
+                placeholder="ej. REPOSTERIA"
+              />
+            </div>
+            <div className="psp-field">
+              <label className="psp-label">Impresora PC</label>
+              <input
+                type="text"
+                list="kiwi-os-printers-list"
+                className="psp-input"
+                value={newAreaPrinter}
+                onChange={(e) => setNewAreaPrinter(e.target.value)}
+                placeholder="ej. barra"
+              />
+            </div>
+            <button
+              type="button"
+              className="psp-btn psp-btn-primary"
+              onClick={handleAddCustomArea}
+            >
+              <Plus size={16} />
+              Agregar
+            </button>
+          </div>
         </div>
       </section>
 
-      {/* 4. Puente Local y Detección de Impresoras del Sistema */}
-      <section
-        style={{
-          background: '#eff6ff',
-          border: '1px solid #bfdbfe',
-          borderRadius: 10,
-          padding: 16,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-        }}
-      >
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <label className="settings-field" style={{ flex: 1, minWidth: 240, margin: 0 }}>
-            <span>Puente Local de Impresión en esta PC</span>
-            <input
-              type="text"
-              value={config.bridgeUrl}
-              onChange={(e) => setConfig({ ...config, bridgeUrl: e.target.value })}
-              placeholder="http://127.0.0.1:9123"
-              autoComplete="off"
-            />
-          </label>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => void verifyBridge(config.bridgeUrl)}
-            disabled={bridgeStatus.checking}
-          >
-            <RefreshCw size={16} />
-            {bridgeStatus.checking ? 'Detectando…' : 'Detectar impresoras de la PC'}
-          </Button>
-        </div>
-
-        <p
-          role="status"
-          style={{
-            margin: 0,
-            fontSize: '0.86rem',
-            fontWeight: 600,
-            color: bridgeStatus.online ? '#059669' : '#b45309',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
-          <Wifi size={16} />
-          {bridgeStatus.detail}
-        </p>
-
-        <h3 style={{ margin: '4px 0 0', fontSize: '0.95rem', color: '#1e3a8a' }}>
-          Descargar Puente Local Kiwi (Conecta el navegador con las impresoras de Windows / Mac / Linux)
+      {/* TARJETA 4: REGLAS Y PREFERENCIAS */}
+      <section className="psp-card">
+        <h3 className="psp-card-title">
+          4. Reglas de Impresión en Punto de Venta
         </h3>
-        <p style={{ margin: 0, fontSize: '0.84rem', color: '#1e40af', lineHeight: 1.45 }}>
-          Ejecuta este puente ligero en la computadora de caja para que el sistema detecte las
-          impresoras del Panel de Control (<code>caja</code>, <code>ensaladas</code>,{' '}
-          <code>barra</code>) y envíe cada comanda automáticamente a su impresora sin abrir ventanas
-          de diálogo:
-        </p>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() =>
-              downloadFile(
-                'Iniciar-Impresora-Kiwi-POS.bat',
-                buildWindowsPrintBridgeBat(config),
-                'application/x-bat;charset=utf-8'
-              )
-            }
-          >
-            <Download size={16} />
-            Descargar Puente Automático para Windows (.bat)
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() =>
-              downloadFile(
-                'kiwi_print_bridge.py',
-                buildPythonPrintBridgeScript(config),
-                'text/x-python;charset=utf-8'
-              )
-            }
-          >
-            <Download size={16} />
-            Descargar Puente para Mac / Linux (.py)
-          </Button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <label className="psp-switch">
+            <input
+              type="checkbox"
+              checked={config.autoPrintOnConfirm}
+              onChange={(e) => setConfig({ ...config, autoPrintOnConfirm: e.target.checked })}
+            />
+            <span className="psp-switch-slider" />
+          </label>
+          <span style={{ fontSize: '0.92rem', fontWeight: 700, color: '#0f172a' }}>
+            Imprimir automáticamente al confirmar o cobrar un pedido en caja
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginTop: 4 }}>
+          <div className="psp-field">
+            <label className="psp-label">Documentos a imprimir en automático</label>
+            <select
+              className="psp-select"
+              value={config.autoPrintCopies}
+              onChange={(e) =>
+                setConfig({ ...config, autoPrintCopies: e.target.value as AutoPrintCopies })
+              }
+            >
+              <option value="both">Ticket en Caja + Comandas separadas por Área (Recomendado)</option>
+              <option value="ticket">Sólo Ticket de Venta en Caja</option>
+              <option value="kitchen">Sólo Comandas de Cocina por Área</option>
+            </select>
+          </div>
+
+          <div className="psp-field">
+            <label className="psp-label">Ancho de rollo térmico</label>
+            <select
+              className="psp-select"
+              value={config.paperWidthMm}
+              onChange={(e) =>
+                setConfig({ ...config, paperWidthMm: Number(e.target.value) === 58 ? 58 : 80 })
+              }
+            >
+              <option value={80}>80 mm (Estándar 42 columnas sin desfase)</option>
+              <option value={58}>58 mm (Compacto 32 columnas)</option>
+            </select>
+          </div>
         </div>
       </section>
 
-      {/* Botones principales de Guardado y Prueba */}
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Button type="button" variant="primary" onClick={() => void handleSave()}>
-          <CheckCircle2 size={16} />
-          Guardar configuración de áreas e impresoras
-        </Button>
-
-        <Button
+      {/* Botones finales */}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', paddingBottom: 24 }}>
+        <button
           type="button"
-          variant="secondary"
+          className="psp-btn psp-btn-primary"
+          style={{ height: 46, padding: '0 24px', fontSize: '0.95rem', fontWeight: 700 }}
+          onClick={() => void handleSave()}
+        >
+          <CheckCircle2 size={18} />
+          Guardar Configuración de Impresoras
+        </button>
+
+        <button
+          type="button"
+          className="psp-btn psp-btn-secondary"
+          style={{ height: 46, padding: '0 20px', fontSize: '0.92rem' }}
           onClick={() => void handleTestPrint()}
           disabled={testing}
         >
           <Printer size={16} />
-          {testing ? 'Enviando prueba…' : 'Probar Pedido Completo (Ticket Caja + Comandas por Área)'}
-        </Button>
+          {testing ? 'Enviando prueba…' : 'Probar Pedido Completo (Ticket Caja + Comandas)'}
+        </button>
       </div>
-
-      {savedNotice && (
-        <p role="status" style={{ margin: 0, color: '#059669', fontWeight: 600 }}>
-          ✓ {savedNotice}
-        </p>
-      )}
-      {testNotice && (
-        <p role="status" style={{ margin: 0, color: '#0f172a', fontWeight: 600 }}>
-          {testNotice}
-        </p>
-      )}
     </div>
   );
 }
