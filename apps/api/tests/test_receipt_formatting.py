@@ -143,3 +143,243 @@ def test_generate_escpos_kitchen_bytes() -> None:
     assert raw.startswith(ESCPOS_INIT)
     assert b"COMANDA DE COCINA" in raw
     assert b"ENSALADA DE ARANDAN" in raw
+
+
+def test_default_print_areas_and_smart_product_routing() -> None:
+    from restaurant_os.receipt_formatting import (
+        DEFAULT_PRINT_AREAS,
+        extract_short_order_number,
+        resolve_product_print_area,
+        split_kitchen_payload_by_area,
+    )
+
+    codes = [area["code"] for area in DEFAULT_PRINT_AREAS]
+    assert "salads" in codes
+    assert "baguettes" in codes
+    assert "kitchen" in codes
+    assert "drinks" in codes
+    assert "packing" in codes
+
+    assert extract_short_order_number("SUC04-000001") == "1"
+    assert extract_short_order_number("SUC01-000025") == "25"
+    assert extract_short_order_number("103326", 3) == "3"
+
+    # Smart resolution for Kiwi catalog products
+    assert (
+        resolve_product_print_area(
+            {
+                "product_name": "ENSALADA DE ARANDANO",
+                "category_name": "ENSALADAS",
+                "station": "kitchen",
+            }
+        )
+        == "salads"
+    )
+    assert (
+        resolve_product_print_area(
+            {
+                "product_name": "SANDWICH INTEGRAL POLLO BBQ",
+                "category_name": "BAGUETTES",
+                "station": "kitchen",
+            }
+        )
+        == "baguettes"
+    )
+    assert (
+        resolve_product_print_area(
+            {"product_name": "CUERNITO BBQ", "category_name": "BAGUETTES", "station": "kitchen"}
+        )
+        == "baguettes"
+    )
+    assert (
+        resolve_product_print_area(
+            {
+                "product_name": "AGUA DE FRESA LIMON CHICA",
+                "category_name": "AGUAS",
+                "station": "drinks",
+            }
+        )
+        == "drinks"
+    )
+
+    # Splitting a single order into multiple area-specific kitchen comandas
+    order_payload = {
+        "folio": "SUC04-000003",
+        "created_at": "14/11/2026 08:23:24 AM",
+        "service_type_label": "CONSUMIR AQUI",
+        "customer_name": "MIGUEL GONZALEZ",
+        "lines": [
+            {
+                "quantity": 1,
+                "product_name": "ENSALADA DE ARANDANO",
+                "category_name": "ENSALADAS",
+                "station": "kitchen",
+                "selected_modifiers": [{"text": "ADEREZO RANCH"}],
+            },
+            {
+                "quantity": 1,
+                "product_name": "SANDWICH INTEGRAL POLLO BBQ",
+                "category_name": "BAGUETTES",
+                "station": "kitchen",
+                "selected_modifiers": [
+                    {"text": "ADEREZO DE CHIPOTLE CHI"},
+                    {"text": "MANCHEGUITO"},
+                ],
+            },
+            {
+                "quantity": 1,
+                "product_name": "CUERNITO BBQ",
+                "category_name": "BAGUETTES",
+                "station": "kitchen",
+                "selected_modifiers": [{"text": "ADEREZO DE CHIPOTLE CHI"}],
+            },
+            {
+                "quantity": 1,
+                "product_name": "AGUA DE FRESA LIMON CHICA",
+                "category_name": "AGUAS",
+                "station": "drinks",
+            },
+        ],
+    }
+
+    split_jobs = split_kitchen_payload_by_area(order_payload)
+    assert [job["area_code"] for job in split_jobs] == ["salads", "baguettes", "drinks"]
+    assert len(split_jobs[0]["lines"]) == 1
+    assert split_jobs[0]["lines"][0]["product_name"] == "ENSALADA DE ARANDANO"
+    assert len(split_jobs[1]["lines"]) == 2
+    assert split_jobs[1]["area_name"] == "BAGUETTES(RAPIDO)"
+
+    baguettes_text = format_kitchen_text(split_jobs[1], 42)
+    assert "BAGUETTES(RAPIDO) ORDEN: 3" in baguettes_text
+    assert "SANDWICH INTEGRAL POLLO BBQ" in baguettes_text
+    assert "CUERNITO BBQ" in baguettes_text
+    assert "ENSALADA DE ARANDANO" not in baguettes_text
+
+
+def test_print_routing_api_persistence_and_preview() -> None:
+    from collections.abc import Generator
+    from datetime import datetime, timezone
+
+    from fastapi.testclient import TestClient
+    from restaurant_os import models, operations
+    from restaurant_os.database import get_session
+    from restaurant_os.main import create_app
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    engine = create_engine(
+        "sqlite+pysqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    models.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    now = datetime.now(timezone.utc)
+    with factory() as session:
+        session.execute(
+            models.organizations.insert().values(
+                id=operations.ORGANIZATION_ID,
+                name="Kiwi Org",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+    app = create_app()
+
+    def override() -> Generator[Session, None, None]:
+        with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override
+    client = TestClient(app)
+
+    res_get = client.get("/api/v1/print-routing")
+    assert res_get.status_code == 200
+    initial = res_get.json()
+    assert initial["ticket_printer"]["printer_name"] == "caja"
+    assert initial["area_printers"]["salads"]["printer_name"] == "ensaladas"
+    assert initial["area_printers"]["baguettes"]["printer_name"] == "barra"
+
+    # Update custom area & printers
+    updated_payload = {
+        "areas": [
+            *initial["areas"],
+            {
+                "code": "postres",
+                "name": "REPOSTERIA FRIA",
+                "station": "kitchen",
+                "print_comanda": True,
+                "sort_order": 7,
+            },
+        ],
+        "category_areas": {"ENSALADAS": "salads", "BAGUETTES": "baguettes"},
+        "ticket_printer": {"enabled": True, "printer_name": "caja", "host": "", "port": 9100},
+        "area_printers": {
+            "salads": {"enabled": True, "printer_name": "ensaladas", "host": "", "port": 9100},
+            "baguettes": {"enabled": True, "printer_name": "barra", "host": "", "port": 9100},
+            "postres": {"enabled": True, "printer_name": "reposteria", "host": "", "port": 9100},
+        },
+    }
+    res_put = client.put("/api/v1/print-routing", json=updated_payload)
+    assert res_put.status_code == 200
+    saved = res_put.json()
+    assert any(a["code"] == "postres" for a in saved["areas"])
+    assert saved["area_printers"]["postres"]["printer_name"] == "reposteria"
+
+    # Assign specific product to print area
+    res_prod = client.put(
+        "/api/v1/print-routing/products/prod-cheesecake-01",
+        json={"print_area": "postres"},
+    )
+    assert res_prod.status_code == 200
+    assert res_prod.json()["product_areas"]["prod-cheesecake-01"] == "postres"
+
+    # Preview order split across multiple printers
+    preview_res = client.post(
+        "/api/v1/print-routing/preview-order",
+        json={
+            "folio": "SUC04-000003",
+            "branch_name": "SUCURSAL CHAPULTEPEC",
+            "created_at": "14/11/2026 08:23:24 AM",
+            "service_type_label": "CONSUMIR AQUI",
+            "customer_name": "MIGUEL GONZALEZ",
+            "total_cents": 32500,
+            "lines": [
+                {
+                    "product_id": "prod-salad-01",
+                    "product_name": "ENSALADA DE ARANDANO",
+                    "category_name": "ENSALADAS",
+                    "quantity": 1,
+                    "unit_price_cents": 13500,
+                    "line_total_cents": 13500,
+                },
+                {
+                    "product_id": "prod-baguette-01",
+                    "product_name": "SANDWICH INTEGRAL POLLO BBQ",
+                    "category_name": "BAGUETTES",
+                    "quantity": 1,
+                    "unit_price_cents": 11500,
+                    "line_total_cents": 11500,
+                },
+                {
+                    "product_id": "prod-cheesecake-01",
+                    "product_name": "PAY DE QUESO",
+                    "category_name": "EXTRAS",
+                    "quantity": 1,
+                    "unit_price_cents": 7500,
+                    "line_total_cents": 7500,
+                },
+            ],
+        },
+    )
+    assert preview_res.status_code == 200
+    preview = preview_res.json()
+    assert preview["order_number"] == "3"
+    assert preview["ticket"]["printer_name"] == "caja"
+    assert "ORDEN:3" in preview["ticket"]["text"]
+    assert [c["area_code"] for c in preview["comandas"]] == ["salads", "baguettes", "postres"]
+    assert [c["printer_name"] for c in preview["comandas"]] == ["ensaladas", "barra", "reposteria"]

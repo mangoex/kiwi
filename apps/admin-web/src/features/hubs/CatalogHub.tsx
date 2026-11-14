@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAdminPermission } from '../../lib/adminSession';
-import { Package, Utensils, Tags, MessageSquareText, Plus, ListOrdered, CopyPlus, Layers3, Eye } from 'lucide-react';
+import { Package, Utensils, Tags, MessageSquareText, Plus, ListOrdered, CopyPlus, Layers3, Eye, Printer } from 'lucide-react';
 import { CategoryHubView, HubCardItem } from './CategoryHubView';
 
 export const CatalogHub: React.FC = () => {
@@ -19,6 +19,15 @@ export const CatalogHub: React.FC = () => {
       iconBg: '#eff6ff',
       iconColor: '#2563eb',
       path: '/products',
+    },
+    {
+      title: 'Áreas de Impresión e Impresoras',
+      description: 'Configura áreas de comanda (Ensaladas, Barra, Bebidas) y asígnales la impresora de la PC.',
+      icon: <Printer size={26} />,
+      iconBg: '#ecfdf5',
+      iconColor: '#059669',
+      badge: 'Comandas & Caja',
+      path: '/print-areas',
     },
     {
       title: 'Disponibilidad',

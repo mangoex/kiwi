@@ -1645,6 +1645,11 @@ const PointOfSale = () => {
             ...item.ingredientExtras.map((e) => `${e.name} x${e.portions}`),
           ].filter(Boolean);
           return {
+            product_id: item.id,
+            sku: item.sku || null,
+            category_id: item.category_id || null,
+            category_name: item.category || null,
+            station: item.station || null,
             quantity: item.quantity,
             product_name: item.name,
             unit_price_cents: quoteLine?.unit_price_cents ?? item.price_cents,

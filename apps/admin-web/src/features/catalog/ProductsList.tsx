@@ -280,6 +280,14 @@ export const ProductsList: React.FC = () => {
     queryKey: ['categories'],
     queryFn: () => fetchApi<Category[]>('/categories'),
   });
+  const { data: printRoutingData } = useQuery<{
+    areas?: Array<{ code: string; name: string; station?: string }>;
+    product_areas?: Record<string, string>;
+    area_printers?: Record<string, { printer_name?: string }>;
+  }>({
+    queryKey: ['print-routing'],
+    queryFn: () => fetchApi('/print-routing'),
+  });
   const products: Product[] = useMemo(() => (Array.isArray(rawProducts) ? rawProducts : []), [rawProducts]);
   const categories: Category[] = useMemo(() => (Array.isArray(rawCategories) ? rawCategories : []), [rawCategories]);
   const requestedCategory = useMemo(
@@ -1101,15 +1109,42 @@ export const ProductsList: React.FC = () => {
                     <select
                       className="productos-form-select"
                       style={{ flex: 1 }}
-                      value={formData.station}
+                      value={
+                        (!isEditing && selectedProduct && printRoutingData?.product_areas?.[selectedProduct.id]) ||
+                        formData.station
+                      }
                       onChange={(e) => setFormData({ ...formData, station: e.target.value })}
                       disabled={!isEditing}
                     >
                       <option value="">Selecciona un área</option>
                       <option value="drinks">1 - BEBIDAS (Barra / Fuentes)</option>
-                      <option value="kitchen">2 - COCINA</option>
+                      <option value="kitchen">2 - COCINA / BARRA CALIENTE</option>
                       <option value="packing">3 - EMPAQUE</option>
+                      <option value="salads">4 - ENSALADAS</option>
+                      <option value="baguettes">5 - BAGUETTES(RAPIDO)</option>
+                      <option value="none">6 - SIN IMPRESIÓN DE COMANDA</option>
+                      {(printRoutingData?.areas || [])
+                        .filter(
+                          (a) =>
+                            !['drinks', 'kitchen', 'packing', 'salads', 'baguettes', 'none'].includes(
+                              a.code
+                            )
+                        )
+                        .map((a) => (
+                          <option key={a.code} value={a.code}>
+                            {a.name}
+                          </option>
+                        ))}
                     </select>
+                    <button
+                      type="button"
+                      className="productos-inline-btn"
+                      onClick={() => window.location.assign('/admin/print-areas')}
+                      title="Agregar áreas de impresión y asignarles la impresora del Panel de Control de la PC"
+                      style={{ marginLeft: 6, whiteSpace: 'nowrap' }}
+                    >
+                      Impresoras / Áreas
+                    </button>
                   </div>
 
                   <div className="productos-form-row">

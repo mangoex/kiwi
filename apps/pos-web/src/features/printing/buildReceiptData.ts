@@ -1,4 +1,11 @@
-import type { TicketPrintData, KitchenPrintData, ReceiptLine } from './receiptFormatter';
+import {
+  extractShortOrderNumber,
+  splitKitchenDataByArea,
+  type TicketPrintData,
+  type KitchenPrintData,
+  type ReceiptLine,
+  type PrintRoutingLookup,
+} from './receiptFormatter';
 
 export interface OrderLike {
   id?: string;
@@ -19,6 +26,13 @@ export interface OrderLike {
   order_type?: string | null;
   driver_name?: string | null;
   lines?: Array<{
+    product_id?: string | null;
+    productId?: string | null;
+    sku?: string | null;
+    category_id?: string | null;
+    categoryId?: string | null;
+    category_name?: string | null;
+    categoryName?: string | null;
     quantity: number;
     product_name?: string;
     productName?: string;
@@ -27,6 +41,8 @@ export interface OrderLike {
     total_cents?: number;
     line_notes?: string | null;
     station?: string | null;
+    print_area?: string | null;
+    printArea?: string | null;
     selected_modifiers?: Array<Record<string, unknown> | string>;
   }>;
 }
@@ -106,6 +122,10 @@ export function buildTicketPrintData(
       }
     }
     return {
+      productId: l.product_id ?? l.productId ?? null,
+      sku: l.sku ?? null,
+      categoryId: l.category_id ?? l.categoryId ?? null,
+      categoryName: l.category_name ?? l.categoryName ?? null,
       quantity: l.quantity,
       productName: name,
       unitPriceCents: l.unit_price_cents,
@@ -113,14 +133,16 @@ export function buildTicketPrintData(
       modifiers: modifiers.length > 0 ? modifiers : undefined,
       lineNotes: l.line_notes,
       station: l.station,
+      printArea: l.print_area ?? l.printArea ?? null,
     };
   });
 
   const serviceLabel = getServiceTypeLabel(order.service_type || order.order_type);
+  const shortOrder = extractShortOrderNumber(order.folio, order.order_number);
 
   return {
     folio: order.folio,
-    orderNumber: order.order_number || order.folio,
+    orderNumber: shortOrder,
     createdAt: formattedDate,
     customerName: order.customer_label || order.customer_name || order.owner_name || 'PUBLICO GENERAL',
     customerPhone: order.customer_phone,
@@ -157,4 +179,20 @@ export function buildKitchenPrintData(
     station: options?.station,
     lines: ticket.lines,
   };
+}
+
+export function buildKitchenPrintJobsByArea(
+  order: OrderLike,
+  options?: {
+    session?: SessionLike | null;
+    routing?: PrintRoutingLookup | null;
+    includeNonPrinting?: boolean;
+  }
+): KitchenPrintData[] {
+  const baseKitchen = buildKitchenPrintData(order, { session: options?.session });
+  return splitKitchenDataByArea(
+    baseKitchen,
+    options?.routing,
+    Boolean(options?.includeNonPrinting)
+  );
 }

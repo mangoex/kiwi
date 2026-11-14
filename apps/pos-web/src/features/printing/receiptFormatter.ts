@@ -7,6 +7,10 @@
 import { numberToWordsMxn } from './numberToWordsMxn';
 
 export interface ReceiptLine {
+  productId?: string | null;
+  sku?: string | null;
+  categoryId?: string | null;
+  categoryName?: string | null;
   quantity: number;
   productName: string;
   unitPriceCents?: number;
@@ -14,7 +18,75 @@ export interface ReceiptLine {
   modifiers?: string[];
   lineNotes?: string | null;
   station?: string | null;
+  printArea?: string | null;
+  printAreaName?: string | null;
 }
+
+export interface PrintAreaDefinition {
+  code: string;
+  name: string;
+  station: 'kitchen' | 'drinks' | 'packing';
+  printComanda: boolean;
+  sortOrder: number;
+  isSystem?: boolean;
+}
+
+export interface PrintRoutingLookup {
+  areas?: PrintAreaDefinition[];
+  productAreas?: Record<string, string>;
+  categoryAreas?: Record<string, string>;
+}
+
+export const DEFAULT_PRINT_AREAS: PrintAreaDefinition[] = [
+  {
+    code: 'salads',
+    name: 'ENSALADAS',
+    station: 'kitchen',
+    printComanda: true,
+    sortOrder: 1,
+    isSystem: true,
+  },
+  {
+    code: 'baguettes',
+    name: 'BAGUETTES(RAPIDO)',
+    station: 'kitchen',
+    printComanda: true,
+    sortOrder: 2,
+    isSystem: true,
+  },
+  {
+    code: 'kitchen',
+    name: 'BARRA / CALIENTE',
+    station: 'kitchen',
+    printComanda: true,
+    sortOrder: 3,
+    isSystem: true,
+  },
+  {
+    code: 'drinks',
+    name: 'BEBIDAS (BARRA / FUENTES)',
+    station: 'drinks',
+    printComanda: true,
+    sortOrder: 4,
+    isSystem: true,
+  },
+  {
+    code: 'packing',
+    name: 'EMPAQUE',
+    station: 'packing',
+    printComanda: false,
+    sortOrder: 5,
+    isSystem: true,
+  },
+  {
+    code: 'none',
+    name: 'SIN IMPRESION',
+    station: 'packing',
+    printComanda: false,
+    sortOrder: 6,
+    isSystem: true,
+  },
+];
 
 export interface TicketPrintData {
   brandName?: string;
@@ -52,7 +124,242 @@ export interface KitchenPrintData {
   driverName?: string | null;
   orderNotes?: string | null;
   station?: string | null;
+  areaCode?: string | null;
+  areaName?: string | null;
   lines: ReceiptLine[];
+}
+
+const BAGUETTE_BARRA_KEYWORDS = [
+  'BAGUETTE',
+  'SANDWICH',
+  'CUERNITO',
+  'PANINI',
+  'TORTA',
+  'WRAP',
+  'SOPA',
+  'CREMA',
+  'TOSTADA',
+  'QUESADILLA',
+];
+
+const DRINK_KEYWORDS = [
+  'AGUA',
+  'JUGO',
+  'LICUADO',
+  'CAFE',
+  'TE ',
+  'REFRESCO',
+  'BEBIDA',
+  'SMOOTHIE',
+  'FRAPPE',
+  'LIMONADA',
+];
+
+const PACKING_KEYWORDS = ['CUBIERTO', 'SERVILLETA', 'BOLSA', 'EMPAQUE'];
+
+/**
+ * Extrae el número corto de orden diaria a partir del folio o orderNumber.
+ * Ej.: "SUC04-000001" -> "1", "SUC04-000003" -> "3", orderNumber=68 -> "68".
+ */
+export function extractShortOrderNumber(
+  folio?: string | null,
+  orderNumber?: string | number | null
+): string {
+  if (orderNumber !== undefined && orderNumber !== null && String(orderNumber).trim() !== '') {
+    const rawOrder = String(orderNumber).trim();
+    if (rawOrder !== String(folio || '').trim()) {
+      return rawOrder;
+    }
+  }
+  const rawFolio = String(folio || '').trim();
+  if (!rawFolio) return '1';
+  if (rawFolio.includes('-')) {
+    const suffix = rawFolio.split('-').pop()?.trim() || '';
+    if (/^\d+$/.test(suffix)) {
+      return String(parseInt(suffix, 10));
+    }
+    const digits = suffix.replace(/\D+/g, '');
+    if (digits) return String(parseInt(digits, 10));
+  }
+  if (/^\d+$/.test(rawFolio)) {
+    return String(parseInt(rawFolio, 10));
+  }
+  return rawFolio;
+}
+
+export function normalizePrintAreas(
+  rawAreas?: ReadonlyArray<
+    Partial<PrintAreaDefinition> & { print_comanda?: unknown; sort_order?: unknown }
+  > | null
+): PrintAreaDefinition[] {
+  const byCode = new Map<string, PrintAreaDefinition>();
+  for (const area of DEFAULT_PRINT_AREAS) {
+    byCode.set(area.code, { ...area });
+  }
+  if (Array.isArray(rawAreas)) {
+    rawAreas.forEach((item, idx) => {
+      if (!item || typeof item !== 'object') return;
+      const code = String(item.code || '').trim().toLowerCase();
+      const name = String(item.name || '').trim().toUpperCase();
+      if (!code || !name) return;
+      const rawStation = String(item.station || 'kitchen').trim().toLowerCase();
+      const station: 'kitchen' | 'drinks' | 'packing' =
+        rawStation === 'drinks' || rawStation === 'packing' ? rawStation : 'kitchen';
+      const existing = byCode.get(code);
+      const printComandaRaw =
+        item.printComanda !== undefined
+          ? item.printComanda
+          : item.print_comanda !== undefined
+            ? item.print_comanda
+            : existing?.printComanda ?? (code !== 'packing' && code !== 'none');
+      const sortOrderRaw =
+        item.sortOrder ?? item.sort_order ?? existing?.sortOrder ?? idx + 1;
+      byCode.set(code, {
+        code,
+        name,
+        station,
+        printComanda: Boolean(printComandaRaw),
+        sortOrder: Number(sortOrderRaw) || idx + 1,
+        isSystem: Boolean(existing?.isSystem),
+      });
+    });
+  }
+  return Array.from(byCode.values()).sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code)
+  );
+}
+
+export function resolveProductPrintArea(
+  line: Partial<ReceiptLine>,
+  routing?: PrintRoutingLookup | null
+): string {
+  const areas = normalizePrintAreas(routing?.areas);
+  const validCodes = new Set(areas.map((a) => a.code));
+
+  const explicit = String(line.printArea || '').trim().toLowerCase();
+  if (explicit && validCodes.has(explicit)) {
+    return explicit;
+  }
+
+  const productAreas = routing?.productAreas || {};
+  for (const keyCandidate of [line.productId, line.sku, line.productName]) {
+    const key = String(keyCandidate || '').trim();
+    if (key && productAreas[key]) {
+      const mapped = String(productAreas[key]).trim().toLowerCase();
+      if (validCodes.has(mapped)) return mapped;
+    }
+  }
+
+  const categoryAreas = routing?.categoryAreas || {};
+  for (const catCandidate of [line.categoryId, line.categoryName]) {
+    const cat = String(catCandidate || '').trim();
+    if (cat) {
+      for (const variant of [cat, cat.toUpperCase()]) {
+        if (categoryAreas[variant]) {
+          const mapped = String(categoryAreas[variant]).trim().toLowerCase();
+          if (validCodes.has(mapped)) return mapped;
+        }
+      }
+    }
+  }
+
+  const stationRaw = String(line.station || '').trim().toLowerCase();
+  if (
+    stationRaw &&
+    validCodes.has(stationRaw) &&
+    stationRaw !== 'kitchen' &&
+    stationRaw !== 'drinks' &&
+    stationRaw !== 'packing'
+  ) {
+    return stationRaw;
+  }
+
+  const nameUpper = String(line.productName || '').trim().toUpperCase();
+  const catUpper = String(line.categoryName || '').trim().toUpperCase();
+  const combined = `${catUpper} ${nameUpper}`;
+
+  if (combined.includes('ENSALADA') && validCodes.has('salads')) {
+    return 'salads';
+  }
+  if (
+    BAGUETTE_BARRA_KEYWORDS.some((kw) => combined.includes(kw)) &&
+    validCodes.has('baguettes')
+  ) {
+    return 'baguettes';
+  }
+  if (
+    (stationRaw === 'drinks' || DRINK_KEYWORDS.some((kw) => combined.includes(kw))) &&
+    validCodes.has('drinks')
+  ) {
+    return 'drinks';
+  }
+  if (
+    (stationRaw === 'packing' || PACKING_KEYWORDS.some((kw) => combined.includes(kw))) &&
+    validCodes.has('packing')
+  ) {
+    return 'packing';
+  }
+  if (stationRaw && validCodes.has(stationRaw)) {
+    return stationRaw;
+  }
+  return 'kitchen';
+}
+
+/**
+ * Divide una comanda general en múltiples comandas independientes por Área de Impresión
+ * (ej. una para ENSALADAS, otra para BAGUETTES(RAPIDO), otra para BEBIDAS), omitiendo
+ * las áreas marcadas con printComanda = false (como EMPAQUE o SIN IMPRESION).
+ */
+export function splitKitchenDataByArea(
+  data: KitchenPrintData,
+  routing?: PrintRoutingLookup | null,
+  includeNonPrinting: boolean = false
+): KitchenPrintData[] {
+  const areas = normalizePrintAreas(routing?.areas);
+  const areaMap = new Map(areas.map((a) => [a.code, a]));
+
+  const grouped = new Map<string, ReceiptLine[]>();
+  for (const line of data.lines || []) {
+    const areaCode = resolveProductPrintArea(line, routing);
+    const areaInfo = areaMap.get(areaCode) || {
+      code: areaCode,
+      name: areaCode.toUpperCase(),
+      station: 'kitchen' as const,
+      printComanda: true,
+      sortOrder: 99,
+    };
+    if (!includeNonPrinting && !areaInfo.printComanda) {
+      continue;
+    }
+    const enrichedLine: ReceiptLine = {
+      ...line,
+      printArea: areaCode,
+      printAreaName: areaInfo.name,
+    };
+    const list = grouped.get(areaCode) || [];
+    list.push(enrichedLine);
+    grouped.set(areaCode, list);
+  }
+
+  const orderedCodes = Array.from(grouped.keys()).sort((a, b) => {
+    const sortA = areaMap.get(a)?.sortOrder ?? 99;
+    const sortB = areaMap.get(b)?.sortOrder ?? 99;
+    return sortA - sortB || a.localeCompare(b);
+  });
+
+  const shortOrder = extractShortOrderNumber(data.folio, data.orderNumber);
+  return orderedCodes.map((areaCode) => {
+    const areaInfo = areaMap.get(areaCode);
+    const areaName = areaInfo?.name || areaCode.toUpperCase();
+    return {
+      ...data,
+      orderNumber: shortOrder,
+      areaCode,
+      areaName,
+      station: areaName,
+      lines: grouped.get(areaCode) || [],
+    };
+  });
 }
 
 // Valores predeterminados basados en el ticket de Soft Restaurant de Kiwi
@@ -137,7 +444,8 @@ export function formatTicketText(data: TicketPrintData, width: number = 42): str
   out.push(padCenter(`FOLIO:${data.folio}`, width));
   out.push(`REPARTIDOR:${data.driverName ? ` ${data.driverName}` : ''}`);
 
-  const orderStr = `ORDEN:${data.orderNumber ?? data.folio}`;
+  const shortOrder = extractShortOrderNumber(data.folio, data.orderNumber);
+  const orderStr = `ORDEN:${shortOrder}`;
   const dateStr = data.createdAt;
   out.push(twoColumns(orderStr, dateStr, width));
 
@@ -242,18 +550,22 @@ export function formatTicketText(data: TicketPrintData, width: number = 42): str
 }
 
 /**
- * Formatea la comanda para cocina (sin precios ni datos fiscales, con énfasis en tareas y notas).
+ * Formatea la comanda para cocina (sin precios ni datos fiscales, con énfasis en área, tareas y notas).
  */
 export function formatKitchenText(data: KitchenPrintData, width: number = 42): string {
   const divider = '-'.repeat(width);
   const out: string[] = [];
 
+  const shortOrder = extractShortOrderNumber(data.folio, data.orderNumber);
+  const areaLabel = String(data.areaName || data.station || '').trim().toUpperCase();
+
   out.push(padCenter('*** COMANDA DE COCINA ***', width));
-  if (data.station) {
-    out.push(padCenter(`ESTACION: ${data.station.toUpperCase()}`, width));
+  if (areaLabel) {
+    out.push(padCenter(`${areaLabel} ORDEN: ${shortOrder}`, width));
+    out.push(padCenter(`ESTACION: ${areaLabel}`, width));
   }
 
-  const orderStr = `ORDEN:#${data.orderNumber ?? data.folio}`;
+  const orderStr = `ORDEN:#${shortOrder}`;
   out.push(twoColumns(orderStr, `FOLIO:${data.folio}`, width));
   out.push(twoColumns(`FECHA:${data.createdAt}`, (data.serviceTypeLabel || 'MOSTRADOR').toUpperCase(), width));
 
@@ -303,8 +615,8 @@ export const ESCPOS = {
   ALIGN_RIGHT: new Uint8Array([0x1b, 0x61, 0x02]), // ESC a 2
   BOLD_ON: new Uint8Array([0x1b, 0x45, 0x01]), // ESC E 1
   BOLD_OFF: new Uint8Array([0x1b, 0x45, 0x00]), // ESC E 0
-  CUT_FULL: new Uint8Array([0x1d, 0x56, 0x41, 0x03]), // GS V 65 3 (alimentar y corte total)
-  CUT_PARTIAL: new Uint8Array([0x1d, 0x56, 0x42, 0x03]), // GS V 66 3 (alimentar y corte parcial)
+  CUT_FULL: new Uint8Array([0x1d, 0x56, 0x41, 0x01]), // GS V 65 1 (alimentación mínima y corte total)
+  CUT_PARTIAL: new Uint8Array([0x1d, 0x56, 0x42, 0x01]), // GS V 66 1 (alimentación mínima y corte parcial)
   KICK_DRAWER: new Uint8Array([0x1b, 0x70, 0x00, 0x19, 0xfa]), // ESC p 0 25 250 (pulso al cajón de dinero pin 2)
   FEED_LINES: (n: number) => new Uint8Array([0x1b, 0x64, n]), // ESC d n
 };
@@ -315,7 +627,7 @@ export const ESCPOS = {
 export function generateEscPosTicket(data: TicketPrintData, kickDrawer: boolean = false): Uint8Array {
   const text = formatTicketText(data, 42);
   const encoder = new TextEncoder();
-  const textBytes = encoder.encode(text + '\n\n\n');
+  const textBytes = encoder.encode(text + '\n\n');
 
   const parts: Uint8Array[] = [ESCPOS.INIT];
 
@@ -324,7 +636,7 @@ export function generateEscPosTicket(data: TicketPrintData, kickDrawer: boolean 
   }
 
   parts.push(textBytes);
-  parts.push(ESCPOS.FEED_LINES(3));
+  parts.push(ESCPOS.FEED_LINES(1));
   parts.push(ESCPOS.CUT_PARTIAL);
 
   const totalLength = parts.reduce((acc, p) => acc + p.length, 0);
@@ -343,12 +655,12 @@ export function generateEscPosTicket(data: TicketPrintData, kickDrawer: boolean 
 export function generateEscPosKitchen(data: KitchenPrintData): Uint8Array {
   const text = formatKitchenText(data, 42);
   const encoder = new TextEncoder();
-  const textBytes = encoder.encode(text + '\n\n\n');
+  const textBytes = encoder.encode(text + '\n\n');
 
   const parts: Uint8Array[] = [
     ESCPOS.INIT,
     textBytes,
-    ESCPOS.FEED_LINES(3),
+    ESCPOS.FEED_LINES(1),
     ESCPOS.CUT_FULL,
   ];
 

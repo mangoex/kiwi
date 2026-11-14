@@ -48,17 +48,17 @@
 }
 
 .thermal-paper {
-  width: 320px;
+  width: 340px;
   background: #ffffff;
-  padding: 16px 12px;
+  padding: 14px 12px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
   border-radius: 2px;
   color: #000000;
-  font-family: 'Courier New', Courier, monospace;
+  font-family: 'Courier New', Consolas, 'Liberation Mono', Courier, monospace;
   font-size: 11px;
-  line-height: 1.25;
-  white-space: pre-wrap;
-  word-break: break-word;
+  line-height: 1.22;
+  white-space: pre;
+  overflow-x: auto;
   user-select: text;
 }
 
@@ -74,6 +74,7 @@
 /* =========================================================================
    REGLAS CRÍTICAS PARA IMPRESIÓN FÍSICA (@media print)
    Garantiza que sólo se imprima el rollo térmico sin encabezados de navegador
+   y que las 42 columnas quepan exactamente en una sola línea sin partirse
    ========================================================================= */
 @media print {
   @page {
@@ -101,16 +102,17 @@
     position: absolute;
     left: 0;
     top: 0;
-    width: 76mm;
+    width: 74mm;
     margin: 0;
-    padding: 2mm 1mm;
+    padding: 1.5mm 1mm 2mm 1mm;
     background: #ffffff !important;
     color: #000000 !important;
-    font-family: 'Courier New', Courier, monospace !important;
-    font-size: 10pt !important;
-    line-height: 1.18 !important;
-    white-space: pre-wrap !important;
-    word-break: break-word !important;
+    font-family: 'Courier New', Consolas, 'Liberation Mono', Courier, monospace !important;
+    font-size: 7.8pt !important;
+    line-height: 1.15 !important;
+    letter-spacing: -0.1px !important;
+    white-space: pre !important;
+    overflow-x: hidden !important;
     box-shadow: none !important;
     border: none !important;
   }

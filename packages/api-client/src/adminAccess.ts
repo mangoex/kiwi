@@ -20,6 +20,7 @@ const routeRules: Record<string, string[][]> = {
   '/categories': [['catalog.manage']], '/category-options': [['catalog.manage']],
   '/category-priorities': [['catalog.manage']], '/warehouses': [['catalog.manage']],
   '/delivery-services': [['catalog.manage']],
+  '/print-areas': [['catalog.manage'], ['admin.manage'], ['branch.admin.access']],
   '/inventory/items': [['inventory.read']], '/inventory/units': [['inventory.read']],
   '/inventory/stock': [['inventory.read']],
   '/inventory/thresholds': [['catalog.manage']], '/production': [['production.manage']],
@@ -35,10 +36,10 @@ const routeRules: Record<string, string[][]> = {
   '/customers': [['orders.read']], '/imports': [['admin.manage']],
 };
 const hubRoutes: Record<string, string[]> = {
-  '/catalog': ['/products','/availability','/recipes','/categories','/variations','/modifiers','/ingredient-extras','/category-priorities','/delivery-services'],
+  '/catalog': ['/products','/availability','/recipes','/categories','/variations','/modifiers','/ingredient-extras','/category-priorities','/delivery-services','/print-areas'],
   '/inventory': ['/inventory/stock','/inventory/items','/production','/inventory/waste','/inventory/transfers','/inventory/counts','/inventory/units','/warehouses','/inventory/thresholds'],
   '/purchasing': ['/purchases','/suppliers','/purchase-presentations','/expenses','/expense-concepts'],
-  '/branches-hub': ['/branches','/drivers','/integrations','/cash-concepts'],
+  '/branches-hub': ['/branches','/drivers','/integrations','/cash-concepts','/print-areas'],
   '/reports-hub': ['/reports','/historical-reports','/analytics'], '/admin-access-hub': ['/users','/roles','/customers','/imports'],
 };
 export function canAccessAdminRoute(session: AdministrativeSession | null, path: string): boolean {

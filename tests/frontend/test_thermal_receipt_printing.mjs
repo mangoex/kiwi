@@ -207,6 +207,107 @@ try {
   const settingsContent = readFileSync(join(root, 'apps/pos-web/src/features/settings/Settings.tsx'), 'utf8');
   assert.ok(settingsContent.includes('PrinterSettingsPanel'), 'Settings.tsx debe renderizar PrinterSettingsPanel en la pestaña Impresoras');
 
+  console.log('7. Probando los 4 bloques: Áreas de impresión, Impresoras del Panel de Control (PC), separación de comandas por área y formato 42 columnas sin desfase...');
+  const {
+    DEFAULT_PRINT_AREAS,
+    extractShortOrderNumber,
+    resolveProductPrintArea,
+    splitKitchenDataByArea,
+  } = fmtModule;
+  const { buildKitchenPrintJobsByArea } = buildModule;
+  const { resolveKitchenJobsForOrder } = printerServiceModule;
+
+  // Bloque 4: extracción de número de orden corto y formato 42 columnas sin salto a col 34
+  assert.equal(extractShortOrderNumber('SUC04-000001'), '1');
+  assert.equal(extractShortOrderNumber('SUC04-000003'), '3');
+  assert.equal(extractShortOrderNumber('102778', 68), '68');
+  assert.ok(printHtml.includes('white-space: pre;'), 'El HTML térmico debe usar white-space: pre para evitar que 42 columnas se partan en la columna 34');
+  assert.ok(printHtml.includes('font-size: 7.8pt;'), 'El HTML térmico de 80mm debe usar font-size 7.8pt calibrado para 42 columnas');
+
+  // Bloque 1 y 2: Áreas de impresión e impresoras de la PC (caja, ensaladas, barra, bebidas)
+  assert.equal(DEFAULT_PRINTER_CONFIG.ticketPrinterName, 'caja', 'La impresora de caja por defecto debe llamarse "caja"');
+  assert.equal(DEFAULT_PRINTER_CONFIG.areaPrinters.salads.printerName, 'ensaladas', 'El área de ensaladas debe apuntar a la impresora "ensaladas"');
+  assert.equal(DEFAULT_PRINTER_CONFIG.areaPrinters.baguettes.printerName, 'barra', 'El área de baguettes/caliente debe apuntar a la impresora "barra"');
+  assert.ok(DEFAULT_PRINT_AREAS.some((a) => a.code === 'salads' && a.name === 'ENSALADAS'));
+  assert.ok(DEFAULT_PRINT_AREAS.some((a) => a.code === 'baguettes' && a.name === 'BAGUETTES(RAPIDO)'));
+  assert.ok(winBat.includes('RawPrinterHelper'), 'El puente Windows debe incluir RawPrinterHelper (winspool.Drv) para imprimir por nombre de impresora de Windows');
+  assert.ok(winBat.includes('Get-Printer'), 'El puente Windows debe exponer GET /printers usando Get-Printer');
+  assert.ok(pyScript.includes('list_os_printers'), 'El puente Python debe exponer GET /printers para listar impresoras del sistema');
+
+  // Bloque 3: Separación automática de un pedido en múltiples comandas por área de impresión
+  const multiAreaOrder = {
+    folio: 'SUC04-000003',
+    created_at: '2026-11-14T15:23:24Z',
+    customer_name: 'MIGUEL GONZALEZ',
+    service_type: 'dine-in',
+    total_cents: 38500,
+    lines: [
+      {
+        product_id: 'prod-1',
+        product_name: 'ENSALADA DE ARANDANO',
+        category_name: 'ENSALADAS',
+        station: 'kitchen',
+        quantity: 1,
+        unit_price_cents: 13000,
+        line_total_cents: 13000,
+        selected_modifiers: [{ text: 'ADEREZO RANCH' }],
+      },
+      {
+        product_id: 'prod-2',
+        product_name: 'SANDWICH INTEGRAL POLLO BBQ',
+        category_name: 'BAGUETTES',
+        station: 'kitchen',
+        quantity: 1,
+        unit_price_cents: 11500,
+        line_total_cents: 11500,
+        selected_modifiers: [{ text: 'ADEREZO DE CHIPOTLE CHI' }, { text: 'MANCHEGUITO' }],
+      },
+      {
+        product_id: 'prod-3',
+        product_name: 'CUERNITO BBQ',
+        category_name: 'BAGUETTES',
+        station: 'kitchen',
+        quantity: 1,
+        unit_price_cents: 10500,
+        line_total_cents: 10500,
+      },
+      {
+        product_id: 'prod-4',
+        product_name: 'AGUA DE FRESA LIMON CHICA',
+        category_name: 'AGUAS',
+        station: 'drinks',
+        quantity: 1,
+        unit_price_cents: 3500,
+        line_total_cents: 3500,
+      },
+    ],
+  };
+
+  assert.equal(resolveProductPrintArea({ productName: 'ENSALADA DE ARANDANO', categoryName: 'ENSALADAS' }), 'salads');
+  assert.equal(resolveProductPrintArea({ productName: 'SANDWICH INTEGRAL POLLO BBQ', categoryName: 'BAGUETTES' }), 'baguettes');
+  assert.equal(resolveProductPrintArea({ productName: 'AGUA DE FRESA LIMON CHICA', categoryName: 'AGUAS' }), 'drinks');
+
+  const splitJobs = buildKitchenPrintJobsByArea(multiAreaOrder);
+  assert.deepEqual(
+    splitJobs.map((j) => j.areaCode),
+    ['salads', 'baguettes', 'drinks'],
+    'El pedido debe separarse automáticamente en 3 comandas independientes (ensaladas, baguettes y bebidas)'
+  );
+  const saladsComandaText = formatKitchenText(splitJobs[0], 42);
+  const baguettesComandaText = formatKitchenText(splitJobs[1], 42);
+  assert.ok(saladsComandaText.includes('ENSALADAS ORDEN: 3'), 'La comanda de ensaladas debe mostrar ENSALADAS ORDEN: 3');
+  assert.ok(saladsComandaText.includes('ENSALADA DE ARANDANO'));
+  assert.ok(!saladsComandaText.includes('SANDWICH INTEGRAL POLLO BBQ'), 'La comanda de ensaladas NO debe incluir los baguettes/sandwiches');
+  assert.ok(baguettesComandaText.includes('BAGUETTES(RAPIDO) ORDEN: 3'), 'La comanda de barra debe mostrar BAGUETTES(RAPIDO) ORDEN: 3');
+  assert.ok(baguettesComandaText.includes('SANDWICH INTEGRAL POLLO BBQ') && baguettesComandaText.includes('CUERNITO BBQ'));
+  assert.ok(!baguettesComandaText.includes('ENSALADA DE ARANDANO'), 'La comanda de barra NO debe incluir las ensaladas');
+
+  const resolvedJobs = resolveKitchenJobsForOrder(buildTicketPrintData(multiAreaOrder), null, DEFAULT_PRINTER_CONFIG);
+  assert.equal(resolvedJobs.length, 3);
+
+  const adminPrintAreasContent = readFileSync(join(root, 'apps/admin-web/src/features/printing/PrintAreasManager.tsx'), 'utf8');
+  assert.ok(adminPrintAreasContent.includes('/print-routing'), 'PrintAreasManager.tsx debe sincronizar con /api/v1/print-routing');
+
   console.log('Todas las pruebas de impresión térmica y comanda pasaron exitosamente!');
 } finally {
   rmSync(temporaryDirectory, { recursive: true, force: true });

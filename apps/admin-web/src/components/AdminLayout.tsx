@@ -259,6 +259,7 @@ const AdminLayout = () => {
         '/modifiers',
         '/ingredient-extras',
         '/category-options',
+        '/print-areas',
       ],
     },
     {

@@ -4327,6 +4327,63 @@ def recover_expired_print_claim_endpoint(
     return _business_response(operation)
 
 
+@router.get("/print-routing")
+def get_print_routing_endpoint(
+    session: SessionDep,
+) -> dict[str, Any]:
+    from restaurant_os.receipt_formatting import get_print_routing_config
+
+    return _business_response(lambda: get_print_routing_config(session))
+
+
+@router.put("/print-routing")
+def put_print_routing_endpoint(
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.receipt_formatting import save_print_routing_config
+
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    return _business_response(
+        lambda: save_print_routing_config(session, payload, actor_user_id=actor_id)
+    )
+
+
+@router.put("/print-routing/products/{product_id}")
+def put_product_print_area_endpoint(
+    product_id: str,
+    payload: dict[str, Any],
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    from restaurant_os.receipt_formatting import set_product_print_area
+
+    actor_id = _actor_from_request(actor_user_id, authorization)
+    area_code = str(payload.get("print_area") or payload.get("area_code") or "").strip()
+    return _business_response(
+        lambda: set_product_print_area(session, product_id, area_code, actor_user_id=actor_id)
+    )
+
+
+@router.post("/print-routing/preview-order")
+def post_preview_order_print_routing_endpoint(
+    payload: dict[str, Any],
+    session: SessionDep,
+) -> dict[str, Any]:
+    from restaurant_os.receipt_formatting import (
+        get_print_routing_config,
+        preview_order_print_routing,
+    )
+
+    return _business_response(
+        lambda: preview_order_print_routing(payload, get_print_routing_config(session))
+    )
+
+
+
 @router.post("/sync/commands")
 def sync_command(
     payload: dict[str, Any], session: SessionDep, device_token: DeviceTokenDep = None

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Store, Bike, Share2, Wallet } from 'lucide-react';
+import { Store, Bike, Share2, Wallet, Printer } from 'lucide-react';
 import { CategoryHubView, HubCardItem } from './CategoryHubView';
 import { useAdminPermission } from '../../lib/adminSession';
 
@@ -14,6 +14,15 @@ export const BranchesHub: React.FC = () => {
       iconBg: '#eff6ff',
       iconColor: '#1d4ed8',
       path: '/branches',
+    },
+    {
+      title: 'Impresoras y Áreas de Comanda',
+      description: 'Asigna impresoras de la PC (caja, ensaladas, barra) a cada área de impresión.',
+      icon: <Printer size={26} />,
+      iconBg: '#ecfdf5',
+      iconColor: '#059669',
+      badge: 'Térmicas 80mm',
+      path: '/print-areas',
     },
     {
       title: 'Repartidores',

@@ -41,6 +41,7 @@ import { AdminAccessHub } from './features/hubs/AdminAccessHub';
 import { AdminSessionProvider } from './lib/adminSession';
 import { AvailabilityAdministration, CatalogAdministration } from './features/catalog/CatalogAdministration';
 import SharedModifierWorkspace from './features/catalog/SharedModifierWorkspace';
+import PrintAreasManager from './features/printing/PrintAreasManager';
 import { AdminSessionBoundary } from './components/AdminSessionBoundary';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => <AdminSessionProvider>{children}</AdminSessionProvider>;
@@ -84,6 +85,7 @@ export const App = () => {
           <Route path="category-options" element={<Navigate to="/categories" replace />} />
           <Route path="category-priorities" element={<CategoryPriorities />} />
           <Route path="recipes/bulk" element={<BulkRecipeWorkspace />} />
+          <Route path="print-areas" element={<PrintAreasManager />} />
 
           {/* Subroutes: Inventario y Almacén */}
           <Route path="inventory/items" element={<ItemsList />} />
