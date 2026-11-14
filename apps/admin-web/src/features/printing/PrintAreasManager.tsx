@@ -1,8 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchApi } from '@restaurantos/api-client';
 import {
+  AlertCircle,
+  ArrowRight,
+  Check,
   CheckCircle2,
   Download,
+  ExternalLink,
+  FileText,
+  Laptop,
   Layers,
   Plus,
   Printer,
@@ -12,6 +18,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import './PrintAreasManager.css';
 
 export interface PrintAreaItem {
   code: string;
@@ -132,6 +139,214 @@ const DEFAULT_AREA_PRINTERS: Record<string, PrinterTargetConfig> = {
   none: { enabled: false, printer_name: '', host: '', port: 9100 },
 };
 
+function triggerDownload(content: string, filename: string, mimeType: string = 'text/plain') {
+  const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function buildWindowsBatch(ticketPrinter: string, host: string, port: number): string {
+  const lines = [
+    '@echo off',
+    'title Puente de Impresion Termica Automatica Kiwi POS (Impresoras Windows + TCP 9100)',
+    'color 0A',
+    'echo ============================================================================',
+    'echo   PUENTE DE IMPRESION TERMICA AUTOMATICA - KIWI RESTAURANTOS',
+    'echo   Escuchando en: http://127.0.0.1:9123',
+    `echo   Impresora Caja (Windows): ${ticketPrinter || 'caja'} ^| Red TCP: ${host || '192.168.1.200'}:${port || 9100}`,
+    'echo   Soporta impresoras del Panel de Control (caja, ensaladas, barra) e IP:9100',
+    'echo   No cierres esta ventana mientras uses el Punto de Venta o Administrador.',
+    'echo ============================================================================',
+    'echo.',
+    '',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command ^',
+    '  "$ErrorActionPreference = \'Continue\'; ^',
+    '   Add-Type -TypeDefinition \'using System; using System.Runtime.InteropServices; public class RawPrinterHelper { [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)] public class DOCINFOA { [MarshalAs(UnmanagedType.LPStr)] public string pDocName; [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile; [MarshalAs(UnmanagedType.LPStr)] public string pDataType; } [DllImport(\\\"winspool.Drv\\\", EntryPoint = \\\"OpenPrinterA\\\", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)] public static extern bool OpenPrinter([MarshalAs(UnmanagedType.LPStr)] string szPrinter, out IntPtr hPrinter, IntPtr pd); [DllImport(\\\"winspool.Drv\\\", EntryPoint = \\\"ClosePrinter\\\", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)] public static extern bool ClosePrinter(IntPtr hPrinter); [DllImport(\\\"winspool.Drv\\\", EntryPoint = \\\"StartDocPrinterA\\\", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)] public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di); [DllImport(\\\"winspool.Drv\\\", EntryPoint = \\\"EndDocPrinter\\\", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)] public static extern bool EndDocPrinter(IntPtr hPrinter); [DllImport(\\\"winspool.Drv\\\", EntryPoint = \\\"StartPagePrinter\\\", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)] public static extern bool StartPagePrinter(IntPtr hPrinter); [DllImport(\\\"winspool.Drv\\\", EntryPoint = \\\"EndPagePrinter\\\", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)] public static extern bool EndPagePrinter(IntPtr hPrinter); [DllImport(\\\"winspool.Drv\\\", EntryPoint = \\\"WritePrinter\\\", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)] public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten); public static bool SendBytesToPrinter(string szPrinterName, byte[] pBytes) { IntPtr hPrinter = IntPtr.Zero; DOCINFOA di = new DOCINFOA(); di.pDocName = \\\"Kiwi POS RAW Thermal\\\"; di.pDataType = \\\"RAW\\\"; bool bSuccess = false; if (OpenPrinter(szPrinterName.Normalize(), out hPrinter, IntPtr.Zero)) { if (StartDocPrinter(hPrinter, 1, di)) { if (StartPagePrinter(hPrinter)) { IntPtr pUnmanagedBytes = Marshal.AllocCoTaskMem(pBytes.Length); Marshal.Copy(pBytes, 0, pUnmanagedBytes, pBytes.Length); int dwWritten = 0; bSuccess = WritePrinter(hPrinter, pUnmanagedBytes, pBytes.Length, out dwWritten); Marshal.FreeCoTaskMem(pUnmanagedBytes); EndPagePrinter(hPrinter); } EndDocPrinter(hPrinter); } ClosePrinter(hPrinter); } return bSuccess; } }\'; ^',
+    '   $crlf = [char]13 + [char]10; ^',
+    '   $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 9123); ^',
+    '   $listener.Start(); ^',
+    '   Write-Host \'[LISTO] Puente activo en http://127.0.0.1:9123 -> soporta impresoras de Windows (caja, ensaladas, barra) e IP:9100.\' -ForegroundColor Green; ^',
+    '   while ($true) { ^',
+    '     try { ^',
+    '       $client = $listener.AcceptTcpClient(); ^',
+    '       $stream = $client.GetStream(); ^',
+    '       $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8); ^',
+    '       $requestLine = $reader.ReadLine(); ^',
+    '       if (-not $requestLine) { $client.Close(); continue; } ^',
+    '       $parts = $requestLine.Split(\' \'); ^',
+    '       $method = $parts[0]; ^',
+    '       $path = if ($parts.Length -gt 1) { $parts[1] } else { \'/\' }; ^',
+    '       $contentLength = 0; ^',
+    '       while ($true) { ^',
+    '         $header = $reader.ReadLine(); ^',
+    '         if ([string]::IsNullOrEmpty($header)) { break; } ^',
+    '         if ($header -match \'^Content-Length:\\s*(\\d+)\') { $contentLength = [int]$matches[1]; } ^',
+    '       } ^',
+    '       $cors = \'HTTP/1.1 200 OK\' + $crlf + \'Access-Control-Allow-Origin: *\' + $crlf + \'Access-Control-Allow-Methods: GET, POST, OPTIONS\' + $crlf + \'Access-Control-Allow-Headers: Content-Type\' + $crlf + \'Access-Control-Allow-Private-Network: true\' + $crlf + \'Content-Type: application/json\' + $crlf + \'Connection: close\' + $crlf + $crlf; ^',
+    '       if ($method -eq \'OPTIONS\') { ^',
+    '         $resp = [System.Text.Encoding]::UTF8.GetBytes($cors + \'{}\'); ^',
+    '         $stream.Write($resp, 0, $resp.Length); ^',
+    '         $client.Close(); continue; ^',
+    '       } ^',
+    '       if ($path -eq \'/health\') { ^',
+    '         $resp = [System.Text.Encoding]::UTF8.GetBytes($cors + \'{\"status\":\"ok\",\"service\":\"kiwi-print-bridge-win\"}\'); ^',
+    '         $stream.Write($resp, 0, $resp.Length); ^',
+    '         $client.Close(); continue; ^',
+    '       } ^',
+    '       if ($method -eq \'GET\' -and $path -match \'^/printers\') { ^',
+    '         $printerList = @(Get-Printer | Select-Object -ExpandProperty Name); ^',
+    '         $jsonPrinters = (@{ ok = $true; printers = $printerList } | ConvertTo-Json -Compress); ^',
+    '         $resp = [System.Text.Encoding]::UTF8.GetBytes($cors + $jsonPrinters); ^',
+    '         $stream.Write($resp, 0, $resp.Length); ^',
+    '         $client.Close(); continue; ^',
+    '       } ^',
+    '       if ($method -eq \'POST\' -and $path -eq \'/print\' -and $contentLength -gt 0) { ^',
+    '         $buf = New-Object char[] $contentLength; ^',
+    '         $read = 0; ^',
+    '         while ($read -lt $contentLength) { ^',
+    '           $r = $reader.Read($buf, $read, $contentLength - $read); ^',
+    '           if ($r -le 0) { break; } ^',
+    '           $read += $r; ^',
+    '         } ^',
+    '         $bodyStr = [string]::new($buf, 0, $read); ^',
+    '         $payload = ConvertFrom-Json $bodyStr; ^',
+    '         $b64 = $payload.data_base64; ^',
+    '         $targetName = if ($payload.printer_name) { $payload.printer_name } else { \'' + (ticketPrinter || 'caja') + '\' }; ^',
+    '         $targetHost = $payload.host; ^',
+    '         $targetPort = if ($payload.port) { [int]$payload.port } else { ' + (port || 9100) + ' }; ^',
+    '         $rawBytes = [System.Convert]::FromBase64String($b64); ^',
+    '         if ($targetName -and (-not $targetHost)) { ^',
+    '           Write-Host (\'[IMPRIMIENDO EN WINDOWS] \' + $targetName + \' (\' + $rawBytes.Length + \' bytes)\') -ForegroundColor Cyan; ^',
+    '           $sent = [RawPrinterHelper]::SendBytesToPrinter($targetName, $rawBytes); ^',
+    '           if (-not $sent) { Write-Host (\'[AVISO] No se pudo imprimir por nombre directo, intentando por spooler...\') -ForegroundColor Yellow; } ^',
+    '         } elseif ($targetHost) { ^',
+    '           Write-Host (\'[IMPRIMIENDO EN RED TCP] \' + $targetHost + \':\' + $targetPort) -ForegroundColor Cyan; ^',
+    '           $printer = [System.Net.Sockets.TcpClient]::new($targetHost, $targetPort); ^',
+    '           $pStream = $printer.GetStream(); ^',
+    '           $pStream.Write($rawBytes, 0, $rawBytes.Length); ^',
+    '           $pStream.Flush(); ^',
+    '           $printer.Close(); ^',
+    '         } ^',
+    '         $resp = [System.Text.Encoding]::UTF8.GetBytes($cors + \'{\"ok\":true}\'); ^',
+    '         $stream.Write($resp, 0, $resp.Length); ^',
+    '       } else { ^',
+    '         $resp = [System.Text.Encoding]::UTF8.GetBytes($cors + \'{\"ok\":false}\'); ^',
+    '         $stream.Write($resp, 0, $resp.Length); ^',
+    '       } ^',
+    '       $client.Close(); ^',
+    '     } catch { ^',
+    '       Write-Host (\'[ERROR] \' + $_.Exception.Message) -ForegroundColor Red; ^',
+    '       try { ^',
+    '         $errBody = \'{\"ok\":false,\"error\":\"\' + ($_.Exception.Message -replace \'\"\\r\\n\',\'\') + \'\"}\'; ^',
+    '         $errHttp = \'HTTP/1.1 502 Bad Gateway\' + $crlf + \'Access-Control-Allow-Origin: *\' + $crlf + \'Access-Control-Allow-Private-Network: true\' + $crlf + \'Content-Type: application/json\' + $crlf + \'Connection: close\' + $crlf + $crlf + $errBody; ^',
+    '         $errBytes = [System.Text.Encoding]::UTF8.GetBytes($errHttp); ^',
+    '         $stream.Write($errBytes, 0, $errBytes.Length); ^',
+    '         $client.Close(); ^',
+    '       } catch {} ^',
+    '     } ^',
+    '   }',
+  ];
+  return lines.join('\r\n');
+}
+
+function buildPythonScript(ticketPrinter: string, host: string, port: number): string {
+  return `#!/usr/bin/env python3
+"""
+Puente Local de Impresión Térmica Automática — Kiwi RestaurantOS
+Recibe trabajos en http://127.0.0.1:9123/print
+"""
+import base64
+import json
+import platform
+import socket
+import subprocess
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+DEFAULT_PRINTER_NAME = "${ticketPrinter || 'caja'}"
+DEFAULT_PRINTER_HOST = "${host || '192.168.1.200'}"
+DEFAULT_PRINTER_PORT = ${port || 9100}
+LISTEN_HOST = "127.0.0.1"
+LISTEN_PORT = 9123
+
+def list_os_printers():
+    system = platform.system().lower()
+    printers = []
+    try:
+        if system == "windows":
+            res = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Printer | Select-Object -ExpandProperty Name"], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                printers = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+        else:
+            res = subprocess.run(["lpstat", "-a"], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                for line in res.stdout.splitlines():
+                    p = line.split()[0] if line.split() else ""
+                    if p: printers.append(p)
+    except Exception:
+        pass
+    return printers
+
+class BridgeHandler(BaseHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+        super().end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path == "/health":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok","service":"kiwi-print-bridge-py"}')
+        elif self.path.startswith("/printers"):
+            printers = list_os_printers()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True, "printers": printers}).encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        if self.path == "/print":
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            data = json.loads(body.decode("utf-8"))
+            raw = base64.b64decode(data.get("data_base64", ""))
+            p_name = data.get("printer_name") or DEFAULT_PRINTER_NAME
+            p_host = data.get("host")
+            p_port = int(data.get("port") or DEFAULT_PRINTER_PORT)
+            if p_host:
+                with socket.create_connection((p_host, p_port), timeout=5) as s:
+                    s.sendall(raw)
+            else:
+                p = subprocess.Popen(["lp", "-d", p_name], stdin=subprocess.PIPE)
+                p.communicate(input=raw)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
+
+if __name__ == "__main__":
+    print(f"Puente Kiwi escuchando en http://{LISTEN_HOST}:{LISTEN_PORT}")
+    server = HTTPServer((LISTEN_HOST, LISTEN_PORT), BridgeHandler)
+    server.serve_forever()
+`;
+}
+
 function syncPosLocalStorageFromAdmin(routing: PrintRoutingPayload, bridgeUrl: string) {
   try {
     const rawExisting = localStorage.getItem('pos_printer_config_v1');
@@ -181,6 +396,8 @@ function syncPosLocalStorageFromAdmin(routing: PrintRoutingPayload, bridgeUrl: s
 
 export const PrintAreasManager: React.FC = () => {
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<'printers' | 'menu' | 'simulator' | 'bridge'>('printers');
+
   const [areas, setAreas] = useState<PrintAreaItem[]>(DEFAULT_AREAS);
   const [productAreas, setProductAreas] = useState<Record<string, string>>({});
   const [categoryAreas, setCategoryAreas] = useState<Record<string, string>>({});
@@ -251,15 +468,15 @@ export const PrintAreasManager: React.FC = () => {
           online: true,
           message:
             detected.length > 0
-              ? `Puente activo · ${detected.length} impresoras detectadas en la PC: ${detected.join(', ')}`
-              : 'Puente activo en esta PC · Listo para enviar a impresoras (caja, ensaladas, barra) o IP:9100',
+              ? `Puente activo en esta PC (${detected.length} impresoras detectadas: ${detected.join(', ')})`
+              : 'Puente activo en esta PC · Listo para enviar a impresoras por nombre (caja, ensaladas, barra) o IP:9100',
         });
       } else {
         setBridgeStatus({
           checking: false,
           online: false,
           message:
-            'Puente local aún no iniciado en esta PC. Puedes escribir los nombres de tus impresoras (caja, ensaladas, barra) y descargar el puente abajo.',
+            'Puente local aún no iniciado en esta PC. Puedes configurar los nombres de tus impresoras y descargar el puente en la pestaña "Puente PC".',
         });
       }
     } catch {
@@ -386,7 +603,7 @@ export const PrintAreasManager: React.FC = () => {
       syncPosLocalStorageFromAdmin(effective, bridgeUrl);
       await refreshSamplePreview();
       setSaveMessage(
-        '✓ Áreas de impresión, impresoras del sistema y asignación de productos guardadas correctamente.'
+        '✓ Configuración de impresoras, áreas y asignación guardada exitosamente.'
       );
       setTimeout(() => setSaveMessage(''), 5000);
     } catch {
@@ -505,16 +722,16 @@ export const PrintAreasManager: React.FC = () => {
       });
       if (res.ok) {
         setTestPrintStatus(
-          `✓ ${label} enviada directamente a la impresora "${targetPrinterName || targetHost}"`
+          `✓ ${label} enviada con éxito a la impresora "${targetPrinterName || targetHost}"`
         );
       } else {
         setTestPrintStatus(
-          `Puente local no disponible en este momento; se mostrará vista previa de 42 columnas abajo.`
+          `Puente local respondió con error o la impresora "${targetPrinterName}" no está conectada.`
         );
       }
     } catch {
       setTestPrintStatus(
-        `Inicia el Puente Local Kiwi (.bat) en la PC de caja para enviar directo a "${targetPrinterName || targetHost}".`
+        `Para imprimir físicamente, inicia el Puente Kiwi (.bat) en la PC conectada a la impresora.`
       );
     } finally {
       setTestingPrint(false);
@@ -541,74 +758,98 @@ export const PrintAreasManager: React.FC = () => {
     [osPrinters]
   );
 
+  const getStationBadgeClass = (code: string) => {
+    if (code === 'salads') return 'pam-badge-salads';
+    if (code === 'baguettes') return 'pam-badge-baguettes';
+    if (code === 'kitchen') return 'pam-badge-kitchen';
+    if (code === 'drinks') return 'pam-badge-drinks';
+    return 'pam-badge-packing';
+  };
+
   return (
-    <div style={{ padding: '24px', maxWidth: 1200, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div className="pam-container">
       <datalist id="admin-os-printers-datalist">
         {suggestedPrinters.map((p) => (
           <option key={p} value={p} />
         ))}
       </datalist>
 
-      {/* Encabezado */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          flexWrap: 'wrap',
-          gap: 16,
-          background: '#ffffff',
-          padding: '20px 24px',
-          borderRadius: 14,
-          border: '1px solid #e2e8f0',
-        }}
-      >
+      {/* Encabezado Principal */}
+      <header className="pam-header-card">
         <div>
-          <h1 style={{ margin: 0, fontSize: '1.35rem', color: '#0f172a' }}>
-            Áreas de Impresión de Comandas y Asignación de Impresoras (PC / Red)
+          <h1 className="pam-title">
+            <Printer size={28} color="#10b981" />
+            Configuración de Áreas de Impresión y Comandas
           </h1>
-          <p style={{ margin: '6px 0 0', color: '#475569', fontSize: '0.92rem', maxWidth: 760 }}>
-            Configura las <strong>Áreas de Impresión</strong> (ej. <code>ENSALADAS</code>,{' '}
-            <code>BAGUETTES(RAPIDO)</code>, <code>BARRA</code>, <code>BEBIDAS</code>), asígnales la
-            impresora del <strong>Panel de Control de la Computadora</strong> (ej.{' '}
-            <code>caja</code>, <code>ensaladas</code>, <code>barra</code>) y vincula tus grupos o
-            productos para que cada comanda se imprima por separado en su estación.
+          <p className="pam-subtitle">
+            Asigna a cada estación de preparación su impresora de la computadora (ej.{' '}
+            <strong>caja</strong>, <strong>ensaladas</strong>, <strong>barra</strong>) y separa
+            automáticamente las comandas por producto o categoría sin márgenes excesivos ni cortes desalineados.
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <button
             type="button"
-            className="retro-btn"
+            className="pam-btn pam-btn-secondary"
             onClick={() => navigate('/products')}
-            style={{ padding: '9px 14px', fontWeight: 600 }}
           >
             Ir a Catálogo de Productos
+            <ArrowRight size={16} />
           </button>
+
           <button
             type="button"
-            className="retro-btn primary"
+            className="pam-btn pam-btn-primary"
             disabled={saving}
             onClick={() => void handleSaveAll()}
-            style={{
-              padding: '9px 16px',
-              fontWeight: 700,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              background: '#16a34a',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: 8,
-              cursor: 'pointer',
-            }}
           >
-            <CheckCircle2 size={16} />
+            <CheckCircle2 size={18} />
             {saving ? 'Guardando…' : 'Guardar Cambios'}
           </button>
         </div>
-      </div>
+      </header>
 
+      {/* Pestañas de Navegación Segmentada */}
+      <nav className="pam-tabs-nav" aria-label="Secciones de configuración de impresión">
+        <button
+          type="button"
+          className={`pam-tab-button ${activeTab === 'printers' ? 'active' : ''}`}
+          onClick={() => setActiveTab('printers')}
+        >
+          <Printer size={18} />
+          1. Estaciones e Impresoras
+        </button>
+
+        <button
+          type="button"
+          className={`pam-tab-button ${activeTab === 'menu' ? 'active' : ''}`}
+          onClick={() => setActiveTab('menu')}
+        >
+          <Layers size={18} />
+          2. Asignación del Menú
+        </button>
+
+        <button
+          type="button"
+          className={`pam-tab-button ${activeTab === 'simulator' ? 'active' : ''}`}
+          onClick={() => setActiveTab('simulator')}
+        >
+          <FileText size={18} />
+          3. Simulador de Tickets (42 col)
+        </button>
+
+        <button
+          type="button"
+          className={`pam-tab-button ${activeTab === 'bridge' ? 'active' : ''}`}
+          onClick={() => setActiveTab('bridge')}
+        >
+          <Laptop size={18} />
+          4. Puente PC y Diagnóstico
+        </button>
+      </nav>
+
+      {/* Mensaje de Confirmación de Guardado */}
       {saveMessage && (
         <div
           role="status"
@@ -616,584 +857,823 @@ export const PrintAreasManager: React.FC = () => {
             background: '#ecfdf5',
             border: '1px solid #10b981',
             color: '#065f46',
-            padding: '12px 16px',
-            borderRadius: 10,
+            padding: '14px 20px',
+            borderRadius: 12,
             fontWeight: 700,
+            fontSize: '0.95rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
           }}
         >
+          <Check size={20} />
           {saveMessage}
         </div>
       )}
 
-      {/* Bloque 1 y 2: Conexión con Impresoras del Panel de Control de la PC + Mapeo por Área */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(520px, 1fr))', gap: 20 }}>
-        {/* Panel Izquierdo: Impresora de Caja + Impresoras por Área */}
-        <section
-          style={{
-            background: '#ffffff',
-            border: '1px solid #e2e8f0',
-            borderRadius: 14,
-            padding: 20,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 16,
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: '1.05rem', color: '#0f172a' }}>
-                1. Impresoras de la Computadora por Área de Impresión
-              </h2>
-              <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#64748b' }}>
-                Selecciona o escribe el nombre exacto de la impresora en Windows (Panel de Control) o su IP:9100.
-              </p>
+      {/* TAB 1: ESTACIONES E IMPRESORAS */}
+      {activeTab === 'printers' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Banner de estado de conexión */}
+          <div className={`pam-status-banner ${bridgeStatus.online ? 'online' : 'offline'}`}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Wifi size={18} />
+              <span>{bridgeStatus.message}</span>
             </div>
             <button
               type="button"
-              className="retro-btn"
+              className="pam-btn pam-btn-secondary pam-btn-sm"
               onClick={() => void detectLocalPrinters(bridgeUrl)}
               disabled={bridgeStatus.checking}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.8rem' }}
             >
-              <RefreshCw size={14} />
-              {bridgeStatus.checking ? 'Detectando…' : 'Detectar Impresoras PC'}
+              <RefreshCw size={14} className={bridgeStatus.checking ? 'spin' : ''} />
+              {bridgeStatus.checking ? 'Consultando…' : 'Detectar Impresoras PC'}
             </button>
           </div>
 
-          <div
-            style={{
-              background: bridgeStatus.online ? '#f0fdf4' : '#fffbeb',
-              border: `1px solid ${bridgeStatus.online ? '#bbf7d0' : '#fde68a'}`,
-              borderRadius: 8,
-              padding: '8px 12px',
-              fontSize: '0.8rem',
-              color: bridgeStatus.online ? '#166534' : '#92400e',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <Wifi size={15} />
-            <span>{bridgeStatus.message}</span>
-          </div>
+          {/* Tarjeta de Impresora de Caja (Ticket del Cliente) */}
+          <section className="pam-caja-card">
+            <div className="pam-caja-header">
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
+                  Nota del Cliente (Ticket de Venta en Caja)
+                </h2>
+                <p style={{ margin: '4px 0 0', fontSize: '0.88rem', color: '#475569' }}>
+                  Aquí se imprime el comprobante de pago completo para el comensal. Por lo general la impresora se llama <code>caja</code> en Windows.
+                </p>
+              </div>
 
-          {/* Impresora de Caja (Ticket de Venta del Cliente) */}
-          <div
-            style={{
-              background: '#f8fafc',
-              border: '1px solid #cbd5e1',
-              borderRadius: 10,
-              padding: 12,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-            }}
-          >
-            <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#0f172a' }}>
-              NOTA DEL CLIENTE (TICKET DE COMPRA EN CAJA)
+              <button
+                type="button"
+                className="pam-btn pam-btn-secondary pam-btn-sm"
+                disabled={testingPrint}
+                onClick={() => {
+                  const sampleText =
+                    previewData?.ticket.text ||
+                    '*** KIWI RESTAURANTOS ***\nTICKET DE CLIENTE - CAJA\nORDEN: SUC04-000003\nTOTAL: $385.00';
+                  void handleSendTestToBridge(
+                    ticketPrinter.printer_name,
+                    ticketPrinter.host,
+                    ticketPrinter.port,
+                    sampleText,
+                    'Ticket de Caja'
+                  );
+                }}
+              >
+                <Printer size={15} />
+                Probar Impresora de Caja
+              </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.2fr 0.7fr', gap: 8 }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.76rem', color: '#475569' }}>
-                <span>Impresora en Panel de Control (PC)</span>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+              <div className="pam-field">
+                <label className="pam-label">Nombre exacto de la Impresora en Windows / PC</label>
                 <input
                   type="text"
                   list="admin-os-printers-datalist"
-                  className="retro-input"
+                  className="pam-input"
                   value={ticketPrinter.printer_name}
                   onChange={(e) => setTicketPrinter({ ...ticketPrinter, printer_name: e.target.value })}
-                  placeholder="caja"
+                  placeholder="ej. caja"
                 />
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.76rem', color: '#475569' }}>
-                <span>IP Red (Opcional)</span>
+                <span className="pam-hint">Nombre configurado en el Panel de Control de la computadora.</span>
+                {osPrinters.length > 0 && (
+                  <div className="pam-pills-container">
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Sugerencias detectadas:</span>
+                    {osPrinters.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        className={`pam-pill ${ticketPrinter.printer_name.toLowerCase() === p.toLowerCase() ? 'active' : ''}`}
+                        onClick={() => setTicketPrinter({ ...ticketPrinter, printer_name: p })}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="pam-field">
+                <label className="pam-label">IP de Red Ethernet / Wi-Fi (Opcional)</label>
                 <input
                   type="text"
-                  className="retro-input"
+                  className="pam-input"
                   value={ticketPrinter.host}
                   onChange={(e) => setTicketPrinter({ ...ticketPrinter, host: e.target.value })}
-                  placeholder="Ej. 192.168.1.200"
+                  placeholder="ej. 192.168.1.200"
                 />
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.76rem', color: '#475569' }}>
-                <span>Puerto</span>
+                <span className="pam-hint">Déjalo vacío si la impresora está conectada por cable USB o compartida en Windows.</span>
+              </div>
+
+              <div className="pam-field" style={{ maxWidth: 140 }}>
+                <label className="pam-label">Puerto TCP</label>
                 <input
                   type="number"
-                  className="retro-input"
+                  className="pam-input"
                   value={ticketPrinter.port}
                   onChange={(e) => setTicketPrinter({ ...ticketPrinter, port: Number(e.target.value) || 9100 })}
                 />
-              </label>
-            </div>
-          </div>
-
-          {/* Lista de Áreas de Impresión de Comandas */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {areas.map((area) => {
-              const target = areaPrinters[area.code] || {
-                enabled: area.print_comanda,
-                printer_name: area.print_comanda ? area.code : '',
-                host: '',
-                port: 9100,
-              };
-              return (
-                <div
-                  key={area.code}
-                  style={{
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 10,
-                    padding: 12,
-                    background: area.print_comanda ? '#ffffff' : '#f8fafc',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: '0.88rem' }}>
-                      <input
-                        type="checkbox"
-                        checked={area.print_comanda}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setAreas(
-                            areas.map((a) =>
-                              a.code === area.code ? { ...a, print_comanda: checked } : a
-                            )
-                          );
-                          setAreaPrinters({
-                            ...areaPrinters,
-                            [area.code]: { ...target, enabled: checked },
-                          });
-                        }}
-                      />
-                      <span>{area.name}</span>
-                      <span
-                        style={{
-                          fontSize: '0.72rem',
-                          fontWeight: 600,
-                          padding: '2px 7px',
-                          borderRadius: 999,
-                          background: '#f1f5f9',
-                          color: '#475569',
-                        }}
-                      >
-                        código: {area.code}
-                      </span>
-                    </label>
-
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      {area.print_comanda && (
-                        <button
-                          type="button"
-                          className="retro-btn"
-                          disabled={testingPrint}
-                          onClick={() => {
-                            const comandaText =
-                              previewData?.comandas.find((c) => c.area_code === area.code)?.text ||
-                              `*** COMANDA DE COCINA ***\n${area.name} ORDEN: 3\nESTACION: ${area.name}\n------------------------------------------\n[ 1 ] PRODUCTO DE PRUEBA (${area.name})\n------------------------------------------`;
-                            void handleSendTestToBridge(
-                              target.printer_name,
-                              target.host,
-                              target.port,
-                              comandaText,
-                              `Comanda ${area.name}`
-                            );
-                          }}
-                          style={{ fontSize: '0.75rem', padding: '4px 9px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                        >
-                          <Printer size={13} />
-                          Probar
-                        </button>
-                      )}
-                      {!area.is_system && (
-                        <button
-                          type="button"
-                          className="retro-btn"
-                          onClick={() => handleRemoveArea(area.code)}
-                          style={{ fontSize: '0.75rem', padding: '4px 8px', color: '#dc2626' }}
-                          title="Eliminar área"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {area.print_comanda && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1.3fr 1fr', gap: 8 }}>
-                      <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.74rem', color: '#475569' }}>
-                        <span>Título impreso en Comanda</span>
-                        <input
-                          type="text"
-                          className="retro-input"
-                          value={area.name}
-                          onChange={(e) =>
-                            setAreas(
-                              areas.map((a) =>
-                                a.code === area.code ? { ...a, name: e.target.value.toUpperCase() } : a
-                              )
-                            )
-                          }
-                        />
-                      </label>
-                      <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.74rem', color: '#475569' }}>
-                        <span>Impresora en Panel de Control (PC)</span>
-                        <input
-                          type="text"
-                          list="admin-os-printers-datalist"
-                          className="retro-input"
-                          value={target.printer_name}
-                          onChange={(e) =>
-                            setAreaPrinters({
-                              ...areaPrinters,
-                              [area.code]: { ...target, printer_name: e.target.value },
-                            })
-                          }
-                          placeholder={area.code === 'salads' ? 'ensaladas' : 'barra'}
-                        />
-                      </label>
-                      <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.74rem', color: '#475569' }}>
-                        <span>IP Red (Opcional)</span>
-                        <input
-                          type="text"
-                          className="retro-input"
-                          value={target.host}
-                          onChange={(e) =>
-                            setAreaPrinters({
-                              ...areaPrinters,
-                              [area.code]: { ...target, host: e.target.value },
-                            })
-                          }
-                          placeholder="Ej. 192.168.1.201"
-                        />
-                      </label>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Agregar nueva Área de Impresión */}
-          <div
-            style={{
-              borderTop: '1px dashed #cbd5e1',
-              paddingTop: 12,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: '0.84rem', color: '#0f172a' }}>
-              + Agregar Nueva Área de Impresión (ej. Postres, Plancha, Jugos)
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr 1fr 1.2fr auto', gap: 8, alignItems: 'flex-end' }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.74rem' }}>
-                <span>Código</span>
-                <input
-                  type="text"
-                  className="retro-input"
-                  value={newAreaCode}
-                  onChange={(e) => setNewAreaCode(e.target.value)}
-                  placeholder="postres"
-                />
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.74rem' }}>
-                <span>Nombre en Comanda</span>
-                <input
-                  type="text"
-                  className="retro-input"
-                  value={newAreaName}
-                  onChange={(e) => setNewAreaName(e.target.value)}
-                  placeholder="REPOSTERIA FRIA"
-                />
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.74rem' }}>
-                <span>Estación KDS</span>
-                <select
-                  className="retro-input"
-                  value={newAreaStation}
-                  onChange={(e) =>
-                    setNewAreaStation(e.target.value as 'kitchen' | 'drinks' | 'packing')
-                  }
-                >
-                  <option value="kitchen">Cocina / Barra</option>
-                  <option value="drinks">Bebidas</option>
-                  <option value="packing">Empaque</option>
-                </select>
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.74rem' }}>
-                <span>Impresora PC</span>
-                <input
-                  type="text"
-                  list="admin-os-printers-datalist"
-                  className="retro-input"
-                  value={newAreaPrinterName}
-                  onChange={(e) => setNewAreaPrinterName(e.target.value)}
-                  placeholder="barra"
-                />
-              </label>
-              <button
-                type="button"
-                className="retro-btn"
-                onClick={handleAddArea}
-                style={{ padding: '7px 12px', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700 }}
-              >
-                <Plus size={14} />
-                Agregar
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {/* Panel Derecho: Vista Previa Real de Separación de Ticket y Comandas (42 columnas exactas) */}
-        <section
-          style={{
-            background: '#ffffff',
-            border: '1px solid #e2e8f0',
-            borderRadius: 14,
-            padding: 20,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 14,
-          }}
-        >
-          <div>
-            <h2 style={{ margin: 0, fontSize: '1.05rem', color: '#0f172a' }}>
-              2. Vista Previa de Separación de Ticket y Comandas (42 Columnas Sin Desfase)
-            </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#64748b' }}>
-              Simulación de un mismo pedido con Ensalada + Baguette + Bebida: la nota del cliente
-              sale en <code>{ticketPrinter.printer_name || 'caja'}</code> y cada área recibe
-              únicamente sus productos con su propio corte de papel.
-            </p>
-          </div>
-
-          {testPrintStatus && (
-            <div
-              role="status"
-              style={{
-                background: '#eff6ff',
-                border: '1px solid #93c5fd',
-                color: '#1e3a8a',
-                padding: '8px 12px',
-                borderRadius: 8,
-                fontSize: '0.82rem',
-                fontWeight: 600,
-              }}
-            >
-              {testPrintStatus}
-            </div>
-          )}
-
-          {previewData && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 540, overflowY: 'auto', background: '#f1f5f9', padding: 12, borderRadius: 10 }}>
-              <div>
-                <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>
-                  TICKET DE VENTA DEL CLIENTE → Impresora: <code>{previewData.ticket.printer_name || 'caja'}</code>
-                </div>
-                <pre
-                  style={{
-                    margin: 0,
-                    background: '#ffffff',
-                    padding: '10px 12px',
-                    borderRadius: 6,
-                    border: '1px solid #cbd5e1',
-                    fontFamily: "'Courier New', Consolas, monospace",
-                    fontSize: '11px',
-                    lineHeight: 1.2,
-                    whiteSpace: 'pre',
-                    overflowX: 'auto',
-                  }}
-                >
-                  {previewData.ticket.text}
-                </pre>
+                <span className="pam-hint">Estándar: 9100</span>
               </div>
-
-              {previewData.comandas.map((comanda) => (
-                <div key={comanda.area_code}>
-                  <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#047857', marginBottom: 4 }}>
-                    COMANDA ÁREA {comanda.area_name} ({comanda.line_count} prod.) → Impresora:{' '}
-                    <code>{comanda.printer_name || 'barra'}</code>
-                  </div>
-                  <pre
-                    style={{
-                      margin: 0,
-                      background: '#ffffff',
-                      padding: '10px 12px',
-                      borderRadius: 6,
-                      border: '1px solid #a7f3d0',
-                      fontFamily: "'Courier New', Consolas, monospace",
-                      fontSize: '11px',
-                      lineHeight: 1.2,
-                      whiteSpace: 'pre',
-                      overflowX: 'auto',
-                    }}
-                  >
-                    {comanda.text}
-                  </pre>
-                </div>
-              ))}
             </div>
-          )}
-        </section>
-      </div>
+          </section>
 
-      {/* Bloque 3: Asignación por Grupo (Categoría) y por Producto */}
-      <section
-        style={{
-          background: '#ffffff',
-          border: '1px solid #e2e8f0',
-          borderRadius: 14,
-          padding: 20,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 16,
-        }}
-      >
-        <div>
-          <h2 style={{ margin: 0, fontSize: '1.05rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Layers size={18} />
-            3. Asignación Rápida de Grupos (Categorías) y Productos a Áreas de Impresión
-          </h2>
-          <p style={{ margin: '4px 0 0', fontSize: '0.84rem', color: '#64748b' }}>
-            Puedes asignar un Grupo completo (ej. todas las <strong>ENSALADAS</strong> al área{' '}
-            <code>ENSALADAS</code> y todos los <strong>BAGUETTES</strong> a{' '}
-            <code>BAGUETTES(RAPIDO)</code>) o personalizar producto por producto.
-          </p>
+          {/* Tarjeta de Lista de Áreas de Impresión de Comandas */}
+          <section className="pam-card">
+            <div>
+              <h2 className="pam-card-title">
+                <Printer size={22} color="#047857" />
+                Áreas de Impresión de Comandas para Cocina y Barra
+              </h2>
+              <p className="pam-card-desc">
+                Cada área cuenta con su propio nombre de comanda, su impresora física asignada y su corte de papel independiente. Si activas el interruptor, los productos asignados a esta área se imprimirán aquí.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {areas.map((area) => {
+                const target = areaPrinters[area.code] || {
+                  enabled: area.print_comanda,
+                  printer_name: area.print_comanda ? area.code : '',
+                  host: '',
+                  port: 9100,
+                };
+                return (
+                  <div
+                    key={area.code}
+                    className={`pam-area-item ${!area.print_comanda ? 'disabled' : ''}`}
+                  >
+                    <div className="pam-area-header">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                        {/* iOS Switch */}
+                        <label className="pam-switch" title={area.print_comanda ? 'Comanda activada' : 'Comanda desactivada'}>
+                          <input
+                            type="checkbox"
+                            checked={area.print_comanda}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setAreas(
+                                areas.map((a) =>
+                                  a.code === area.code ? { ...a, print_comanda: checked } : a
+                                )
+                              );
+                              setAreaPrinters({
+                                ...areaPrinters,
+                                [area.code]: { ...target, enabled: checked },
+                              });
+                            }}
+                          />
+                          <span className="pam-switch-slider" />
+                        </label>
+
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>
+                              {area.name}
+                            </span>
+                            <span className={`pam-badge ${getStationBadgeClass(area.code)}`}>
+                              {area.code.toUpperCase()}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                            {area.print_comanda
+                              ? `Imprime comanda separada en la impresora "${target.printer_name || area.code}"`
+                              : 'No imprime comanda (área inactiva para impresión)'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        {area.print_comanda && (
+                          <button
+                            type="button"
+                            className="pam-btn pam-btn-secondary pam-btn-sm"
+                            disabled={testingPrint}
+                            onClick={() => {
+                              const comandaText =
+                                previewData?.comandas.find((c) => c.area_code === area.code)?.text ||
+                                `*** COMANDA DE PRUEBA ***\n${area.name} ORDEN: 3\nESTACION: ${area.name}\n------------------------------------------\n[ 1 ] PRODUCTO DE PRUEBA (${area.name})\n------------------------------------------`;
+                              void handleSendTestToBridge(
+                                target.printer_name,
+                                target.host,
+                                target.port,
+                                comandaText,
+                                `Comanda ${area.name}`
+                              );
+                            }}
+                          >
+                            <Printer size={14} />
+                            Probar Comanda
+                          </button>
+                        )}
+
+                        {!area.is_system && (
+                          <button
+                            type="button"
+                            className="pam-btn pam-btn-danger pam-btn-sm"
+                            onClick={() => handleRemoveArea(area.code)}
+                            title="Eliminar esta área de comanda"
+                          >
+                            <Trash2 size={14} />
+                            Eliminar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {area.print_comanda && (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, paddingTop: 6 }}>
+                        <div className="pam-field">
+                          <label className="pam-label">Título impreso en la Comanda</label>
+                          <input
+                            type="text"
+                            className="pam-input"
+                            value={area.name}
+                            onChange={(e) =>
+                              setAreas(
+                                areas.map((a) =>
+                                  a.code === area.code ? { ...a, name: e.target.value.toUpperCase() } : a
+                                )
+                              )
+                            }
+                            placeholder="ej. ENSALADAS"
+                          />
+                        </div>
+
+                        <div className="pam-field">
+                          <label className="pam-label">Impresora en Windows (Panel de Control)</label>
+                          <input
+                            type="text"
+                            list="admin-os-printers-datalist"
+                            className="pam-input"
+                            value={target.printer_name}
+                            onChange={(e) =>
+                              setAreaPrinters({
+                                ...areaPrinters,
+                                [area.code]: { ...target, printer_name: e.target.value },
+                              })
+                            }
+                            placeholder={area.code === 'salads' ? 'ensaladas' : 'barra'}
+                          />
+                          {osPrinters.length > 0 && (
+                            <div className="pam-pills-container">
+                              {osPrinters.map((p) => (
+                                <button
+                                  key={p}
+                                  type="button"
+                                  className={`pam-pill ${target.printer_name.toLowerCase() === p.toLowerCase() ? 'active' : ''}`}
+                                  onClick={() =>
+                                    setAreaPrinters({
+                                      ...areaPrinters,
+                                      [area.code]: { ...target, printer_name: p },
+                                    })
+                                  }
+                                >
+                                  {p}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="pam-field">
+                          <label className="pam-label">IP de Red (Opcional)</label>
+                          <input
+                            type="text"
+                            className="pam-input"
+                            value={target.host}
+                            onChange={(e) =>
+                              setAreaPrinters({
+                                ...areaPrinters,
+                                [area.code]: { ...target, host: e.target.value },
+                              })
+                            }
+                            placeholder="ej. 192.168.1.201"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Agregar nueva Área */}
+            <div style={{ borderTop: '2px dashed #e2e8f0', paddingTop: 20, marginTop: 10 }}>
+              <h3 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
+                + Agregar Nueva Área de Comanda (ej. Postres, Plancha, Jugos)
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr)) auto', gap: 12, alignItems: 'flex-end' }}>
+                <div className="pam-field">
+                  <label className="pam-label">Código único</label>
+                  <input
+                    type="text"
+                    className="pam-input"
+                    value={newAreaCode}
+                    onChange={(e) => setNewAreaCode(e.target.value)}
+                    placeholder="ej. postres"
+                  />
+                </div>
+
+                <div className="pam-field">
+                  <label className="pam-label">Nombre en Comanda</label>
+                  <input
+                    type="text"
+                    className="pam-input"
+                    value={newAreaName}
+                    onChange={(e) => setNewAreaName(e.target.value)}
+                    placeholder="ej. REPOSTERIA FRIA"
+                  />
+                </div>
+
+                <div className="pam-field">
+                  <label className="pam-label">Estación KDS</label>
+                  <select
+                    className="pam-select"
+                    value={newAreaStation}
+                    onChange={(e) =>
+                      setNewAreaStation(e.target.value as 'kitchen' | 'drinks' | 'packing')
+                    }
+                  >
+                    <option value="kitchen">Cocina / Barra</option>
+                    <option value="drinks">Bebidas</option>
+                    <option value="packing">Empaque</option>
+                  </select>
+                </div>
+
+                <div className="pam-field">
+                  <label className="pam-label">Impresora PC</label>
+                  <input
+                    type="text"
+                    list="admin-os-printers-datalist"
+                    className="pam-input"
+                    value={newAreaPrinterName}
+                    onChange={(e) => setNewAreaPrinterName(e.target.value)}
+                    placeholder="ej. barra"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  className="pam-btn pam-btn-primary"
+                  onClick={handleAddArea}
+                >
+                  <Plus size={18} />
+                  Agregar Área
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
+      )}
 
-        {/* Asignación por Grupo / Categoría */}
-        {categories.length > 0 && (
-          <div>
-            <h3 style={{ margin: '0 0 8px', fontSize: '0.9rem', color: '#334155' }}>
-              Área de Impresión predeterminada por Grupo / Categoría
-            </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 10 }}>
+      {/* TAB 2: ASIGNACIÓN DEL MENÚ (GRUPOS Y PRODUCTOS) */}
+      {activeTab === 'menu' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          {/* Asignación por Grupo / Categoría */}
+          <section className="pam-card">
+            <div>
+              <h2 className="pam-card-title">
+                <Layers size={22} color="#0284c7" />
+                Asignación Rápida por Grupo / Categoría
+              </h2>
+              <p className="pam-card-desc">
+                Todo producto nuevo o existente perteneciente al grupo se enviará automáticamente a esta impresora, a menos que tenga una excepción individual abajo.
+              </p>
+            </div>
+
+            <div className="pam-groups-grid">
               {categories.map((cat) => {
                 const currentArea =
                   categoryAreas[cat.id] || categoryAreas[cat.name.toUpperCase()] || '';
                 return (
-                  <div
-                    key={cat.id}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 4,
-                      padding: '8px 10px',
-                      background: '#f8fafc',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: 8,
-                    }}
-                  >
-                    <span style={{ fontWeight: 700, fontSize: '0.82rem', color: '#0f172a' }}>
-                      {cat.name}
-                    </span>
+                  <div key={cat.id} className="pam-group-card">
+                    <div className="pam-group-header">
+                      <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
+                        {cat.name}
+                      </span>
+                      {currentArea ? (
+                        <span className={`pam-badge ${getStationBadgeClass(currentArea)}`}>
+                          {currentArea.toUpperCase()}
+                        </span>
+                      ) : (
+                        <span className="pam-badge pam-badge-packing">Automático</span>
+                      )}
+                    </div>
+
                     <select
-                      className="retro-input"
+                      className="pam-select"
                       value={currentArea}
                       onChange={(e) => handleAssignCategoryArea(cat, e.target.value)}
-                      style={{ fontSize: '0.8rem' }}
                     >
-                      <option value="">Automático por nombre / producto</option>
-                      {areas.map((a) => (
-                        <option key={a.code} value={a.code}>
-                          {a.name} ({areaPrinters[a.code]?.printer_name || 'sin impresora'})
-                        </option>
-                      ))}
+                      <option value="">Automático (Heredar por nombre/tipo)</option>
+                      {areas
+                        .filter((a) => a.print_comanda)
+                        .map((a) => (
+                          <option key={a.code} value={a.code}>
+                            {a.name} → Impresora: {areaPrinters[a.code]?.printer_name || a.code}
+                          </option>
+                        ))}
+                      <option value="none">Sin comanda (No imprimir)</option>
                     </select>
                   </div>
                 );
               })}
             </div>
-          </div>
-        )}
+          </section>
 
-        {/* Asignación individual por Producto */}
-        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 10 }}>
-            <h3 style={{ margin: 0, fontSize: '0.9rem', color: '#334155' }}>
-              Área de Impresión por Producto ({filteredProducts.length} productos)
-            </h3>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <select
-                className="retro-input"
-                value={selectedCategoryFilter}
-                onChange={(e) => setSelectedCategoryFilter(e.target.value)}
-                style={{ fontSize: '0.82rem', minWidth: 180 }}
-              >
-                <option value="all">Todos los grupos</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <div style={{ position: 'relative', minWidth: 240 }}>
-                <Search size={14} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                <input
-                  type="text"
-                  className="retro-input"
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  placeholder="Buscar producto o clave…"
-                  style={{ paddingLeft: 28, fontSize: '0.82rem', width: '100%' }}
-                />
+          {/* Asignación Individual por Producto */}
+          <section className="pam-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+              <div>
+                <h2 className="pam-card-title">
+                  <Search size={22} color="#475569" />
+                  Asignación Individual por Producto ({filteredProducts.length} productos)
+                </h2>
+                <p className="pam-card-desc">
+                  Utiliza esta tabla para excepciones específicas (ej. un producto especial dentro de una categoría que se deba preparar en otra estación).
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <select
+                  className="pam-select"
+                  value={selectedCategoryFilter}
+                  onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+                  style={{ width: 220 }}
+                >
+                  <option value="all">Todas las categorías</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+
+                <div style={{ position: 'relative', width: 260 }}>
+                  <Search
+                    size={18}
+                    style={{
+                      position: 'absolute',
+                      left: 12,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#94a3b8',
+                    }}
+                  />
+                  <input
+                    type="text"
+                    className="pam-input"
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    placeholder="Buscar por nombre o clave…"
+                    style={{ paddingLeft: 38 }}
+                  />
+                </div>
               </div>
             </div>
-          </div>
 
-          <div style={{ maxHeight: 340, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
-                  <th style={{ padding: '8px 12px' }}>Clave</th>
-                  <th style={{ padding: '8px 12px' }}>Producto</th>
-                  <th style={{ padding: '8px 12px' }}>Grupo</th>
-                  <th style={{ padding: '8px 12px' }}>Área de Impresión de Comanda</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredProducts.slice(0, 120).map((prod) => {
-                  const assigned = productAreas[prod.id] || '';
-                  return (
-                    <tr key={prod.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '6px 12px', fontFamily: 'monospace', color: '#64748b' }}>
-                        {prod.sku}
-                      </td>
-                      <td style={{ padding: '6px 12px', fontWeight: 600, color: '#0f172a' }}>
-                        {prod.name}
-                      </td>
-                      <td style={{ padding: '6px 12px', color: '#475569' }}>
-                        {prod.category_name ||
-                          categories.find((c) => c.id === prod.category_id)?.name ||
-                          '—'}
-                      </td>
-                      <td style={{ padding: '6px 12px' }}>
-                        <select
-                          className="retro-input"
-                          value={assigned}
-                          onChange={(e) => handleAssignProductArea(prod.id, e.target.value)}
-                          style={{ fontSize: '0.8rem', width: '100%', maxWidth: 300 }}
-                        >
-                          <option value="">
-                            Heredar del grupo / detección automática ({prod.station || 'kitchen'})
-                          </option>
-                          {areas.map((a) => (
-                            <option key={a.code} value={a.code}>
-                              {a.name} → Impresora: {areaPrinters[a.code]?.printer_name || 'sin impresora'}
+            <div className="pam-table-container">
+              <table className="pam-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 120 }}>Clave SKU</th>
+                    <th>Producto</th>
+                    <th style={{ width: 180 }}>Categoría</th>
+                    <th style={{ width: 340 }}>Área de Comanda Destino</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredProducts.slice(0, 150).map((prod) => {
+                    const assigned = productAreas[prod.id] || '';
+                    return (
+                      <tr key={prod.id}>
+                        <td style={{ fontFamily: 'monospace', color: '#64748b', fontWeight: 600 }}>
+                          {prod.sku || '—'}
+                        </td>
+                        <td style={{ fontWeight: 700, color: '#0f172a' }}>
+                          {prod.name}
+                        </td>
+                        <td style={{ color: '#475569' }}>
+                          <span className="pam-badge pam-badge-packing">
+                            {prod.category_name ||
+                              categories.find((c) => c.id === prod.category_id)?.name ||
+                              'General'}
+                          </span>
+                        </td>
+                        <td>
+                          <select
+                            className="pam-select"
+                            value={assigned}
+                            onChange={(e) => handleAssignProductArea(prod.id, e.target.value)}
+                          >
+                            <option value="">
+                              Heredar del grupo ({categories.find((c) => c.id === prod.category_id)?.name || 'Automático'})
                             </option>
-                          ))}
-                        </select>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                            {areas.map((a) => (
+                              <option key={a.code} value={a.code}>
+                                {a.name} → {areaPrinters[a.code]?.printer_name || a.code}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </div>
-      </section>
+      )}
+
+      {/* TAB 3: SIMULADOR DE TICKETS (42 COLUMNAS) */}
+      {activeTab === 'simulator' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <section className="pam-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+              <div>
+                <h2 className="pam-card-title">
+                  <FileText size={22} color="#059669" />
+                  Simulador de Impresión Térmica en Vivo (42 Columnas Sin Desfase)
+                </h2>
+                <p className="pam-card-desc">
+                  Este simulador representa exactamente cómo se enviará el texto binario ESC/POS a cada impresora física. En un pedido con Ensalada + Baguettes + Bebida, observa la separación limpia de tickets:
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="pam-btn pam-btn-secondary pam-btn-sm"
+                onClick={() => void refreshSamplePreview()}
+              >
+                <RefreshCw size={14} />
+                Actualizar Simulación
+              </button>
+            </div>
+
+            {testPrintStatus && (
+              <div
+                role="status"
+                style={{
+                  background: '#eff6ff',
+                  border: '1px solid #93c5fd',
+                  color: '#1e3a8a',
+                  padding: '12px 16px',
+                  borderRadius: 10,
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <AlertCircle size={18} />
+                {testPrintStatus}
+              </div>
+            )}
+
+            {previewData && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 20 }}>
+                {/* Ticket de Venta de Caja */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}>
+                      Ticket de Venta del Cliente
+                    </span>
+                    <span className="pam-badge pam-badge-packing">
+                      Impresora: {previewData.ticket.printer_name || 'caja'}
+                    </span>
+                  </div>
+
+                  <div className="pam-sim-paper">
+                    {previewData.ticket.text}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="pam-btn pam-btn-secondary pam-btn-sm"
+                    disabled={testingPrint}
+                    onClick={() =>
+                      void handleSendTestToBridge(
+                        previewData.ticket.printer_name,
+                        previewData.ticket.host,
+                        previewData.ticket.port,
+                        previewData.ticket.text,
+                        'Ticket de Cliente'
+                      )
+                    }
+                  >
+                    <Printer size={14} />
+                    Imprimir este Ticket en Caja
+                  </button>
+                </div>
+
+                {/* Comandas separadas por Área */}
+                {previewData.comandas.map((comanda) => (
+                  <div key={comanda.area_code} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#047857' }}>
+                        Comanda: {comanda.area_name} ({comanda.line_count} prod.)
+                      </span>
+                      <span className={`pam-badge ${getStationBadgeClass(comanda.area_code)}`}>
+                        Impresora: {comanda.printer_name || 'barra'}
+                      </span>
+                    </div>
+
+                    <div className="pam-sim-paper" style={{ borderLeft: '4px solid #10b981' }}>
+                      {comanda.text}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="pam-btn pam-btn-secondary pam-btn-sm"
+                      disabled={testingPrint}
+                      onClick={() =>
+                        void handleSendTestToBridge(
+                          comanda.printer_name,
+                          comanda.host,
+                          comanda.port,
+                          comanda.text,
+                          `Comanda ${comanda.area_name}`
+                        )
+                      }
+                    >
+                      <Printer size={14} />
+                      Imprimir Comanda {comanda.area_name}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* TAB 4: PUENTE PC Y DIAGNÓSTICO */}
+      {activeTab === 'bridge' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          {/* Estado del Puente en esta Computadora */}
+          <section className="pam-card">
+            <h2 className="pam-card-title">
+              <Laptop size={22} color="#059669" />
+              Diagnóstico del Puente Local en la Computadora
+            </h2>
+
+            <div className={`pam-status-banner ${bridgeStatus.online ? 'online' : 'offline'}`}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Wifi size={20} />
+                <span style={{ fontWeight: 600 }}>{bridgeStatus.message}</span>
+              </div>
+
+              <button
+                type="button"
+                className="pam-btn pam-btn-secondary pam-btn-sm"
+                onClick={() => void detectLocalPrinters(bridgeUrl)}
+                disabled={bridgeStatus.checking}
+              >
+                <RefreshCw size={14} className={bridgeStatus.checking ? 'spin' : ''} />
+                Consultar Estado
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+              <label className="pam-label">URL del Puente Local (Servicio en Segundo Plano)</label>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <input
+                  type="text"
+                  className="pam-input"
+                  value={bridgeUrl}
+                  onChange={(e) => setBridgeUrl(e.target.value)}
+                  style={{ maxWidth: 360 }}
+                />
+                <button
+                  type="button"
+                  className="pam-btn pam-btn-secondary"
+                  onClick={() => void detectLocalPrinters(bridgeUrl)}
+                >
+                  Probar Conexión
+                </button>
+              </div>
+              <span className="pam-hint">
+                Por defecto escucha en <code>http://127.0.0.1:9123</code> en la PC donde está conectado el cajón de dinero y las impresoras.
+              </span>
+            </div>
+
+            {/* Impresoras Detectadas en Windows */}
+            <div style={{ marginTop: 16 }}>
+              <h3 style={{ margin: '0 0 8px', fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>
+                Impresoras registradas en el Panel de Control de esta PC:
+              </h3>
+              {osPrinters.length > 0 ? (
+                <div className="pam-pills-container">
+                  {osPrinters.map((p) => (
+                    <span key={p} className="pam-pill active">
+                      <Check size={14} />
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ margin: 0, fontSize: '0.88rem', color: '#64748b' }}>
+                  Aún no se detectan impresoras. Inicia el puente abajo para listar automáticamente tus impresoras de Windows (ej. caja, ensaladas, barra).
+                </p>
+              )}
+            </div>
+          </section>
+
+          {/* Tarjetas de Descarga del Puente */}
+          <section className="pam-card">
+            <h2 className="pam-card-title">
+              <Download size={22} color="#0284c7" />
+              Descarga del Puente Kiwi (Sin Instalaciones Complejas)
+            </h2>
+            <p className="pam-card-desc">
+              El puente es un ejecutable ligero que corre en la PC de caja para recibir los tickets y enviarlos a las impresoras térmicas USB o de red sin cuadros de diálogo de Windows.
+            </p>
+
+            <div className="pam-download-grid">
+              <div className="pam-download-card">
+                <h4>
+                  <Laptop size={18} />
+                  Windows (Recomendado para PC de Caja)
+                </h4>
+                <p>
+                  Archivo <code>.bat</code> con PowerShell y soporte nativo Win32 Spooler. No requiere instalar Python ni programas externos.
+                </p>
+                <button
+                  type="button"
+                  className="pam-btn pam-btn-primary"
+                  onClick={() => {
+                    const content = buildWindowsBatch(
+                      ticketPrinter.printer_name,
+                      ticketPrinter.host,
+                      ticketPrinter.port
+                    );
+                    triggerDownload(content, 'Iniciar-Impresora-Kiwi-POS.bat', 'application/x-bat');
+                  }}
+                >
+                  <Download size={16} />
+                  Descargar Iniciar-Impresora-Kiwi-POS.bat
+                </button>
+              </div>
+
+              <div className="pam-download-card">
+                <h4>
+                  <ExternalLink size={18} />
+                  Linux / macOS (Multiplataforma)
+                </h4>
+                <p>
+                  Script ligero en Python 3 para servidores o terminales con sistema CUPS o impresoras Ethernet directas.
+                </p>
+                <button
+                  type="button"
+                  className="pam-btn pam-btn-secondary"
+                  onClick={() => {
+                    const content = buildPythonScript(
+                      ticketPrinter.printer_name,
+                      ticketPrinter.host,
+                      ticketPrinter.port
+                    );
+                    triggerDownload(content, 'kiwi_print_bridge.py', 'text/x-python');
+                  }}
+                >
+                  <Download size={16} />
+                  Descargar kiwi_print_bridge.py
+                </button>
+              </div>
+            </div>
+
+            {/* Pasos de Configuración en Windows */}
+            <div style={{ marginTop: 16 }}>
+              <h3 style={{ margin: '0 0 12px', fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>
+                Pasos para activar en la computadora de caja:
+              </h3>
+              <ul className="pam-steps-list">
+                <li className="pam-step-item">
+                  <span className="pam-step-number">1</span>
+                  <span>
+                    Descarga el archivo <code>Iniciar-Impresora-Kiwi-POS.bat</code> en la computadora donde están conectadas las impresoras.
+                  </span>
+                </li>
+                <li className="pam-step-item">
+                  <span className="pam-step-number">2</span>
+                  <span>
+                    Haz doble clic sobre el archivo descargado. Se abrirá una ventana negra que dirá <em>[LISTO] Puente activo en http://127.0.0.1:9123</em>.
+                  </span>
+                </li>
+                <li className="pam-step-item">
+                  <span className="pam-step-number">3</span>
+                  <span>
+                    Regresa a esta pantalla o al Punto de Venta. Las impresoras se detectarán automáticamente y la comanda de ensaladas, baguettes y ticket de cliente saldrán de inmediato en cada una.
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 };
