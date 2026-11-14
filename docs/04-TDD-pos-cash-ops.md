@@ -16,11 +16,14 @@ incrementos posteriores.
 ## TDD-TS-077 Autorización y perfiles acumulativos
 
 Dominio y API comprueban herencia positiva/negativa proyectada por permisos, actor ausente, rol visible
-alterado, branch `NULL` legacy, sucursal u organización ajena, escalación a Dueño y preservación de
-especialidades. Un rol branch-scoped con `admin.manage` debe ser rechazado en toda operación
+alterado, branch `NULL` legacy, sucursal u organización ajena, escalación a Dueño, preservación de
+especialidades y actualización in-place de `user_roles.branch_id` cuando se reasigna un mismo `role_id`
+a otra sucursal activa (con incremento de `authorization_version`, auditoría `user_role.branch_updated`
+y replay idempotente cuando `branch_id` no cambia). Contrato de arquitectura/UI verifica que el modal de
+alta de usuario en Admin inicialice `branch_id` vacío (`""`) sin preseleccionar `branches[0]`. Un rol
+branch-scoped con `admin.manage` debe ser rechazado en toda operación
 corporativa incluso si está asignado a la sucursal por defecto; un rol organization-scoped con el
-mismo permiso conserva la capacidad. PCO-001 no ejecuta flujos futuros de movimientos/cortes/reportes
-ni frontend/E2E.
+mismo permiso conserva la capacidad. PCO-001 no ejecuta flujos futuros de movimientos/cortes/reportes.
 
 ## TDD-TC-073 Ningún perfil inferior escala por UI o payload
 

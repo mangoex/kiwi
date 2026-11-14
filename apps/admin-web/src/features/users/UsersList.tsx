@@ -119,7 +119,7 @@ const UsersList = () => {
       setFormData({ display_name: user.display_name, email: user.email, employee_code: user.employee_code || '', password: '', role_id: userRoleId, branch_id: userBranchId });
     } else {
       setEditingUser(null);
-      setFormData({ display_name: '', email: '', employee_code: '', password: '', role_id: '', branch_id: branches?.[0]?.id || '' });
+      setFormData({ display_name: '', email: '', employee_code: '', password: '', role_id: '', branch_id: '' });
     }
     setFormError('');
     setIsModalOpen(true);
@@ -253,7 +253,15 @@ const UsersList = () => {
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: '0.875rem' }}>Rol Oficial</label>
             <select 
               value={formData.role_id} 
-              onChange={(e) => setFormData({...formData, role_id: e.target.value})}
+              onChange={(e) => {
+                const nextRoleId = e.target.value;
+                const nextRole = rawRoles?.find((role) => role.id === nextRoleId);
+                setFormData({
+                  ...formData,
+                  role_id: nextRoleId,
+                  branch_id: nextRole?.scope === 'branch' ? formData.branch_id : '',
+                });
+              }}
               style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', fontSize: '0.95rem', outline: 'none' }}
             >
               <option value="">Selecciona uno de los 6 roles oficiales</option>

@@ -103,3 +103,59 @@ def test_permission_change_cannot_miss_a_concurrent_assignment(pg_engine, monkey
             )
             == permission_id
         )
+
+
+def test_updating_existing_role_branch_updates_row_under_governance_lock_on_postgres(pg_engine):
+    from test_corporate_purchases import SECOND_BRANCH_ID
+
+    with Session(pg_engine) as session:
+        role = operations.create_role(
+            session, "Líder PG", scope="branch", actor_user_id=ADMIN_USER_ID
+        )
+        created = operations.create_user(
+            session,
+            email="amayrani.pg@kiwi.local",
+            display_name="Amayrani PG",
+            actor_user_id=ADMIN_USER_ID,
+            role_id=role["id"],
+            branch_id=BRANCH_ID,
+            employee_code="CHLD01",
+        )
+        user_id = created["id"]
+        version_initial = session.scalar(
+            sa.select(models.users.c.authorization_version).where(models.users.c.id == user_id)
+        )
+        assert version_initial == 1
+
+        operations.update_user(
+            session,
+            user_id,
+            email="amayrani.pg@kiwi.local",
+            display_name="Amayrani PG",
+            actor_user_id=ADMIN_USER_ID,
+            role_id=role["id"],
+            branch_id=SECOND_BRANCH_ID,
+            employee_code="CHLD01",
+        )
+        branch_after = session.scalar(
+            sa.select(models.user_roles.c.branch_id).where(
+                models.user_roles.c.user_id == user_id,
+                models.user_roles.c.role_id == role["id"],
+            )
+        )
+        assert branch_after == SECOND_BRANCH_ID
+        version_after = session.scalar(
+            sa.select(models.users.c.authorization_version).where(models.users.c.id == user_id)
+        )
+        assert version_after == 2
+        audit_payload = session.scalar(
+            sa.select(models.audit_events.c.payload).where(
+                models.audit_events.c.entity_id == user_id,
+                models.audit_events.c.action == "user_role.branch_updated",
+            )
+        )
+        assert audit_payload == {
+            "role_id": role["id"],
+            "previous_branch_id": BRANCH_ID,
+            "branch_id": SECOND_BRANCH_ID,
+        }

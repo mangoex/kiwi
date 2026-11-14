@@ -229,6 +229,75 @@ def test_owner_assignment_requires_persisted_authority_and_role_updates_are_addi
         ).scalars())
         assert "018f6f73-2d0a-74f0-8f1c-000000001024" in role_ids
 
+        version_before = session.execute(
+            models.users.select()
+            .with_only_columns(models.users.c.authorization_version)
+            .where(models.users.c.id == cashier_id)
+        ).scalar_one()
+        update_user(
+            session,
+            cashier_id,
+            role_id="018f6f73-2d0a-74f0-8f1c-000000001018",
+            branch_id=BRANCH_A_OTHER,
+            actor_user_id=legacy_admin_id,
+        )
+        updated_branch = session.execute(
+            models.user_roles.select()
+            .with_only_columns(models.user_roles.c.branch_id)
+            .where(
+                models.user_roles.c.user_id == cashier_id,
+                models.user_roles.c.role_id == "018f6f73-2d0a-74f0-8f1c-000000001018",
+            )
+        ).scalar_one()
+        assert updated_branch == BRANCH_A_OTHER
+        version_after = session.execute(
+            models.users.select()
+            .with_only_columns(models.users.c.authorization_version)
+            .where(models.users.c.id == cashier_id)
+        ).scalar_one()
+        assert version_after == version_before + 1
+        branch_updated_events = list(
+            session.execute(
+                models.audit_events.select()
+                .with_only_columns(models.audit_events.c.payload)
+                .where(
+                    models.audit_events.c.entity_id == cashier_id,
+                    models.audit_events.c.action == "user_role.branch_updated",
+                )
+            ).scalars()
+        )
+        assert branch_updated_events == [
+            {
+                "role_id": "018f6f73-2d0a-74f0-8f1c-000000001018",
+                "previous_branch_id": BRANCH_A,
+                "branch_id": BRANCH_A_OTHER,
+            }
+        ]
+        # Preserved specialty remains untouched in its original branch
+        specialty_branch = session.execute(
+            models.user_roles.select()
+            .with_only_columns(models.user_roles.c.branch_id)
+            .where(
+                models.user_roles.c.user_id == cashier_id,
+                models.user_roles.c.role_id == "018f6f73-2d0a-74f0-8f1c-000000001024",
+            )
+        ).scalar_one()
+        assert specialty_branch == BRANCH_A
+        # Idempotent replay with same branch_id does not bump version or add audit event
+        assign_user_role(
+            session,
+            cashier_id,
+            "018f6f73-2d0a-74f0-8f1c-000000001018",
+            BRANCH_A_OTHER,
+            actor_user_id=legacy_admin_id,
+        )
+        version_replay = session.execute(
+            models.users.select()
+            .with_only_columns(models.users.c.authorization_version)
+            .where(models.users.c.id == cashier_id)
+        ).scalar_one()
+        assert version_replay == version_after
+
 
 def test_organization_authority_role_is_immutable_except_for_authorized_rename() -> None:
     engine = create_engine("sqlite+pysqlite://")

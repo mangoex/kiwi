@@ -9341,6 +9341,58 @@ def test_update_user_profile() -> None:
     assert update_res.status_code == 200
     assert update_res.json()["display_name"] == "Miguel G. Espino"
 
+    # 3. Create a branch-scoped user in Centro and reassign to a new branch with the same role_id
+    branch_res = client.post(
+        "/api/v1/branches",
+        headers=headers,
+        json={"code": "SUC04", "name": "Chapultepec"},
+    )
+    assert branch_res.status_code == 200
+    chapultepec_id = branch_res.json()["id"]
+
+    role_res = client.post(
+        "/api/v1/roles",
+        headers=headers,
+        json={"name": "Líder", "scope": "branch"},
+    )
+    assert role_res.status_code == 200
+    branch_role = role_res.json()
+
+    created_user = client.post(
+        "/api/v1/users",
+        headers=headers,
+        json={
+            "email": "amayrani.test@kiwi.local",
+            "display_name": "Amayrani Inzunza",
+            "employee_code": "CHLD01",
+            "role_id": branch_role["id"],
+            "branch_id": BRANCH_ID,
+        },
+    )
+    assert created_user.status_code == 200
+    staff_id = created_user.json()["id"]
+
+    reassigned = client.put(
+        f"/api/v1/users/{staff_id}",
+        headers=headers,
+        json={
+            "email": "amayrani.test@kiwi.local",
+            "display_name": "Amayrani Inzunza",
+            "employee_code": "CHLD01",
+            "role_id": branch_role["id"],
+            "branch_id": chapultepec_id,
+        },
+    )
+    assert reassigned.status_code == 200
+
+    users_list = client.get("/api/v1/users", headers=headers)
+    assert users_list.status_code == 200
+    staff_row = next(u for u in users_list.json() if u["id"] == staff_id)
+    assert len(staff_row["roles"]) == 1
+    assert staff_row["roles"][0]["role_id"] == branch_role["id"]
+    assert staff_row["roles"][0]["branch_id"] == chapultepec_id
+    assert staff_row["roles"][0]["branch_name"] == "Chapultepec"
+
 
 def _login_headers(client: TestClient, email: str, password: str) -> dict[str, str]:
     response = client.post(

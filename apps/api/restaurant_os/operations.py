@@ -1501,16 +1501,38 @@ def _insert_user_role_assignment(
             sa.select(models.user_roles).where(
                 models.user_roles.c.user_id == user_id,
                 models.user_roles.c.role_id == role_id,
-                models.user_roles.c.branch_id.is_(normalized_branch_id)
-                if normalized_branch_id is None
-                else models.user_roles.c.branch_id == normalized_branch_id,
             )
         )
         .mappings()
         .first()
     )
     if existing:
-        return dict(existing)
+        if existing["branch_id"] == normalized_branch_id:
+            return dict(existing)
+        if bump_version:
+            _bump_authority_versions(session, [str(user_id)])
+        session.execute(
+            sa.update(models.user_roles)
+            .where(
+                models.user_roles.c.user_id == user_id,
+                models.user_roles.c.role_id == role_id,
+            )
+            .values(branch_id=normalized_branch_id)
+        )
+        _audit(
+            session,
+            action="user_role.branch_updated",
+            entity_type="user",
+            entity_id=user_id,
+            payload={
+                "role_id": role_id,
+                "previous_branch_id": existing["branch_id"],
+                "branch_id": normalized_branch_id,
+            },
+            branch_id=normalized_branch_id or existing["branch_id"] or BRANCH_ID,
+            actor_user_id=actor_user_id,
+        )
+        return assignment
 
     if bump_version:
         _bump_authority_versions(session, [str(user_id)])

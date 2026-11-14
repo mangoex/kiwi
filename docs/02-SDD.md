@@ -2245,10 +2245,18 @@ corporativo ni de usuarios legacy.
 
 Un rol con `scope=branch` exige `user_roles.branch_id` explícito, activo y perteneciente a la misma
 organización del usuario/rol; crear o reemplazar una asignación sin él responde
-`branch_assignment_required` sin escritura. En runtime, un dato legacy `branch_id=NULL` nunca entra
-en `scoped_role_ids` y se audita como `no_scoped_role`. La excepción de movilidad de §58 requiere
-simultáneamente asignación branch válida, `pos.branch.select` y el grant persistido de workspace; no
-convierte el rol en corporativo. Un rol con
+`branch_assignment_required` sin escritura. Si el usuario ya posee una fila en `user_roles` para el
+mismo `role_id` con un `branch_id` distinto, la asignación (`assign_user_role` o `update_user`)
+actualiza `user_roles.branch_id` sobre esa fila existente bajo el lock de gobernanza sin violar la
+clave primaria `(user_id, role_id)`, incrementa `users.authorization_version` (salvo que la misma
+operación ya lo haya incrementado) y registra `user_role.branch_updated` con `role_id`,
+`previous_branch_id` y `branch_id`; si el `branch_id` coincide, la operación es idempotente y no
+incrementa versión ni duplica auditoría. El formulario de alta de usuarios en Admin inicializa
+`branch_id` vacío (`""`) y limpia la sucursal al seleccionar un rol `scope=organization`, sin
+preseleccionar silenciosamente la primera sucursal del catálogo. En runtime, un dato legacy
+`branch_id=NULL` nunca entra en `scoped_role_ids` y se audita como `no_scoped_role`. La excepción de
+movilidad de §58 requiere simultáneamente asignación branch válida, `pos.branch.select` y el grant
+persistido de workspace; no convierte el rol en corporativo. Un rol con
 `organization_all_permissions` sólo puede ser asignado o revocado por un actor que ya posea esa misma
 concesión persistida en la organización; `admin.manage`, un nombre de rol o payload no sustituyen esa
 autoridad. La semilla deja cero Dueños, por lo que la asignación normal falla cerrada. El único camino

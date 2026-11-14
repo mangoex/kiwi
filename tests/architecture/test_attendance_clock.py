@@ -53,6 +53,12 @@ def test_employee_code_is_exposed_in_both_admin_catalogs() -> None:
         assert "Sin código" in source
         assert "maxLength={6}" in source
         assert 'pattern="[A-Za-z0-9]{6}"' in source
+    assert "branches?.[0]?.id" not in users
+    expected_reset = (
+        "setFormData({ display_name: '', email: '', employee_code: '', "
+        "password: '', role_id: '', branch_id: '' })"
+    )
+    assert expected_reset in users
 
 
 def test_attendance_domain_is_server_authoritative_and_audited() -> None:

@@ -53,4 +53,10 @@ const suppliersContent = readFileSync(suppliersPath, 'utf8');
 assert.match(suppliersContent, /FastTabDrawer|FastTab/, 'SuppliersList debe integrar el panel FastTab');
 assert.match(suppliersContent, /saldo|balance|vencimiento|plazo/i, 'SuppliersList debe mostrar métricas de CXP y plazos');
 
+// 7. Verificar contrato de UsersList (sin preselección silenciosa de sucursal al crear usuario)
+const usersPath = 'apps/admin-web/src/features/users/UsersList.tsx';
+const usersContent = readFileSync(usersPath, 'utf8');
+assert.doesNotMatch(usersContent, /branches\?\.\[0\]\?\.id/, 'UsersList no debe preseleccionar silenciosamente la primera sucursal');
+assert.match(usersContent, /branch_id:\s*nextRole\?\.scope\s*===\s*'branch'\s*\?\s*formData\.branch_id\s*:\s*''/, 'UsersList debe limpiar branch_id al elegir un rol corporativo');
+
 console.log('✔ Todos los contratos del Sistema de Diseño UI/UX pasaron satisfactoriamente.');
