@@ -2912,6 +2912,41 @@ def close_cash_shift_operationally(
                 created_at=now,
             )
         )
+        accepted_orders = (
+            session.execute(
+                sa.select(models.orders.c.id, models.orders.c.folio)
+                .where(
+                    models.orders.c.organization_id == ORGANIZATION_ID,
+                    models.orders.c.branch_id == shift["branch_id"],
+                    models.orders.c.status == "ACCEPTED",
+                )
+                .order_by(models.orders.c.created_at, models.orders.c.id)
+            )
+            .mappings()
+            .all()
+        )
+        if accepted_orders:
+            from restaurant_os.owner_alerts import emit_owner_alert
+
+            emit_owner_alert(
+                session,
+                branch_id=str(shift["branch_id"]),
+                alert_type="orders_accepted_after_cash_close",
+                severity="warning",
+                title=(
+                    f"{len(accepted_orders)} orden(es) quedaron en ACCEPTED tras el corte de caja"
+                ),
+                resource_type="cash_shift",
+                resource_id=cash_shift_id,
+                dedupe_key=f"orders_accepted_after_cash_close:{shift['branch_id']}:{cash_shift_id}",
+                payload={
+                    "cash_shift_id": cash_shift_id,
+                    "register_code": shift["register_code"],
+                    "count": len(accepted_orders),
+                    "order_ids": [str(row["id"]) for row in accepted_orders],
+                    "order_folios": [str(row["folio"]) for row in accepted_orders],
+                },
+            )
         if commit:
             session.commit()
         if commit:
@@ -26138,25 +26173,57 @@ class UserCashCutService:
 
 
 def list_inventory_cost_states(session: Session, branch_id: str | None) -> list[dict[str, Any]]:
+    ledger = (
+        sa.select(
+            models.inventory_movements.c.branch_id,
+            models.inventory_movements.c.warehouse_id,
+            models.inventory_movements.c.item_id,
+            sa.func.sum(models.inventory_movements.c.quantity_delta).label("ledger_quantity"),
+        )
+        .where(models.inventory_movements.c.branch_id == branch_id)
+        .group_by(
+            models.inventory_movements.c.branch_id,
+            models.inventory_movements.c.warehouse_id,
+            models.inventory_movements.c.item_id,
+        )
+        .subquery()
+    )
     rows = session.execute(
         sa.select(
             models.inventory_cost_states,
             models.inventory_items.c.name.label("item_name"),
             models.inventory_items.c.sku.label("item_sku"),
             models.inventory_units.c.code.label("unit_code"),
+            ledger.c.ledger_quantity,
         )
         .select_from(
             models.inventory_cost_states.join(
                 models.inventory_items,
                 models.inventory_cost_states.c.item_id == models.inventory_items.c.id,
-            ).join(
+            )
+            .join(
                 models.inventory_units,
                 models.inventory_items.c.base_unit_id == models.inventory_units.c.id,
+            )
+            .outerjoin(
+                ledger,
+                sa.and_(
+                    ledger.c.branch_id == models.inventory_cost_states.c.branch_id,
+                    ledger.c.warehouse_id == models.inventory_cost_states.c.warehouse_id,
+                    ledger.c.item_id == models.inventory_cost_states.c.item_id,
+                ),
             )
         )
         .where(models.inventory_cost_states.c.branch_id == branch_id)
     ).mappings()
-    return [dict(row) for row in rows]
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        ledger_qty = item.pop("ledger_quantity", None)
+        if ledger_qty is not None:
+            item["quantity_on_hand"] = ledger_qty
+        result.append(item)
+    return result
 
 
 def create_waste_reason(

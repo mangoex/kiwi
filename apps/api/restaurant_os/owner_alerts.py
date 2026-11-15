@@ -25,6 +25,7 @@ ALERT_TYPES = frozenset(
         "order_delayed",
         "ticket_reprint",
         "cash_drawer_no_sale_open",
+        "orders_accepted_after_cash_close",
     }
 )
 
@@ -39,6 +40,7 @@ ALERT_DATASET_MAP: dict[str, str] = {
     "order_delayed": "sales",
     "ticket_reprint": "sales",
     "cash_drawer_no_sale_open": "cash.shifts",
+    "orders_accepted_after_cash_close": "cash.shifts",
 }
 
 ChannelSender = Callable[[dict[str, Any]], None]
