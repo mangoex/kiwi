@@ -112,6 +112,38 @@ branches = sa.Table(
     sa.Index("uq_branches_organization_id_id", "organization_id", "id", unique=True),
 )
 
+branch_operating_hours = sa.Table(
+    "branch_operating_hours",
+    metadata,
+    sa.Column(
+        "branch_id",
+        sa.String(36),
+        sa.ForeignKey("branches.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    sa.Column("day_of_week", sa.SmallInteger(), primary_key=True),
+    sa.Column(
+        "organization_id",
+        sa.String(36),
+        sa.ForeignKey("organizations.id"),
+        nullable=False,
+    ),
+    sa.Column("is_open", sa.Boolean(), nullable=False, server_default=sa.true()),
+    sa.Column("open_time", sa.String(5), nullable=True),
+    sa.Column("close_time", sa.String(5), nullable=True),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "day_of_week >= 0 AND day_of_week <= 6",
+        name="ck_branch_operating_hours_day",
+    ),
+    sa.CheckConstraint(
+        "(is_open = false AND open_time IS NULL AND close_time IS NULL) OR "
+        "(is_open = true AND open_time IS NOT NULL "
+        "AND close_time IS NOT NULL AND open_time < close_time)",
+        name="ck_branch_operating_hours_times",
+    ),
+)
+
 employee_code_registry = sa.Table(
     "employee_code_registry",
     metadata,
@@ -2325,9 +2357,21 @@ orders = sa.Table(
     sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("scheduled_for", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("scheduled_released_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column(
+        "scheduled_released_by_user_id",
+        sa.String(36),
+        sa.ForeignKey("users.id"),
+        nullable=True,
+    ),
     sa.UniqueConstraint("branch_id", "folio", name="uq_orders_branch_folio"),
+    sa.Index("ix_orders_branch_status_scheduled_for", "branch_id", "status", "scheduled_for"),
     sa.CheckConstraint(
-        "cash_shift_id IS NOT NULL OR channel IN ('UBER_EATS', 'DIDI_FOOD', 'RAPPI', 'WHATSAPP') "
+        "cash_shift_id IS NOT NULL "
+        "OR status = 'SCHEDULED' "
+        "OR (status = 'CANCELLED' AND scheduled_for IS NOT NULL) "
+        "OR channel IN ('UBER_EATS', 'DIDI_FOOD', 'RAPPI', 'WHATSAPP') "
         "OR (channel = 'PUBLIC_INTENT' "
         "AND public_order_intent_id IS NOT NULL "
         "AND public_order_intent_status = 'ACCEPTED')",
@@ -2379,6 +2423,7 @@ public_order_intents = sa.Table(
     ),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("scheduled_for", sa.DateTime(timezone=True), nullable=True),
     sa.Column("decided_at", sa.DateTime(timezone=True), nullable=True),
     sa.Column("decision_reason", sa.String(500), nullable=True),
     sa.Column("decided_by_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True),

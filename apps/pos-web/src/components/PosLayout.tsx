@@ -20,12 +20,15 @@ import {
   FileText,
   ClipboardCheck,
   Utensils,
+  Bell,
 } from 'lucide-react';
 import { usePosSession, clearPosSession } from '../session';
 import AttendanceClockModal from '../features/attendance/AttendanceClockModal';
 
 interface PendingOrderCountResponse {
   count: number;
+  scheduled_count?: number;
+  scheduled_due_count?: number;
 }
 
 const PENDING_ORDER_REFRESH_MS = 15_000;
@@ -45,6 +48,7 @@ const PosLayout = () => {
   };
   const canReadOrders = hasPermission('orders.read');
   const [pendingOrderCount, setPendingOrderCount] = useState(0);
+  const [scheduledDueCount, setScheduledDueCount] = useState(0);
   const [uberOrderCount, setUberOrderCount] = useState(0);
   const [didiOrderCount, setDidiOrderCount] = useState(0);
   const [rappiOrderCount, setRappiOrderCount] = useState(0);
@@ -54,6 +58,7 @@ const PosLayout = () => {
     const sequence = ++pendingOrderRequestSequence.current;
     if (!branchId || !canReadOrders) {
       setPendingOrderCount(0);
+      setScheduledDueCount(0);
       setUberOrderCount(0);
       setDidiOrderCount(0);
       setRappiOrderCount(0);
@@ -64,12 +69,19 @@ const PosLayout = () => {
         `/orders/pending-count?branch_id=${encodeURIComponent(branchId)}`,
         { headers: { 'Cache-Control': 'no-cache' } },
       );
-      if (
-        sequence === pendingOrderRequestSequence.current
-        && Number.isSafeInteger(data.count)
-        && data.count >= 0
-      ) {
-        setPendingOrderCount(data.count);
+      if (sequence === pendingOrderRequestSequence.current) {
+        if (Number.isSafeInteger(data.count) && data.count >= 0) {
+          setPendingOrderCount(data.count);
+        }
+        if (
+          typeof data.scheduled_due_count === 'number'
+          && Number.isSafeInteger(data.scheduled_due_count)
+          && data.scheduled_due_count >= 0
+        ) {
+          setScheduledDueCount(data.scheduled_due_count);
+        } else {
+          setScheduledDueCount(0);
+        }
       }
     } catch {
       // Preserve last known count on transient error
@@ -224,9 +236,12 @@ const PosLayout = () => {
               : isRappiItem
               ? rappiOrderCount
               : 0;
-            const accessibleLabel = badgeCount > 0
-              ? `${item.label}, ${badgeCount} pedidos pendientes`
-              : item.label;
+            const dueAlarmCount = isOrdersItem ? scheduledDueCount : 0;
+            const accessibleLabel = [
+              item.label,
+              badgeCount > 0 ? `${badgeCount} pedidos pendientes` : '',
+              dueAlarmCount > 0 ? `${dueAlarmCount} pedidos programados próximos` : '',
+            ].filter(Boolean).join(', ');
             return (
               <button
                 type="button"
@@ -257,13 +272,30 @@ const PosLayout = () => {
               >
                 <span className="pos-nav-icon-wrap">
                   {item.icon}
-                  {isCollapsed && badgeCount > 0 ? (
-                    <span className="pos-nav-pending-badge is-collapsed" aria-hidden="true" style={{ background: isUberItem ? '#059669' : undefined }}>{badgeCount}</span>
+                  {isCollapsed && (badgeCount > 0 || dueAlarmCount > 0) ? (
+                    <span
+                      className="pos-nav-pending-badge is-collapsed"
+                      aria-hidden="true"
+                      style={{ background: dueAlarmCount > 0 ? '#d97706' : isUberItem ? '#059669' : undefined }}
+                    >
+                      {dueAlarmCount > 0 && badgeCount === 0 ? `⏰${dueAlarmCount}` : badgeCount + dueAlarmCount}
+                    </span>
                   ) : null}
                 </span>
                 {!isCollapsed && <span>{item.label}</span>}
                 {!isCollapsed && badgeCount > 0 ? (
                   <span className="pos-nav-pending-badge" aria-hidden="true" style={{ background: isUberItem ? '#059669' : undefined }}>{badgeCount}</span>
+                ) : null}
+                {!isCollapsed && dueAlarmCount > 0 ? (
+                  <span
+                    className="pos-nav-pending-badge"
+                    aria-hidden="true"
+                    title="Pedidos programados próximos (≤30 min)"
+                    style={{ background: '#d97706', color: '#ffffff', display: 'inline-flex', alignItems: 'center', gap: '3px', marginLeft: badgeCount > 0 ? '4px' : 'auto' }}
+                  >
+                    <Bell size={11} />
+                    {dueAlarmCount}
+                  </span>
                 ) : null}
               </button>
             );
@@ -271,6 +303,7 @@ const PosLayout = () => {
         </div>
         <span className="pos-sr-only" aria-live="polite">
           {pendingOrderCount > 0 ? `${pendingOrderCount} pedidos por aceptar` : ''}
+          {scheduledDueCount > 0 ? ` ${scheduledDueCount} pedidos programados próximos a su hora` : ''}
           {uberOrderCount > 0 ? `${uberOrderCount} pedidos de Uber Eats activos` : ''}
         </span>
         

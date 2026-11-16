@@ -1020,6 +1020,7 @@ def create_branch(
     longitude: float | Decimal | str | None = None,
     phone: str | None = None,
     google_review_url: str | None = None,
+    operating_hours: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     actor_id = _actor_user_id(actor_user_id)
     require_permission(session, actor_id, "catalog.manage")
@@ -1108,6 +1109,24 @@ def create_branch(
             created_at=now,
         )
     )
+    from .branch_schedule import (
+        default_branch_operating_hours,
+        normalize_operating_hours,
+        upsert_branch_operating_hours,
+    )
+
+    hours_to_save = (
+        normalize_operating_hours(operating_hours)
+        if operating_hours is not None
+        else default_branch_operating_hours()
+    )
+    saved_hours = upsert_branch_operating_hours(
+        session,
+        organization_id=ORGANIZATION_ID,
+        branch_id=branch["id"],
+        hours=hours_to_save,
+        now=now,
+    )
     _audit(
         session,
         action="branch.created",
@@ -1122,12 +1141,18 @@ def create_branch(
             "latitude": str(branch["latitude"]) if branch["latitude"] is not None else None,
             "longitude": str(branch["longitude"]) if branch["longitude"] is not None else None,
             "google_review_url": branch["google_review_url"],
+            "operating_hours": saved_hours,
         },
         branch_id=branch["id"],
         actor_user_id=actor_id,
     )
     session.commit()
-    return {**branch, "warehouse": warehouse, "public_key": pk_branch}
+    return {
+        **branch,
+        "warehouse": warehouse,
+        "public_key": pk_branch,
+        "operating_hours": saved_hours,
+    }
 
 
 def create_business_unit(
@@ -3601,6 +3626,8 @@ def create_local_order(
     commit: bool = True,
     delivery_selection: Any = None,
     delivery_quote_reference: Any = None,
+    scheduled_for: str | datetime | None = None,
+    customer_phone: str | None = None,
 ) -> dict[str, Any]:
     from restaurant_os.order_command_receipts import command_metadata, require_receipt_access
 
@@ -3614,6 +3641,20 @@ def create_local_order(
     actor_id = _actor_user_id(actor_user_id)
     receipt_policy = require_receipt_access(session, actor_id, actual_branch_id)
     normalized_payment_intent = _normalized_payment_method(payment_method_intent)
+    normalized_scheduled_for: datetime | None = None
+    if scheduled_for is not None and str(scheduled_for).strip() != "":
+        parsed_sched = (
+            scheduled_for
+            if isinstance(scheduled_for, datetime)
+            else datetime.fromisoformat(str(scheduled_for).replace("Z", "+00:00"))
+        )
+        if parsed_sched.tzinfo is None:
+            raise BusinessError(
+                "scheduled_time_invalid",
+                "Scheduled datetime must include timezone",
+            )
+        normalized_scheduled_for = parsed_sched.astimezone(UTC)
+    normalized_customer_phone = str(customer_phone or "").strip() or None
     key = str(idempotency_key or "").strip()
     if key and (len(key) < 12 or len(key) > 160):
         raise BusinessError("idempotency_key_invalid", "Idempotency-Key is invalid")
@@ -3631,6 +3672,7 @@ def create_local_order(
                     "owner_name": owner_name,
                     "order_type": order_type,
                     "customer_id": customer_id,
+                    "customer_phone": normalized_customer_phone,
                     "delivery_address_id": delivery_address_id,
                     "payment_method_intent": normalized_payment_intent,
                     "driver_id": str(driver_id or "").strip() or None,
@@ -3638,6 +3680,9 @@ def create_local_order(
                     "lines": lines,
                     "delivery_selection": delivery_selection,
                     "delivery_quote_reference": delivery_quote_reference,
+                    "scheduled_for": normalized_scheduled_for.isoformat()
+                    if normalized_scheduled_for
+                    else None,
                 }
             ),
             sort_keys=True,
@@ -3669,7 +3714,11 @@ def create_local_order(
     require_permission(session, actor_id, "orders.create", actual_branch_id)
     if order_type not in {"dine-in", "takeout", "delivery"}:
         raise BusinessError("invalid_order_type", "Order type is not supported")
-    if order_type in {"takeout", "delivery"} and not normalized_payment_intent:
+    if (
+        normalized_scheduled_for is None
+        and order_type in {"takeout", "delivery"}
+        and not normalized_payment_intent
+    ):
         raise BusinessError(
             "payment_method_intent_required",
             "Deferred orders require an intended payment method",
@@ -3687,11 +3736,24 @@ def create_local_order(
             normalized_driver_id,
             actual_branch_id,
         )
-    shift = get_open_cash_shift(session, register_code=register_code, branch_id=actual_branch_id)
-    if not shift:
-        raise BusinessError("cash_shift_required", "Open cash shift is required")
 
     now = _now()
+    if normalized_scheduled_for is not None:
+        from restaurant_os.branch_schedule import validate_branch_open_at
+
+        validate_branch_open_at(
+            session,
+            actual_branch_id,
+            normalized_scheduled_for,
+            now_utc=now,
+            min_lead_minutes=15,
+        )
+        shift = None
+    else:
+        shift = get_open_cash_shift(session, register_code=register_code, branch_id=actual_branch_id)
+        if not shift:
+            raise BusinessError("cash_shift_required", "Open cash shift is required")
+
     order_id = _id()
     folio = _next_unique_folio(session, actual_branch_id)
     customer_snapshot, address_snapshot = _resolve_order_customer_snapshots(
@@ -3702,6 +3764,22 @@ def create_local_order(
     )
     if customer_snapshot:
         owner_name = str(customer_snapshot["name"])
+    elif normalized_customer_phone:
+        customer_snapshot = {
+            "name": str(owner_name or "Cliente General").strip() or "Cliente General",
+            "phone": normalized_customer_phone,
+        }
+    if normalized_scheduled_for is not None:
+        effective_phone = str(
+            (customer_snapshot or {}).get("phone") or normalized_customer_phone or ""
+        ).strip()
+        if not effective_phone:
+            raise BusinessError(
+                "scheduled_order_phone_required",
+                "El teléfono del cliente es obligatorio para pedidos programados.",
+            )
+        if customer_snapshot is not None and not customer_snapshot.get("phone"):
+            customer_snapshot = {**customer_snapshot, "phone": effective_phone}
 
     total_cents = 0
     order_lines_data = []
@@ -3741,34 +3819,35 @@ def create_local_order(
             }
         )
 
-        if priced["is_combo"]:
-            combo_lines_data.append(order_lines_data[-1])
-            continue
+        if normalized_scheduled_for is None:
+            if priced["is_combo"]:
+                combo_lines_data.append(order_lines_data[-1])
+                continue
 
-        tasks_data.extend(_production_tasks_for_priced_line(
-            branch_id=actual_branch_id,
-            order_id=order_id,
-            order_line_id=order_line_id,
-            product=product,
-            quantity=quantity,
-            snapshot=consumption_snapshot,
-            created_at=now,
-        ))
+            tasks_data.extend(_production_tasks_for_priced_line(
+                branch_id=actual_branch_id,
+                order_id=order_id,
+                order_line_id=order_line_id,
+                product=product,
+                quantity=quantity,
+                snapshot=consumption_snapshot,
+                created_at=now,
+            ))
 
-        _record_calculated_consumption_movements(
-            session,
-            components=consumption_snapshot["components"],
-            product_name=product["name"],
-            movement_type="SALE_RESERVATION",
-            sign=-1,
-            reason=f"Reserva por pedido {folio}",
-            source_type="order",
-            source_id=order_id,
-            created_at=now,
-            branch_id=actual_branch_id,
-        )
-        consumption_snapshot.pop("modifier_total_cents")
-        consumption_snapshots_data.append(consumption_snapshot)
+            _record_calculated_consumption_movements(
+                session,
+                components=consumption_snapshot["components"],
+                product_name=product["name"],
+                movement_type="SALE_RESERVATION",
+                sign=-1,
+                reason=f"Reserva por pedido {folio}",
+                source_type="order",
+                source_id=order_id,
+                created_at=now,
+                branch_id=actual_branch_id,
+            )
+            consumption_snapshot.pop("modifier_total_cents")
+            consumption_snapshots_data.append(consumption_snapshot)
 
     adjustment_authorization = None
     adjustment_cents = 0
@@ -3807,17 +3886,18 @@ def create_local_order(
             total_cents,
         )
 
+    is_scheduled = normalized_scheduled_for is not None
     order = {
         "id": order_id,
         "organization_id": ORGANIZATION_ID,
         "branch_id": actual_branch_id,
-        "cash_shift_id": shift["id"],
+        "cash_shift_id": None if is_scheduled else shift["id"],
         "customer_id": customer_id,
         "customer_snapshot": customer_snapshot,
         "delivery_address_snapshot": address_snapshot,
         "folio": folio,
         "channel": "POS",
-        "status": "ACCEPTED",
+        "status": "SCHEDULED" if is_scheduled else "ACCEPTED",
         "total_cents": total_cents,
         "currency": "MXN",
         "owner_name": owner_name,
@@ -3825,7 +3905,8 @@ def create_local_order(
         "payment_method_intent": normalized_payment_intent,
         "version": 1,
         "created_at": now,
-        "accepted_at": now,
+        "accepted_at": None if is_scheduled else now,
+        "scheduled_for": normalized_scheduled_for,
     }
 
     session.execute(models.orders.insert().values(**order))
@@ -3892,11 +3973,12 @@ def create_local_order(
         models.order_events.insert().values(
             id=_id(),
             order_id=order_id,
-            event_type="ORDER_ACCEPTED",
+            event_type="ORDER_SCHEDULED" if is_scheduled else "ORDER_ACCEPTED",
             payload={
                 "folio": folio,
                 "total_cents": total_cents,
                 "lines_count": len(order_lines_data),
+                **({"scheduled_for": normalized_scheduled_for.isoformat()} if is_scheduled else {}),
             },
             created_at=now,
         )
@@ -3904,7 +3986,7 @@ def create_local_order(
 
     _audit(
         session,
-        action="order.accepted",
+        action="order.scheduled" if is_scheduled else "order.accepted",
         entity_type="order",
         entity_id=order_id,
         payload={
@@ -3915,6 +3997,7 @@ def create_local_order(
             "adjustment_cents": adjustment_cents,
             "customer_id": customer_id,
             "delivery_address_id": delivery_address_id,
+            **({"scheduled_for": normalized_scheduled_for.isoformat()} if is_scheduled else {}),
         },
         branch_id=actual_branch_id,
         actor_user_id=actor_id,
@@ -4791,6 +4874,8 @@ def _load_order_detail(
         ),
         "channel": order.get("channel") or "POS",
         "service_type": order["order_type"],
+        "scheduled_for": order.get("scheduled_for"),
+        "scheduled_released_at": order.get("scheduled_released_at"),
         "lines": lines,
         "production_tasks": tasks,
         "payments": payments_rows,
@@ -5310,6 +5395,9 @@ def list_order_accounts(
                 sa.func.lower(models.orders.c.customer_snapshot["name"].as_string()).contains(q),
             )
         )
+    status_filter = str(raw.get("status") or "").strip().upper() or None
+    if status_filter:
+        query = query.where(models.orders.c.status == status_filter)
     intents = models.public_order_intents
     intent_query = sa.select(intents).where(
         intents.c.organization_id == ORGANIZATION_ID,
@@ -5318,7 +5406,13 @@ def list_order_accounts(
         intents.c.accepted_order_id.is_(None),
     )
     # Web requests have no operational shift/register until accepted.
-    if not branch_id or raw.get("cash_shift_id") or raw.get("register_code") or driver_id:
+    if (
+        not branch_id
+        or status_filter == "SCHEDULED"
+        or raw.get("cash_shift_id")
+        or raw.get("register_code")
+        or driver_id
+    ):
         intent_query = intent_query.where(sa.false())
     if start is not None and end is not None:
         intent_query = intent_query.where(intents.c.created_at >= start, intents.c.created_at < end)
@@ -5442,6 +5536,7 @@ def list_order_accounts(
                 "total_cents": order["total_cents"],
                 "currency": order["currency"],
                 "created_at": order["created_at"],
+                "scheduled_for": order.get("scheduled_for"),
                 "customer_label": (order.get("customer_snapshot") or {}).get("name")
                 or order.get("owner_name"),
                 "payment_status": detail["payment_status"],
@@ -5475,6 +5570,8 @@ def list_order_accounts(
         for row in page_rows
         if (row["id"], row["kind"]) in by_identity
     ]
+    if status_filter == "SCHEDULED":
+        items.sort(key=lambda item: str(item.get("scheduled_for") or item["created_at"]))
     if has_more and page_rows:
         last = page_rows[-1]
         last_created = last["created_at"]
@@ -5523,7 +5620,34 @@ def count_pending_orders(
         )
     ).scalar_one()
 
-    return {"count": int(order_count) + int(intent_count)}
+    now = _now()
+    due_cutoff = now + timedelta(minutes=30)
+    scheduled_count = session.execute(
+        sa.select(sa.func.count())
+        .select_from(models.orders)
+        .where(
+            models.orders.c.organization_id == ORGANIZATION_ID,
+            models.orders.c.branch_id == authorized_branch_id,
+            models.orders.c.status == "SCHEDULED",
+        )
+    ).scalar_one()
+    scheduled_due_count = session.execute(
+        sa.select(sa.func.count())
+        .select_from(models.orders)
+        .where(
+            models.orders.c.organization_id == ORGANIZATION_ID,
+            models.orders.c.branch_id == authorized_branch_id,
+            models.orders.c.status == "SCHEDULED",
+            models.orders.c.scheduled_for.is_not(None),
+            models.orders.c.scheduled_for <= due_cutoff,
+        )
+    ).scalar_one()
+
+    return {
+        "count": int(order_count) + int(intent_count),
+        "scheduled_count": int(scheduled_count),
+        "scheduled_due_count": int(scheduled_due_count),
+    }
 
 
 def list_order_reopen_requests(
@@ -7404,7 +7528,7 @@ def _cancel_order(
         raise BusinessError("order_already_closed", "Order is already closed")
     if order["status"] == "CANCELLED":
         raise BusinessError("order_already_cancelled", "Order is already cancelled")
-    if order["status"] not in {"ACCEPTED", "IN_PRODUCTION", "READY"}:
+    if order["status"] not in {"SCHEDULED", "ACCEPTED", "IN_PRODUCTION", "READY"}:
         raise BusinessError("order_not_cancellable", "Order cannot be cancelled from this state")
 
     paid = session.execute(
@@ -7452,7 +7576,9 @@ def _cancel_order(
     lines = session.execute(
         sa.select(models.order_lines).where(models.order_lines.c.id.in_(cancellable_line_ids))
     ).mappings()
-    if len(pending_tasks) == len(tasks):
+    if order["status"] == "SCHEDULED":
+        cancellation_kind = "scheduled_cancelled"
+    elif len(pending_tasks) == len(tasks):
         cancellation_kind = "reservation_release"
         for line in lines:
             release_movements.extend(
@@ -13671,16 +13797,31 @@ def update_branch(
             v_lng = extra_payload["longitude"]
             update_data["longitude"] = float(v_lng) if v_lng != "" and v_lng is not None else None
 
-    if update_data:
-        update_data["updated_at"] = _now()
-        session.execute(
-            sa.update(models.branches)
-            .where(models.branches.c.id == branch_id)
-            .values(**update_data)
+    saved_hours: list[dict[str, Any]] | None = None
+    if extra_payload and "operating_hours" in extra_payload and extra_payload["operating_hours"] is not None:
+        from .branch_schedule import upsert_branch_operating_hours
+
+        saved_hours = upsert_branch_operating_hours(
+            session,
+            organization_id=ORGANIZATION_ID,
+            branch_id=branch_id,
+            hours=extra_payload["operating_hours"],
+            now=_now(),
         )
+
+    if update_data or saved_hours is not None:
+        if update_data:
+            update_data["updated_at"] = _now()
+            session.execute(
+                sa.update(models.branches)
+                .where(models.branches.c.id == branch_id)
+                .values(**update_data)
+            )
         audit_payload = {
             k: (str(v) if isinstance(v, (Decimal, datetime)) else v) for k, v in update_data.items()
         }
+        if saved_hours is not None:
+            audit_payload["operating_hours"] = saved_hours
         _audit(
             session,
             action="branch.updated",
@@ -13690,7 +13831,10 @@ def update_branch(
             actor_user_id=actor_id,
         )
         session.commit()
-    return {"id": branch_id, **update_data}
+    response: dict[str, Any] = {"id": branch_id, **update_data}
+    if saved_hours is not None:
+        response["operating_hours"] = saved_hours
+    return response
 
 
 def update_pos_catalog_appearance(
@@ -31030,3 +31174,250 @@ def _accept_pending_order(
         session.commit()
         return get_order_detail(session, order_id, actor_id)
     return {"id": order_id, "status": "ACCEPTED"}
+
+
+def release_scheduled_order(
+    session: Session,
+    order_id: str,
+    actor_user_id: str | None = None,
+    *,
+    register_id: str | None = None,
+    commit: bool = True,
+) -> dict[str, Any]:
+    actor_id = _actor_user_id(actor_user_id)
+    order = (
+        session.execute(
+            sa.select(models.orders)
+            .where(models.orders.c.id == order_id)
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not order:
+        raise NotFoundError("order_not_found", "Order was not found")
+    branch_id = str(order["branch_id"])
+    _require_order_write_fence(session, branch_id)
+    require_permission(session, actor_id, "orders.create", branch_id)
+    if order["status"] != "SCHEDULED":
+        raise BusinessError(
+            "order_not_scheduled",
+            "El pedido ya fue liberado o no está en estado programado.",
+        )
+
+    shift = get_open_cash_shift(
+        session,
+        register_code=register_id or DEFAULT_REGISTER,
+        branch_id=branch_id,
+    )
+    if not shift:
+        raise BusinessError("cash_shift_required", "Open cash shift is required")
+
+    now = _now()
+    session.execute(
+        models.orders.update()
+        .where(models.orders.c.id == order_id, models.orders.c.status == "SCHEDULED")
+        .values(
+            status="ACCEPTED",
+            cash_shift_id=shift["id"],
+            accepted_at=now,
+            scheduled_released_at=now,
+            scheduled_released_by_user_id=actor_id,
+            version=int(order["version"]) + 1,
+        )
+    )
+
+    lines = (
+        session.execute(
+            sa.select(models.order_lines).where(
+                models.order_lines.c.order_id == order_id,
+                models.order_lines.c.status == "active",
+            )
+        )
+        .mappings()
+        .all()
+    )
+    for line in lines:
+        from restaurant_os.combo import capture_combo_line
+
+        if capture_combo_line(session, order=dict(order), line=dict(line), created_at=now):
+            continue
+        OrderAcceptanceService.ensure_production_task(
+            session,
+            organization_id=str(order["organization_id"]),
+            branch_id=branch_id,
+            order_id=order_id,
+            line=dict(line),
+            created_at=now,
+        )
+        components = _active_recipe_components(session, line["product_id"], branch_id)
+        if components:
+            existing_snapshot = session.execute(
+                sa.select(models.order_line_consumption_snapshots.c.order_line_id).where(
+                    models.order_line_consumption_snapshots.c.order_line_id == line["id"]
+                )
+            ).first()
+            if not existing_snapshot:
+                warehouse_id = _branch_warehouse_id(session, branch_id)
+                breakdown = []
+                total_recipe_cost = Decimal("0")
+                ordered_quantity = int(line.get("quantity", 1))
+                for component in components:
+                    gross_quantity = _quantity(
+                        Decimal(str(component["gross_quantity"]))
+                        / Decimal(str(component["yield_quantity"]))
+                        * ordered_quantity
+                    )
+                    state = session.execute(
+                        sa.select(models.inventory_cost_states.c.average_unit_cost).where(
+                            models.inventory_cost_states.c.branch_id == branch_id,
+                            models.inventory_cost_states.c.warehouse_id == warehouse_id,
+                            models.inventory_cost_states.c.item_id == component["item_id"],
+                        )
+                    ).scalar_one_or_none()
+                    unit_cost = _cost(state or 0)
+                    component_cost = _cost(gross_quantity * unit_cost)
+                    total_recipe_cost += component_cost
+                    breakdown.append(
+                        _sanitize_for_json(
+                            {
+                                "item_id": component["item_id"],
+                                "item_name": component["item_name"],
+                                "unit_id": component["unit_id"],
+                                "unit_code": component["unit_code"],
+                                "net_quantity": _quantity(
+                                    Decimal(str(component["net_quantity"]))
+                                    / Decimal(str(component["yield_quantity"]))
+                                    * ordered_quantity
+                                ),
+                                "gross_quantity": gross_quantity,
+                                "waste_rate": component["waste_rate"],
+                                "unit_cost": unit_cost,
+                                "total_cost": component_cost,
+                            }
+                        )
+                    )
+                session.execute(
+                    models.order_line_consumption_snapshots.insert().values(
+                        order_line_id=line["id"],
+                        order_id=order_id,
+                        recipe_id=components[0]["recipe_id"],
+                        recipe_version=components[0]["recipe_version"],
+                        branch_id=branch_id,
+                        components=breakdown,
+                        modifiers=[],
+                        total_theoretical_cost=_cost(total_recipe_cost),
+                        created_at=now,
+                    )
+                )
+                _record_calculated_consumption_movements(
+                    session,
+                    components=breakdown,
+                    product_name=line["product_name"],
+                    movement_type="SALE_RESERVATION",
+                    sign=-1,
+                    reason=f"Reserva por liberación de pedido programado {order['folio']}",
+                    source_type="order_acceptance",
+                    source_id=order_id,
+                    created_at=now,
+                    branch_id=branch_id,
+                )
+
+    session.execute(
+        models.order_events.insert().values(
+            id=_id(),
+            order_id=order_id,
+            event_type="ORDER_SCHEDULED_RELEASED",
+            payload={"folio": order["folio"], "cash_shift_id": shift["id"]},
+            created_at=now,
+        )
+    )
+    _audit(
+        session,
+        action="order.scheduled_released",
+        entity_type="order",
+        entity_id=order_id,
+        payload={
+            "order_id": order_id,
+            "previous_status": "SCHEDULED",
+            "new_status": "ACCEPTED",
+            "cash_shift_id": shift["id"],
+        },
+        branch_id=branch_id,
+        actor_user_id=actor_id,
+    )
+    if commit:
+        session.commit()
+    return get_order_detail(session, order_id, actor_id)
+
+
+def reschedule_order(
+    session: Session,
+    order_id: str,
+    scheduled_for: str | datetime,
+    actor_user_id: str | None = None,
+    *,
+    commit: bool = True,
+) -> dict[str, Any]:
+    from restaurant_os.branch_schedule import validate_branch_open_at
+
+    actor_id = _actor_user_id(actor_user_id)
+    order = (
+        session.execute(
+            sa.select(models.orders)
+            .where(models.orders.c.id == order_id)
+            .with_for_update()
+        )
+        .mappings()
+        .first()
+    )
+    if not order:
+        raise NotFoundError("order_not_found", "Order was not found")
+    branch_id = str(order["branch_id"])
+    _require_order_write_fence(session, branch_id)
+    require_permission(session, actor_id, "orders.create", branch_id)
+    if order["status"] != "SCHEDULED":
+        raise BusinessError(
+            "order_not_scheduled",
+            "Sólo se pueden reprogramar pedidos en estado programado.",
+        )
+
+    parsed_sched = (
+        scheduled_for
+        if isinstance(scheduled_for, datetime)
+        else datetime.fromisoformat(str(scheduled_for).replace("Z", "+00:00"))
+    )
+    if parsed_sched.tzinfo is None:
+        raise BusinessError("scheduled_time_invalid", "Scheduled datetime must include timezone")
+    scheduled_utc = parsed_sched.astimezone(UTC)
+    now = _now()
+    validate_branch_open_at(
+        session,
+        branch_id,
+        scheduled_utc,
+        now_utc=now,
+        min_lead_minutes=15,
+    )
+
+    session.execute(
+        models.orders.update()
+        .where(models.orders.c.id == order_id, models.orders.c.status == "SCHEDULED")
+        .values(scheduled_for=scheduled_utc, version=int(order["version"]) + 1)
+    )
+    _audit(
+        session,
+        action="order.rescheduled",
+        entity_type="order",
+        entity_id=order_id,
+        payload={
+            "previous_scheduled_for": (
+                order["scheduled_for"].isoformat() if order.get("scheduled_for") else None
+            ),
+            "new_scheduled_for": scheduled_utc.isoformat(),
+        },
+        branch_id=branch_id,
+        actor_user_id=actor_id,
+    )
+    if commit:
+        session.commit()
+    return get_order_detail(session, order_id, actor_id)

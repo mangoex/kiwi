@@ -91,7 +91,12 @@ def list_branches(session: Session) -> list[dict[str, Any]]:
         )
         .where(models.branches.c.organization_id == ORGANIZATION_ID)
         .order_by(models.branches.c.name)
-    ).mappings()
+    ).mappings().all()
+
+    from restaurant_os.branch_schedule import get_operating_hours_by_branch
+
+    branch_ids = [str(row["id"]) for row in rows]
+    hours_by_branch = get_operating_hours_by_branch(session, branch_ids)
 
     result = []
     for row in rows:
@@ -100,6 +105,7 @@ def list_branches(session: Session) -> list[dict[str, Any]]:
             item["latitude"] = float(item["latitude"])
         if item.get("longitude") is not None:
             item["longitude"] = float(item["longitude"])
+        item["operating_hours"] = hours_by_branch.get(str(item["id"]), [])
         result.append(item)
     return result
 

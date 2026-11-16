@@ -429,12 +429,18 @@ const PointOfSale = () => {
   const assistedTextRef = useRef('');
 
   const [ownerName, setOwnerName] = useState('');
-  const [confirmation, setConfirmation] = useState<{ id: string; folio: string; paid: boolean; change?: number; warning?: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<{ id: string; folio: string; paid: boolean; change?: number; warning?: string; scheduledFor?: string | null } | null>(null);
   const [confirmedPrintOrder, setConfirmedPrintOrder] = useState<OrderLike | null>(null);
   const [confirmedCashTender, setConfirmedCashTender] = useState<{ receivedCents: number; changeCents: number } | null>(null);
   const [confirmedReceiptOpen, setConfirmedReceiptOpen] = useState(false);
   const [autoPrintStatus, setAutoPrintStatus] = useState('');
   const [orderType, setOrderType] = useState('takeout');
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState(() => new Date().toLocaleDateString('en-CA'));
+  const [scheduledTime, setScheduledTime] = useState('');
+  const [scheduledPhone, setScheduledPhone] = useState('');
+  const [scheduleError, setScheduleError] = useState('');
+  const [branchOperatingHours, setBranchOperatingHours] = useState<Array<{ day_of_week: number; is_open: boolean; open_time: string | null; close_time: string | null }>>([]);
   const [lineEditor, setLineEditor] = useState<{ lineId: string; quantity: string; notes: string } | null>(null);
   const [heldOpen, setHeldOpen] = useState(false);
   const [draftActionError, setDraftActionError] = useState('');
@@ -985,6 +991,44 @@ const PointOfSale = () => {
     setCreateCustomerError('');
     setShowAddressForm(false);
   }, []);
+
+  useEffect(() => {
+    if (!branchId) {
+      setBranchOperatingHours([]);
+      return;
+    }
+    let active = true;
+    fetchApi<{ operating_hours: Array<{ day_of_week: number; is_open: boolean; open_time: string | null; close_time: string | null }> }>(
+      `/branches/${encodeURIComponent(branchId)}/operating-hours`,
+    )
+      .then((res) => {
+        if (active && Array.isArray(res?.operating_hours)) {
+          setBranchOperatingHours(res.operating_hours);
+        }
+      })
+      .catch(() => {
+        if (active) setBranchOperatingHours([]);
+      });
+    return () => { active = false; };
+  }, [branchId]);
+
+  const effectiveScheduledPhone = (
+    scheduledPhone.trim()
+    || selectedCustomer?.phones?.[0]?.captured_number
+    || selectedCustomer?.phones?.[0]?.normalized_number
+    || customerPhone.trim()
+  );
+
+  const selectedDayHoursHint = (() => {
+    if (!scheduledDate || branchOperatingHours.length === 0) return null;
+    const parsed = new Date(`${scheduledDate}T12:00:00`);
+    if (Number.isNaN(parsed.getTime())) return null;
+    const pyWeekday = (parsed.getDay() + 6) % 7;
+    const entry = branchOperatingHours.find((h) => h.day_of_week === pyWeekday);
+    if (!entry) return null;
+    if (!entry.is_open) return { open: false, text: 'Sucursal cerrada este día' };
+    return { open: true, text: `Horario: ${entry.open_time || ''} - ${entry.close_time || ''}` };
+  })();
 
   const registerCustomer = async () => {
     const phone = validMexicanPhone(customerPhone);
@@ -1540,8 +1584,20 @@ const PointOfSale = () => {
       return;
     }
     const registerId = (localStorage.getItem('pos_register_id') || '').trim();
-    if (!paymentMethod && !editingOrder) return;
-    if (!editingOrder && orderType === 'dine-in' && paymentMethod === 'cash' && !cashReady) return;
+    const schedulingNow = Boolean(isScheduled && !editingOrder);
+    if (schedulingNow) {
+      if (!scheduledDate || !scheduledTime) {
+        setScheduleError('Selecciona día y hora para programar el pedido.');
+        return;
+      }
+      if (!effectiveScheduledPhone) {
+        setScheduleError('Captura un teléfono de confirmación para programar el pedido.');
+        return;
+      }
+      setScheduleError('');
+    }
+    if (!schedulingNow && !paymentMethod && !editingOrder) return;
+    if (!schedulingNow && !editingOrder && orderType === 'dine-in' && paymentMethod === 'cash' && !cashReady) return;
     if (!branchId) {
       alert('No hay sucursal asignada para este POS. Inicia sesión de nuevo o configura la sucursal.');
       return;
@@ -1551,21 +1607,27 @@ const PointOfSale = () => {
       return;
     }
 
+    const scheduledIso = schedulingNow
+      ? new Date(`${scheduledDate}T${scheduledTime}:00`).toISOString()
+      : undefined;
+
     const payload = {
       owner_name: ownerName || 'Cliente General',
       customer_id: selectedCustomer?.id || undefined,
+      customer_phone: schedulingNow ? effectiveScheduledPhone : undefined,
       delivery_address_id: selectedAddressId || undefined,
-      payment_method_intent: orderType === 'dine-in' ? undefined : paymentMethod,
-      driver_id: orderType === 'delivery' && selectedDriverId ? selectedDriverId : undefined,
-      order_type: orderType,
+      payment_method_intent: schedulingNow || orderType === 'dine-in' ? undefined : paymentMethod,
+      driver_id: !schedulingNow && orderType === 'delivery' && selectedDriverId ? selectedDriverId : undefined,
+      order_type: schedulingNow && orderType === 'dine-in' ? 'takeout' : orderType,
       delivery_selection: orderType === 'delivery' ? deliverySelection : undefined,
       delivery_quote_reference: orderQuote?.delivery_quote_reference || undefined,
       branch_id: branchId || undefined,
       register_id: registerId,
       adjustment_authorization_id: adjustmentAuthorizationId || undefined,
+      scheduled_for: scheduledIso,
       lines: buildOrderLines(cart),
     };
-    const fingerprint = JSON.stringify({ payload, receivedCash: orderType === 'dine-in' && paymentMethod === 'cash' ? receivedCash : undefined });
+    const fingerprint = JSON.stringify({ payload, receivedCash: !schedulingNow && orderType === 'dine-in' && paymentMethod === 'cash' ? receivedCash : undefined });
     const checkoutIntent = checkoutIntentRef.current?.fingerprint === fingerprint
       ? checkoutIntentRef.current
       : { fingerprint, key: drafts.identity.id, paymentKey: drafts.identity.paymentKey };
@@ -1577,14 +1639,14 @@ const PointOfSale = () => {
         registerId,
         orderKey: checkoutIntent.key,
         paymentKey: checkoutIntent.paymentKey,
-        paymentMethod: paymentMethod as PaymentMethod,
-        requiresPayment: orderType === 'dine-in',
+        paymentMethod: (paymentMethod || 'cash') as PaymentMethod,
+        requiresPayment: !schedulingNow && orderType === 'dine-in',
         transportMode: localOrderConfig ? 'local' : 'online',
         gatewayUrl: localOrderConfig?.gatewayUrl,
         gatewayDeviceId: localOrderConfig?.deviceId,
         userId: session?.user.id,
-        ...(orderType === 'dine-in' ? { paymentTotalCents: orderQuote?.total_cents } : {}),
-        ...(orderType === 'dine-in' && paymentMethod === 'cash' ? { receivedCash } : {}),
+        ...(!schedulingNow && orderType === 'dine-in' ? { paymentTotalCents: orderQuote?.total_cents } : {}),
+        ...(!schedulingNow && orderType === 'dine-in' && paymentMethod === 'cash' ? { receivedCash } : {}),
       };
       try {
         sessionStorage.setItem(PENDING_CHECKOUT_STORAGE_KEY, JSON.stringify(pendingCheckout));
@@ -1695,6 +1757,31 @@ const PointOfSale = () => {
         },
       );
       recordOfflineOrderStatus(orderData);
+      if (schedulingNow) {
+        drafts.clearActive();
+        clearPendingCheckout(checkoutIntent.key);
+        checkoutIntentRef.current = null;
+        setConfirmedPrintOrder(null);
+        setConfirmedCashTender(null);
+        setAutoPrintStatus('');
+        setConfirmation({ id: orderData.id, folio: orderData.folio, paid: false, scheduledFor: scheduledIso });
+        setCart([]); setOrderType('takeout');
+        setIsScheduled(false);
+        setScheduledTime('');
+        setScheduledPhone('');
+        setScheduleError('');
+        setDeliverySelection({ mode: 'AUTO' });
+        setAdjustmentAuthorizationId(null);
+        setCourtesyReason('');
+        setPaymentOpen(false);
+        setPaymentMethod(null);
+        setSelectedDriverId('');
+        setAvailableDrivers([]);
+        clearCustomer();
+        setCheckoutState('idle');
+        window.dispatchEvent(new Event('pos:pending-orders-changed'));
+        return;
+      }
       if (orderType !== 'dine-in') {
         const snapshot = buildSnapshotOrder(orderData.folio, orderData.total_cents);
         triggerAutoPrint(snapshot, null, false);
@@ -2139,10 +2226,79 @@ const PointOfSale = () => {
               {effectiveCourtesyCents > 0 ? 'Descuento ✓' : 'Descuento'}
             </button>
           </div>
-          {orderType !== 'delivery' && <div className="pos-cashier-collection-mode" aria-label="Cuándo se cobra">
-            <button type="button" disabled={Boolean(editingOrder)} aria-pressed={orderType === 'takeout'} onClick={() => setOrderType('takeout')}>Cobrar al entregar</button>
-            <button type="button" disabled={Boolean(editingOrder) || !hasPermission('payments.confirm')} aria-pressed={orderType === 'dine-in'} onClick={() => setOrderType('dine-in')}>Cobrar ahora</button>
-          </div>}
+          {!editingOrder && (
+            <div className="pos-cashier-collection-mode" aria-label="Cuándo se cobra o programa">
+              {orderType !== 'delivery' ? (
+                <>
+                  <button type="button" aria-pressed={!isScheduled && orderType === 'takeout'} onClick={() => { setIsScheduled(false); setScheduleError(''); setOrderType('takeout'); }}>Cobrar al entregar</button>
+                  <button type="button" disabled={!hasPermission('payments.confirm')} aria-pressed={!isScheduled && orderType === 'dine-in'} onClick={() => { setIsScheduled(false); setScheduleError(''); setOrderType('dine-in'); }}>Cobrar ahora</button>
+                </>
+              ) : (
+                <button type="button" aria-pressed={!isScheduled} onClick={() => { setIsScheduled(false); setScheduleError(''); }}>Entrega inmediata</button>
+              )}
+              <button
+                type="button"
+                aria-pressed={isScheduled}
+                onClick={() => {
+                  setIsScheduled(true);
+                  setScheduleError('');
+                  if (orderType === 'dine-in') setOrderType('takeout');
+                }}
+                style={isScheduled ? { background: '#eff6ff', color: '#1d4ed8', borderColor: '#3b82f6' } : undefined}
+              >
+                <CalendarClock size={14} style={{ marginRight: 4, verticalAlign: '-2px' }} />
+                Programar
+              </button>
+            </div>
+          )}
+          {isScheduled && !editingOrder && (
+            <div
+              aria-label="Datos de programación del pedido"
+              style={{ margin: '8px 12px 0', padding: '10px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', display: 'grid', gap: '8px', fontSize: '0.82rem' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', color: '#1e40af', fontWeight: 700 }}>
+                <span>Programar entrega / recolección</span>
+                {selectedDayHoursHint && (
+                  <small style={{ color: selectedDayHoursHint.open ? '#1d4ed8' : '#b91c1c', fontWeight: 600 }}>
+                    {selectedDayHoursHint.text}
+                  </small>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <label style={{ display: 'grid', gap: '3px', color: '#1e3a8a', fontWeight: 600 }}>
+                  Día
+                  <input
+                    type="date"
+                    value={scheduledDate}
+                    min={new Date().toLocaleDateString('en-CA')}
+                    onChange={(e) => { setScheduledDate(e.target.value); setScheduleError(''); }}
+                    style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #93c5fd', background: '#fff' }}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: '3px', color: '#1e3a8a', fontWeight: 600 }}>
+                  Hora
+                  <input
+                    type="time"
+                    value={scheduledTime}
+                    onChange={(e) => { setScheduledTime(e.target.value); setScheduleError(''); }}
+                    style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #93c5fd', background: '#fff' }}
+                  />
+                </label>
+              </div>
+              <label style={{ display: 'grid', gap: '3px', color: '#1e3a8a', fontWeight: 600 }}>
+                Teléfono de confirmación *
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  placeholder="10 dígitos, ej. 6671234567"
+                  value={scheduledPhone || selectedCustomer?.phones?.[0]?.captured_number || customerPhone}
+                  onChange={(e) => { setScheduledPhone(e.target.value); setScheduleError(''); }}
+                  style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #93c5fd', background: '#fff' }}
+                />
+              </label>
+              {scheduleError && <p role="alert" style={{ margin: 0, color: '#b91c1c', fontWeight: 600 }}>{scheduleError}</p>}
+            </div>
+          )}
 
           {selectedCustomer && !upsellPanelDismissed && visibleUpsellRecs.length > 0 && (
             <div style={{ margin: '8px 12px 0', padding: '10px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', fontSize: '0.82rem' }}>
@@ -2815,7 +2971,7 @@ const PointOfSale = () => {
             style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '1rem', outline: 'none' }}
           />
         </div>
-        {!editingOrder && <section className="pos-payment-methods" aria-labelledby="payment-method-title">
+        {!editingOrder && !isScheduled && <section className="pos-payment-methods" aria-labelledby="payment-method-title">
           <div className="pos-payment-heading">
             <div><span>{orderType === 'dine-in' ? 'Confirmar cobro' : 'Método previsto; no confirma pago'}</span><strong id="payment-method-title">¿Cómo pagará el cliente?</strong></div>
             <strong>{orderQuote ? formatMxnCents(totalCents) : '—'}</strong>
@@ -2834,18 +2990,20 @@ const PointOfSale = () => {
             })}
           </div>
         </section>}
-        {!editingOrder && orderType === 'dine-in' && paymentMethod === 'cash' && <CashTenderFields
+        {!editingOrder && !isScheduled && orderType === 'dine-in' && paymentMethod === 'cash' && <CashTenderFields
           received={receivedCash} onChange={setReceivedCash} tender={cashPreview?.data?.cash_tender}
           error={cashPreview?.error} disabled={checkoutState === 'submitting'} />}
         <button
           onClick={() => void processTransaction()}
-          disabled={checkoutState === 'submitting' || (!editingOrder && !drafts.ready) || !canCheckout || quoteState !== 'ready' || (!paymentMethod && !editingOrder) || (!editingOrder && orderType === 'dine-in' && paymentMethod === 'cash' && !cashReady)}
+          disabled={checkoutState === 'submitting' || (!editingOrder && !drafts.ready) || !canCheckout || quoteState !== 'ready' || (!isScheduled && !paymentMethod && !editingOrder) || (!isScheduled && !editingOrder && orderType === 'dine-in' && paymentMethod === 'cash' && !cashReady)}
           className="pos-payment-confirm"
         >
           {checkoutState === 'submitting'
             ? 'Procesando…'
             : editingOrder
             ? 'Guardar cambios sin confirmar pago'
+            : isScheduled
+            ? `Guardar pedido programado · ${formatMxnCents(totalCents)}`
             : paymentMethod
               ? orderType === 'dine-in'
                 ? `Confirmar cobro · ${formatMxnCents(totalCents)}`

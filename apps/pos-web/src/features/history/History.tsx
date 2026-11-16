@@ -202,6 +202,16 @@ const History = () => {
   const printKeys = useRef(new Map<string, string>());
   const [printBusy, setPrintBusy] = useState(false);
   const [thermalOrder, setThermalOrder] = useState<OrderDetail | null>(null);
+  const [accountTab, setAccountTab] = useState<'all' | 'scheduled'>('all');
+  const [scheduledTotalCount, setScheduledTotalCount] = useState(0);
+  const [scheduledDueCount, setScheduledDueCount] = useState(0);
+  const [releasePending, setReleasePending] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [rescheduleDate, setRescheduleDate] = useState('');
+  const [rescheduleTime, setRescheduleTime] = useState('');
+  const [rescheduleBusy, setRescheduleBusy] = useState(false);
+  const [rescheduleError, setRescheduleError] = useState('');
+  const [cancelScheduledBusy, setCancelScheduledBusy] = useState(false);
 
   const handleReprint = async (orderId: string) => {
     if (localOrders || !hasPermission('print.jobs.read') || !hasPermission('print.jobs.retry') || printBusy) return;
@@ -250,6 +260,7 @@ const History = () => {
     setLoading(true); setListError('');
     const params = new URLSearchParams({ limit: '25' });
     if (branchId) params.set('branch_id', branchId);
+    if (accountTab === 'scheduled') params.set('status', 'SCHEDULED');
     if (day) {
       const bounds = localDayUtcBounds(day, branchTimezone);
       params.set('from_utc', bounds.fromUtc); params.set('to_utc', bounds.toUtc);
@@ -262,8 +273,20 @@ const History = () => {
     if (search.length >= 2) params.set('q', search);
     if (cursor) params.set('cursor', cursor);
     try {
-      const data = await requestOrder<OrderAccountsResponse>(`/orders/accounts?${params.toString()}`, { headers: { 'Cache-Control': 'no-cache' } });
+      const [data, pendingCounts] = await Promise.all([
+        requestOrder<OrderAccountsResponse>(`/orders/accounts?${params.toString()}`, { headers: { 'Cache-Control': 'no-cache' } }),
+        branchId
+          ? fetchApi<{ scheduled_count?: number; scheduled_due_count?: number }>(
+              `/orders/pending-count?branch_id=${encodeURIComponent(branchId)}`,
+              { headers: { 'Cache-Control': 'no-cache' } },
+            ).catch(() => null)
+          : Promise.resolve(null),
+      ]);
       if (sequence !== accountRequestSequence.current) return;
+      if (pendingCounts) {
+        if (typeof pendingCounts.scheduled_count === 'number') setScheduledTotalCount(pendingCounts.scheduled_count);
+        if (typeof pendingCounts.scheduled_due_count === 'number') setScheduledDueCount(pendingCounts.scheduled_due_count);
+      }
       setOrders((previous) => append ? [...previous, ...data.items] : data.items);
       if (!append) {
         const eligible = new Set(data.items.filter((item) => item.settlement_eligible).map((item) => item.id));
@@ -277,7 +300,7 @@ const History = () => {
     } finally {
       if (sequence === accountRequestSequence.current) setLoading(false);
     }
-  }, [branchId, branchTimezone, cashShiftId, day, driverId, registerCode, searchQuery, serviceType, requestOrder]);
+  }, [accountTab, branchId, branchTimezone, cashShiftId, day, driverId, registerCode, searchQuery, serviceType, requestOrder]);
 
   useEffect(() => {
     if (serviceType !== 'delivery' || localOrders || !branchId) {
@@ -332,6 +355,7 @@ const History = () => {
   const openOrder = useCallback(async (orderId: string) => {
     const sequence = ++detailRequestSequence.current;
     setActiveOrderId(orderId); setSelected(null); setDetailLoading(true); setDetailError('');
+    setRescheduleOpen(false); setRescheduleError('');
     setAssignmentDrivers([]); setAssignmentPickerOpen(false); setAssignmentError(''); setSelectedAssignmentDriverId('');
     try {
       const detail = await requestOrder<OrderDetail>(`/orders/${encodeURIComponent(orderId)}`);
@@ -354,7 +378,7 @@ const History = () => {
     }
     return () => { detailRequestSequence.current += 1; };
   }, [linkedOrderId, linkedBranchId, branchId, openOrder]);
-  const closeDetail = () => { detailRequestSequence.current += 1; setSelected(null); setActiveOrderId(null); setDetailError(''); setReopenError(''); };
+  const closeDetail = () => { detailRequestSequence.current += 1; setSelected(null); setActiveOrderId(null); setDetailError(''); setReopenError(''); setRescheduleOpen(false); setRescheduleError(''); };
   const refreshSelected = async () => { if (selected) await openOrder(selected.id); };
   const confirmPayment = () => {
     if (!selected) return;
@@ -397,6 +421,67 @@ const History = () => {
       setDetailError(reason instanceof ApiError ? reason.message : 'No fue posible aceptar el pedido.');
     } finally {
       setAcceptPending(false);
+    }
+  };
+  const releaseScheduledOrder = async (orderId: string) => {
+    if (releasePending) return;
+    setReleasePending(true);
+    setDetailError('');
+    try {
+      await fetchApi(`/orders/${encodeURIComponent(orderId)}/release-scheduled`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': newIdempotencyKey() },
+        body: JSON.stringify(configuredRegisterId ? { register_id: configuredRegisterId } : {}),
+      });
+      window.dispatchEvent(new Event('pos:pending-orders-changed'));
+      await Promise.all([loadAccounts(), refreshSelected()]);
+    } catch (reason) {
+      setDetailError(reason instanceof ApiError ? reason.message : 'No fue posible mandar el pedido programado a cocina.');
+    } finally {
+      setReleasePending(false);
+    }
+  };
+  const submitReschedule = async () => {
+    if (!selected || rescheduleBusy) return;
+    if (!rescheduleDate || !rescheduleTime) {
+      setRescheduleError('Selecciona nueva fecha y hora.');
+      return;
+    }
+    setRescheduleBusy(true);
+    setRescheduleError('');
+    try {
+      await fetchApi(`/orders/${encodeURIComponent(selected.id)}/schedule`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          scheduled_for: new Date(`${rescheduleDate}T${rescheduleTime}:00`).toISOString(),
+        }),
+      });
+      setRescheduleOpen(false);
+      window.dispatchEvent(new Event('pos:pending-orders-changed'));
+      await Promise.all([loadAccounts(), refreshSelected()]);
+    } catch (reason) {
+      setRescheduleError(reason instanceof ApiError ? reason.message : 'No fue posible reprogramar el pedido.');
+    } finally {
+      setRescheduleBusy(false);
+    }
+  };
+  const cancelScheduledOrder = async (orderId: string) => {
+    if (cancelScheduledBusy) return;
+    if (!window.confirm('¿Cancelar este pedido programado?')) return;
+    setCancelScheduledBusy(true);
+    setDetailError('');
+    try {
+      await fetchApi(`/orders/${encodeURIComponent(orderId)}/cancel`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': newIdempotencyKey() },
+        body: JSON.stringify({ reason: 'Cancelación de pedido programado en caja' }),
+      });
+      window.dispatchEvent(new Event('pos:pending-orders-changed'));
+      await Promise.all([loadAccounts(), refreshSelected()]);
+    } catch (reason) {
+      setDetailError(reason instanceof ApiError ? reason.message : 'No fue posible cancelar el pedido programado.');
+    } finally {
+      setCancelScheduledBusy(false);
     }
   };
   const loadAssignmentDrivers = async () => {
@@ -693,6 +778,64 @@ const History = () => {
     <header className="orders-history-header"><div><h1>Pedidos — <span style={{ color: '#10b981' }}>{session?.user?.display_name || ''}</span></h1><p>Consulta, edita y confirma el pago de los pedidos de la sucursal <strong style={{ color: '#0f172a' }}>{session?.active_branch?.name || 'activa'}</strong>.</p></div>
       <div className="orders-history-toolbar"><label className="orders-history-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="Buscar pedido" placeholder="Buscar folio o cliente…" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} /></label><Button className="orders-history-refresh" variant="secondary" onClick={() => void loadAccounts()}><RefreshCcw size={18} /> Actualizar</Button></div>
     </header>
+    <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }} role="tablist" aria-label="Vista de pedidos">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={accountTab === 'all'}
+        onClick={() => setAccountTab('all')}
+        style={{
+          padding: '8px 16px',
+          borderRadius: '10px',
+          border: accountTab === 'all' ? '1px solid #10b981' : '1px solid #e2e8f0',
+          background: accountTab === 'all' ? '#ecfdf5' : '#ffffff',
+          color: accountTab === 'all' ? '#047857' : '#475569',
+          fontWeight: 600,
+          cursor: 'pointer',
+        }}
+      >
+        Todos
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={accountTab === 'scheduled'}
+        onClick={() => setAccountTab('scheduled')}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '8px 16px',
+          borderRadius: '10px',
+          border: accountTab === 'scheduled' ? '1px solid #3b82f6' : scheduledDueCount > 0 ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+          background: accountTab === 'scheduled' ? '#eff6ff' : scheduledDueCount > 0 ? '#fffbeb' : '#ffffff',
+          color: accountTab === 'scheduled' ? '#1d4ed8' : scheduledDueCount > 0 ? '#b45309' : '#475569',
+          fontWeight: 600,
+          cursor: 'pointer',
+        }}
+      >
+        <CalendarClock size={16} />
+        Programados ({scheduledTotalCount})
+        {scheduledDueCount > 0 && (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              background: '#d97706',
+              color: '#ffffff',
+              borderRadius: '999px',
+              padding: '2px 8px',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+            }}
+            title="Pedidos programados a menos de 30 minutos o con hora vencida"
+          >
+            <Bell size={12} /> {scheduledDueCount} ¡Próximo!
+          </span>
+        )}
+      </button>
+    </div>
     <section className="orders-history-filters" aria-label="Filtros de cuentas">
       <label>Día<input type="date" value={day} max={today} onChange={(event) => setDay(event.target.value)} /></label>
       <label>Turno<input value={cashShiftId} onChange={(event) => setCashShiftId(event.target.value)} placeholder="ID de turno" /></label>
@@ -704,15 +847,46 @@ const History = () => {
     {driversError ? <p role="alert" className="orders-history-error">{driversError}</p> : null}
     {serviceType === 'delivery' && localOrders ? <p role="status" className="orders-history-offline-notice">La liquidación agrupada requiere conexión central; el gateway local conserva sus comandos operativos sin fallback.</p> : null}
     {listError ? <p role="alert" className="orders-history-error">{listError}</p> : null}
-    <div className="orders-history-layout"><Card className="orders-history-list">{settlementEnabled ? <section className="orders-history-settlement" aria-live="polite"><div><strong>{selectedDriver?.name || 'Selecciona pedidos del repartidor'}</strong><span>{selectedSettlementOrders.length} pedido(s) · {formatCurrency(selectedSettlementTotal)}</span></div><Button disabled={selectedSettlementOrders.length === 0 || !configuredRegisterId} onClick={() => { setSettlementOpen(true); setSettlementResult(null); setSettlementError(''); }}>Recibir efectivo del repartidor</Button>{!configuredRegisterId ? <small role="alert">Configura Turno y Caja para liquidar.</small> : null}</section> : null}{loading ? <div className="orders-history-list-state"><RefreshCcw size={32} className="orders-history-spin" /><span>Cargando cuentas…</span></div> : <><div className="orders-history-table-scroll"><table><thead><tr>{settlementEnabled ? <th><input type="checkbox" aria-label="Seleccionar todos los pedidos elegibles cargados" checked={allSettlementOrdersSelected} disabled={settlementEligibleOrders.length === 0} onChange={toggleAllSettlementOrders} /></th> : null}<th>Folio</th><th>Cliente</th><th className="orders-history-type-cell">Tipo</th><th className="orders-history-date-cell">Fecha y hora</th><th>Estado</th><th>Total</th><th aria-label="Acciones" /></tr></thead><tbody>{orders.length === 0 ? <tr><td colSpan={settlementEnabled ? 8 : 7}><div className="orders-history-list-state"><Calendar size={42} /><span>No se encontraron cuentas.</span></div></td></tr> : orders.map((order) => { const status = getStatusConfig(order.status); const isSelected = selected?.id === order.id || activeOrderId === order.id; return <tr key={order.id} role="button" tabIndex={0} aria-selected={isSelected} className={isSelected ? 'is-selected' : ''} onClick={() => void openOrder(order.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openOrder(order.id); } }}>{settlementEnabled ? <td><input type="checkbox" aria-label={`Seleccionar pedido ${order.folio}`} checked={selectedSettlementOrderIds.has(order.id)} disabled={!order.settlement_eligible} title={order.settlement_eligible ? 'Cobro efectivo pendiente' : 'No elegible para liquidación en efectivo'} onClick={(event) => event.stopPropagation()} onChange={() => toggleSettlementOrder(order.id)} /></td> : null}<td className="orders-history-folio">{order.folio}</td><td><span>{order.customer_label || 'Cliente General'}</span><small className="orders-history-compact-meta">{order.driver_name ? `${order.driver_name} · ` : ''}{getTypeLabel(order.service_type)} · {new Date(order.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></td><td className="orders-history-type-cell">{getTypeLabel(order.service_type)}</td><td className="orders-history-date-cell"><Clock size={15} aria-hidden="true" />{new Date(order.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</td><td><span className="orders-history-status" style={{ background: status.bg, color: status.color, borderColor: status.border }}>{status.label}</span>{order.payment_status && <small className={`pos-cashier-payment-status ${order.payment_status === "CONFIRMED" ? "paid" : "pending"}`}>{order.payment_status === "CONFIRMED" ? "Pagado" : "Pago pendiente"}</small>}{order.payment_method_intent && <small>{order.payment_method_intent === 'cash' ? 'Efectivo' : 'No efectivo'}</small>}</td><td className="orders-history-total">{formatCurrency(order.total_cents)}</td><td><ChevronRight size={20} aria-hidden="true" /></td></tr>; })}</tbody></table></div>{nextCursor ? <div className="orders-history-pagination"><Button variant="secondary" onClick={() => void loadAccounts(nextCursor, true)}>Cargar más cuentas</Button></div> : null}</>}</Card>
-      <aside className="orders-history-detail" aria-label="Detalle del pedido">{detailLoading ? <div className="orders-history-detail-state" role="status"><RefreshCcw size={30} className="orders-history-spin" /><strong>Abriendo pedido…</strong><span>Estamos preparando el detalle.</span></div> : !selected ? <div className="orders-history-detail-state"><span className="orders-history-empty-icon"><ReceiptText size={30} /></span><strong>Selecciona un pedido para revisar su detalle</strong><span>Podrás consultar productos, editarlo o confirmar el pago cuando corresponda.</span>{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}</div> : <><div className="orders-history-detail-header"><div><span>Cuenta actual</span><h2>Detalle del pedido</h2></div><button type="button" onClick={closeDetail} aria-label="Cerrar detalle del pedido"><X size={20} /></button></div><div className="orders-history-detail-scroll"><section className="orders-history-order-meta"><div><span>Pedido</span><strong>{selected.folio}</strong></div><span className="orders-history-status" style={{ background: selectedStatus?.bg, color: selectedStatus?.color, borderColor: selectedStatus?.border }}>{selectedStatus?.label}</span><small className={`pos-cashier-payment-status ${selected.payment_status === "CONFIRMED" ? "paid" : "pending"}`}>{selected.payment_status === "CONFIRMED" ? "Pagado" : "Pago pendiente"}</small></section><section className="orders-history-customer"><strong>{selected.customer_label || 'Cliente General'}</strong>{selected.customer_phone ? <a href={`https://wa.me/${selected.customer_phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#16a34a', textDecoration: 'none', fontWeight: 600, fontSize: '0.88rem', margin: '4px 0' }} title="Contactar por WhatsApp">💬 WhatsApp: {selected.customer_phone}</a> : null}{selected.delivery_address ? <div style={{ fontSize: '0.82rem', color: '#334155', margin: '4px 0', background: '#f8fafc', padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>📍 <strong>Dirección:</strong> {selected.delivery_address}{selected.delivery_notes ? <small style={{ display: 'block', color: '#64748b', marginTop: '2px' }}>Ref: {selected.delivery_notes}</small> : null}</div> : null}<span>{getTypeLabel(selected.service_type)} {selected.channel === 'online_menu' ? '· 📱 Pedido Web' : ''}</span><small>{new Date(selected.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></section>{deliveryAssignmentPanel}<section className="orders-history-snapshot"><details><summary>Información de auditoría</summary><strong>Calidad del snapshot operativo</strong><span>{selectedSnapshotQuality}</span></details></section><section className="orders-history-lines"><div className="orders-history-section-title"><span>Productos</span><small>{selected.lines.length} línea(s)</small></div>{selected.lines.map((line) => <div key={line.id} className="orders-history-line"><span className="orders-history-line-quantity">{line.quantity}</span><div><strong>{line.product_name}</strong><small>{line.quantity} × {formatCurrency(line.unit_price_cents)}</small>{line.line_notes && <small className="pos-cashier-line-note">Nota: {line.line_notes}</small>}{line.selected_modifiers?.map((selection, index) => <small key={index}>{String(selection.text || selection.kitchen_text || selection.name || "Complemento")}</small>)}</div><strong>{formatCurrency(line.line_total_cents)}</strong></div>)}</section><section className="orders-history-summary"><div><span>Subtotal</span><span>{formatCurrency(selected.total_cents)}</span></div><div className="orders-history-summary-total"><strong>Total</strong><strong>{formatCurrency(selected.total_cents)}</strong></div>{selected.payment_status === 'CONFIRMED' ? <div className="orders-history-paid-method"><CreditCard size={17} />Pago confirmado</div> : null}</section>{selected.corrections.length > 0 ? <section className="orders-history-corrections" aria-label="Correcciones enlazadas"><div className="orders-history-section-title"><span>Correcciones enlazadas</span><small>La venta original permanece sin cambios.</small></div>{selected.corrections.map((correction) => <article key={correction.id}><div><strong>{correction.folio}</strong><small>{new Date(correction.applied_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></div><div><span>{getCorrectionDeltaLabel(correction.settlement_delta_cents)}</span><strong>Total corregido: {formatCurrency(correction.corrected_total_cents)}</strong></div></article>)}</section> : null}{selected.status === 'PENDING' ? <section className="orders-history-pending-notice" style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '12px', padding: '12px 14px', margin: '10px 0', color: '#065f46', fontSize: '0.85rem' }}><strong>🔔 Pedido web por aceptar</strong><p style={{ marginTop: '3px', color: '#047857' }}>Revisa los productos. Al dar clic en <strong>Aceptar / Mandar a Cocina</strong> se iniciará la preparación para cobrarlo posteriormente.</p></section> : selected.payment_status === 'PENDING' && !['CANCELLED', 'CLOSED'].includes(selected.status) ? <p className="orders-history-block-reason">Cobrar confirma sólo el pago recibido. La preparación y entrega conservan su estado.</p> : null}{canRequestReopen && selected.reopen_eligible && !selected.active_reopen_request_status ? <section className="orders-history-reopen"><div className="orders-history-section-title"><span>Solicitar reapertura</span><small>Requiere autorización de Dueño</small></div><label>Motivo<textarea value={reopenReason} minLength={10} maxLength={500} onChange={(event) => setReopenReason(event.target.value)} /></label><label>Evidencia (una referencia por línea)<textarea value={evidenceText} maxLength={5000} onChange={(event) => setEvidenceText(event.target.value)} /></label><Button disabled={reopenPending} onClick={() => void submitReopenRequest()}>{reopenPending ? 'Enviando…' : 'Solicitar reapertura'}</Button>{reopenError ? <p role="alert" className="orders-history-inline-error">{reopenError}</p> : null}</section> : null}{selected.active_reopen_request_status ? <p className="orders-history-block-reason">Solicitud activa: {selected.active_reopen_request_status}.</p> : null}{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}{!selected.editable && selected.edit_block_reason ? <p className="orders-history-block-reason">{selected.edit_block_reason}</p> : null}</div><div className="orders-history-detail-actions">
+    <div className="orders-history-layout"><Card className="orders-history-list">{settlementEnabled ? <section className="orders-history-settlement" aria-live="polite"><div><strong>{selectedDriver?.name || 'Selecciona pedidos del repartidor'}</strong><span>{selectedSettlementOrders.length} pedido(s) · {formatCurrency(selectedSettlementTotal)}</span></div><Button disabled={selectedSettlementOrders.length === 0 || !configuredRegisterId} onClick={() => { setSettlementOpen(true); setSettlementResult(null); setSettlementError(''); }}>Recibir efectivo del repartidor</Button>{!configuredRegisterId ? <small role="alert">Configura Turno y Caja para liquidar.</small> : null}</section> : null}{loading ? <div className="orders-history-list-state"><RefreshCcw size={32} className="orders-history-spin" /><span>Cargando cuentas…</span></div> : <><div className="orders-history-table-scroll"><table><thead><tr>{settlementEnabled ? <th><input type="checkbox" aria-label="Seleccionar todos los pedidos elegibles cargados" checked={allSettlementOrdersSelected} disabled={settlementEligibleOrders.length === 0} onChange={toggleAllSettlementOrders} /></th> : null}<th>Folio</th><th>Cliente</th><th className="orders-history-type-cell">Tipo</th><th className="orders-history-date-cell">Fecha y hora</th><th>Estado</th><th>Total</th><th aria-label="Acciones" /></tr></thead><tbody>{orders.length === 0 ? <tr><td colSpan={settlementEnabled ? 8 : 7}><div className="orders-history-list-state"><Calendar size={42} /><span>No se encontraron cuentas.</span></div></td></tr> : orders.map((order) => { const status = getStatusConfig(order.status); const urgency = order.status === 'SCHEDULED' ? getScheduledUrgency(order.scheduled_for) : null; const isSelected = selected?.id === order.id || activeOrderId === order.id; return <tr key={order.id} role="button" tabIndex={0} aria-selected={isSelected} className={isSelected ? 'is-selected' : ''} onClick={() => void openOrder(order.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openOrder(order.id); } }}>{settlementEnabled ? <td><input type="checkbox" aria-label={`Seleccionar pedido ${order.folio}`} checked={selectedSettlementOrderIds.has(order.id)} disabled={!order.settlement_eligible} title={order.settlement_eligible ? 'Cobro efectivo pendiente' : 'No elegible para liquidación en efectivo'} onClick={(event) => event.stopPropagation()} onChange={() => toggleSettlementOrder(order.id)} /></td> : null}<td className="orders-history-folio">{order.folio}</td><td><span>{order.customer_label || 'Cliente General'}</span><small className="orders-history-compact-meta">{order.driver_name ? `${order.driver_name} · ` : ''}{getTypeLabel(order.service_type)} · {new Date(order.scheduled_for || order.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></td><td className="orders-history-type-cell">{getTypeLabel(order.service_type)}</td><td className="orders-history-date-cell"><Clock size={15} aria-hidden="true" />{order.scheduled_for ? <><strong>Prog: </strong>{new Date(order.scheduled_for).toLocaleString('es-MX', { timeZone: branchTimezone })}</> : new Date(order.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</td><td><span className="orders-history-status" style={{ background: status.bg, color: status.color, borderColor: status.border }}>{status.label}</span>{urgency ? <small style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', color: urgency === 'overdue' ? '#b91c1c' : '#b45309', fontWeight: 700 }}><Bell size={12} /> {urgency === 'overdue' ? '¡Hora vencida!' : '¡Preparar pronto!'}</small> : null}{order.payment_status && <small className={`pos-cashier-payment-status ${order.payment_status === "CONFIRMED" ? "paid" : "pending"}`}>{order.payment_status === "CONFIRMED" ? "Pagado" : "Pago pendiente"}</small>}{order.payment_method_intent && <small>{order.payment_method_intent === 'cash' ? 'Efectivo' : 'No efectivo'}</small>}</td><td className="orders-history-total">{formatCurrency(order.total_cents)}</td><td><ChevronRight size={20} aria-hidden="true" /></td></tr>; })}</tbody></table></div>{nextCursor ? <div className="orders-history-pagination"><Button variant="secondary" onClick={() => void loadAccounts(nextCursor, true)}>Cargar más cuentas</Button></div> : null}</>}</Card>
+      <aside className="orders-history-detail" aria-label="Detalle del pedido">{detailLoading ? <div className="orders-history-detail-state" role="status"><RefreshCcw size={30} className="orders-history-spin" /><strong>Abriendo pedido…</strong><span>Estamos preparando el detalle.</span></div> : !selected ? <div className="orders-history-detail-state"><span className="orders-history-empty-icon"><ReceiptText size={30} /></span><strong>Selecciona un pedido para revisar su detalle</strong><span>Podrás consultar productos, editarlo o confirmar el pago cuando corresponda.</span>{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}</div> : <><div className="orders-history-detail-header"><div><span>Cuenta actual</span><h2>Detalle del pedido</h2></div><button type="button" onClick={closeDetail} aria-label="Cerrar detalle del pedido"><X size={20} /></button></div><div className="orders-history-detail-scroll"><section className="orders-history-order-meta"><div><span>Pedido</span><strong>{selected.folio}</strong></div><span className="orders-history-status" style={{ background: selectedStatus?.bg, color: selectedStatus?.color, borderColor: selectedStatus?.border }}>{selectedStatus?.label}</span><small className={`pos-cashier-payment-status ${selected.payment_status === "CONFIRMED" ? "paid" : "pending"}`}>{selected.payment_status === "CONFIRMED" ? "Pagado" : "Pago pendiente"}</small></section><section className="orders-history-customer"><strong>{selected.customer_label || 'Cliente General'}</strong>{selected.customer_phone ? <a href={`https://wa.me/${selected.customer_phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#16a34a', textDecoration: 'none', fontWeight: 600, fontSize: '0.88rem', margin: '4px 0' }} title="Contactar por WhatsApp">💬 WhatsApp: {selected.customer_phone}</a> : null}{selected.delivery_address ? <div style={{ fontSize: '0.82rem', color: '#334155', margin: '4px 0', background: '#f8fafc', padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>📍 <strong>Dirección:</strong> {selected.delivery_address}{selected.delivery_notes ? <small style={{ display: 'block', color: '#64748b', marginTop: '2px' }}>Ref: {selected.delivery_notes}</small> : null}</div> : null}<span>{getTypeLabel(selected.service_type)} {selected.channel === 'online_menu' ? '· 📱 Pedido Web' : ''}</span><small>{new Date(selected.created_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></section>{selected.status === 'SCHEDULED' && selected.scheduled_for ? (() => { const detailUrgency = getScheduledUrgency(selected.scheduled_for); return <section style={{ margin: '10px 0', padding: '12px 14px', borderRadius: '12px', background: detailUrgency ? '#fffbeb' : '#eff6ff', border: detailUrgency ? '1px solid #fcd34d' : '1px solid #bfdbfe', color: detailUrgency ? '#92400e' : '#1e40af', fontSize: '0.86rem' }}><strong style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><CalendarClock size={16} /> Programado para: {new Date(selected.scheduled_for).toLocaleString('es-MX', { timeZone: branchTimezone })}</strong><p style={{ margin: '4px 0 0' }}>{detailUrgency === 'overdue' ? '⏰ ¡Hora vencida! Libera este pedido a cocina.' : detailUrgency === 'due_soon' ? '🔔 Faltan 30 min o menos. Prepara el envío a cocina.' : 'Guardado en caja sin afectar el corte ni el inventario actual.'}</p>{rescheduleOpen ? <div style={{ marginTop: '10px', display: 'grid', gap: '8px', background: '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1' }}><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}><label style={{ display: 'grid', gap: '3px', fontSize: '0.8rem', fontWeight: 600 }}>Nuevo día<input type="date" value={rescheduleDate} min={today} onChange={(e) => { setRescheduleDate(e.target.value); setRescheduleError(''); }} /></label><label style={{ display: 'grid', gap: '3px', fontSize: '0.8rem', fontWeight: 600 }}>Nueva hora<input type="time" value={rescheduleTime} onChange={(e) => { setRescheduleTime(e.target.value); setRescheduleError(''); }} /></label></div>{rescheduleError ? <small role="alert" style={{ color: '#b91c1c' }}>{rescheduleError}</small> : null}<div style={{ display: 'flex', gap: '8px' }}><Button disabled={rescheduleBusy} onClick={() => void submitReschedule()}>{rescheduleBusy ? 'Guardando…' : 'Guardar horario'}</Button><Button variant="secondary" disabled={rescheduleBusy} onClick={() => setRescheduleOpen(false)}>Cancelar</Button></div></div> : null}</section>; })() : null}{deliveryAssignmentPanel}<section className="orders-history-snapshot"><details><summary>Información de auditoría</summary><strong>Calidad del snapshot operativo</strong><span>{selectedSnapshotQuality}</span></details></section><section className="orders-history-lines"><div className="orders-history-section-title"><span>Productos</span><small>{selected.lines.length} línea(s)</small></div>{selected.lines.map((line) => <div key={line.id} className="orders-history-line"><span className="orders-history-line-quantity">{line.quantity}</span><div><strong>{line.product_name}</strong><small>{line.quantity} × {formatCurrency(line.unit_price_cents)}</small>{line.line_notes && <small className="pos-cashier-line-note">Nota: {line.line_notes}</small>}{line.selected_modifiers?.map((selection, index) => <small key={index}>{String(selection.text || selection.kitchen_text || selection.name || "Complemento")}</small>)}</div><strong>{formatCurrency(line.line_total_cents)}</strong></div>)}</section><section className="orders-history-summary"><div><span>Subtotal</span><span>{formatCurrency(selected.total_cents)}</span></div><div className="orders-history-summary-total"><strong>Total</strong><strong>{formatCurrency(selected.total_cents)}</strong></div>{selected.payment_status === 'CONFIRMED' ? <div className="orders-history-paid-method"><CreditCard size={17} />Pago confirmado</div> : null}</section>{selected.corrections.length > 0 ? <section className="orders-history-corrections" aria-label="Correcciones enlazadas"><div className="orders-history-section-title"><span>Correcciones enlazadas</span><small>La venta original permanece sin cambios.</small></div>{selected.corrections.map((correction) => <article key={correction.id}><div><strong>{correction.folio}</strong><small>{new Date(correction.applied_at).toLocaleString('es-MX', { timeZone: branchTimezone })}</small></div><div><span>{getCorrectionDeltaLabel(correction.settlement_delta_cents)}</span><strong>Total corregido: {formatCurrency(correction.corrected_total_cents)}</strong></div></article>)}</section> : null}{selected.status === 'PENDING' ? <section className="orders-history-pending-notice" style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '12px', padding: '12px 14px', margin: '10px 0', color: '#065f46', fontSize: '0.85rem' }}><strong>🔔 Pedido web por aceptar</strong><p style={{ marginTop: '3px', color: '#047857' }}>Revisa los productos. Al dar clic en <strong>Aceptar / Mandar a Cocina</strong> se iniciará la preparación para cobrarlo posteriormente.</p></section> : selected.payment_status === 'PENDING' && !['CANCELLED', 'CLOSED', 'SCHEDULED'].includes(selected.status) ? <p className="orders-history-block-reason">Cobrar confirma sólo el pago recibido. La preparación y entrega conservan su estado.</p> : null}{canRequestReopen && selected.reopen_eligible && !selected.active_reopen_request_status ? <section className="orders-history-reopen"><div className="orders-history-section-title"><span>Solicitar reapertura</span><small>Requiere autorización de Dueño</small></div><label>Motivo<textarea value={reopenReason} minLength={10} maxLength={500} onChange={(event) => setReopenReason(event.target.value)} /></label><label>Evidencia (una referencia por línea)<textarea value={evidenceText} maxLength={5000} onChange={(event) => setEvidenceText(event.target.value)} /></label><Button disabled={reopenPending} onClick={() => void submitReopenRequest()}>{reopenPending ? 'Enviando…' : 'Solicitar reapertura'}</Button>{reopenError ? <p role="alert" className="orders-history-inline-error">{reopenError}</p> : null}</section> : null}{selected.active_reopen_request_status ? <p className="orders-history-block-reason">Solicitud activa: {selected.active_reopen_request_status}.</p> : null}{detailError ? <p role="alert" className="orders-history-inline-error">{detailError}</p> : null}{!selected.editable && selected.edit_block_reason ? <p className="orders-history-block-reason">{selected.edit_block_reason}</p> : null}</div><div className="orders-history-detail-actions">
   {reprintMessage ? <p role="status" style={{ width: '100%', color: '#059669', fontSize: '0.85rem', fontWeight: 600, margin: '4px 0' }}>✓ {reprintMessage}</p> : null}
-  <Button variant="secondary" onClick={() => setThermalOrder(selected)} title="Ver o imprimir comanda y ticket térmico"><ReceiptText size={17} /> Imprimir comanda</Button>
-  {!localOrders && hasPermission('print.jobs.read') && hasPermission('print.jobs.retry') && <Button variant="secondary" disabled={printBusy} onClick={() => void handleReprint(selected.id)} title="Reintentar trabajos de impresión fallidos">
+  {selected.status !== 'SCHEDULED' && (
+    <Button variant="secondary" onClick={() => setThermalOrder(selected)} title="Ver o imprimir comanda y ticket térmico"><ReceiptText size={17} /> Imprimir comanda</Button>
+  )}
+  {selected.status !== 'SCHEDULED' && !localOrders && hasPermission('print.jobs.read') && hasPermission('print.jobs.retry') && <Button variant="secondary" disabled={printBusy} onClick={() => void handleReprint(selected.id)} title="Reintentar trabajos de impresión fallidos">
     <Printer size={17} /> Reintentar impresión
   </Button>}
   {availableActions?.fulfillment && <Button onClick={beginFulfillment}>{availableActions.fulfillment.label}</Button>}
-  {selected.status === 'PENDING' ? (
+  {selected.status === 'SCHEDULED' ? (
+    <>
+      <Button
+        style={{ background: '#059669', color: '#ffffff', borderColor: '#059669', flex: 1 }}
+        disabled={releasePending}
+        onClick={() => void releaseScheduledOrder(selected.id)}
+      >
+        <ChefHat size={17} /> {releasePending ? 'Enviando…' : 'Mandar a cocina ahora'}
+      </Button>
+      <Button
+        variant="secondary"
+        onClick={() => {
+          setRescheduleOpen((prev) => !prev);
+          setRescheduleError('');
+        }}
+      >
+        <CalendarClock size={17} /> Reprogramar
+      </Button>
+      {hasPermission('orders.cancel') ? (
+        <Button
+          variant="secondary"
+          disabled={cancelScheduledBusy}
+          style={{ color: '#dc2626', borderColor: '#fecaca' }}
+          onClick={() => void cancelScheduledOrder(selected.id)}
+        >
+          {cancelScheduledBusy ? 'Cancelando…' : 'Cancelar'}
+        </Button>
+      ) : null}
+    </>
+  ) : selected.status === 'PENDING' ? (
     <>
       <Button
         className="orders-history-accept-action"

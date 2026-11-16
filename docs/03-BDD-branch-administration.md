@@ -111,4 +111,15 @@ Feature: Un Supervisor de sucursal administra su sucursal sin ser administrador 
     And una sucursal creada después conserva visibilidad digital por defecto
     When un Supervisor de sucursal intenta el mismo comando masivo
     Then recibe 403 permission_denied y ninguna sucursal cambia
+
+  @BDD-SC-708
+  Scenario: Administrador configura horarios de atención semanales por sucursal
+    Given un Administrador corporativo autenticado
+    When crea una sucursal sin especificar horarios de atención
+    Then la sucursal persiste el horario por defecto (lunes a viernes 07:00-18:00, sábado 07:30-16:00, domingo cerrado)
+    When actualiza los horarios de la sucursal desde Administración
+    Then cada día abierto exige hora de apertura menor a la hora de cierre
+    And los días marcados como cerrados no conservan rango horario
+    And el cambio queda registrado en auditoría
+    And el validador de horario en la zona horaria de la sucursal responde si está abierta o cerrada para una fecha/hora dada
 ```

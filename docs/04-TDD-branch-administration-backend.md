@@ -83,3 +83,20 @@ Then ambas sucursales cambian dentro de un solo commit y cada efecto queda audit
 And repetir la lectura devuelve estado uniforme
 When un Supervisor intenta la operación total o una escritura inyectada falla
 Then recibe rechazo o rollback completo sin efectos parciales.
+
+## TDD-TS-148 Horarios de atención por sucursal
+
+Casos:
+
+- la migración `0106_branch_operating_hours` crea `branch_operating_hours` con llave `(branch_id, day_of_week)`, siembra los horarios por defecto en sucursales existentes y es reversible;
+- `create_branch` sin `operating_hours` persiste lunes-viernes `07:00-18:00`, sábado `07:30-16:00` y domingo cerrado;
+- `update_branch` con `operating_hours` actualiza los 7 días en la misma transacción, audita el cambio y rechaza rangos inválidos (`open_time >= close_time`, días faltantes o duplicados);
+- `GET /branches` y `GET /branches/{branch_id}/operating-hours` devuelven los 7 días ordenados;
+- `validate_branch_open_at` evalúa la fecha/hora en el `timezone` de la sucursal y rechaza fechas en día cerrado o fuera de rango.
+
+## TDD-TC-410 La sucursal valida apertura y cierre en su zona horaria
+
+Given una sucursal con horario configurado en su zona horaria local
+When la prueba evalúa una fecha/hora dentro del rango abierto, fuera de horario y en día cerrado
+Then sólo la fecha/hora dentro del rango abierto es aceptada
+And los rechazos devuelven `branch_closed_at_scheduled_time`.

@@ -2,9 +2,45 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Badge, Modal, Input } from '@restaurantos/ui';
 import { fetchApi } from '@restaurantos/api-client';
-import { Plus, Store, Edit, Trash2, MapPin, Navigation, Phone, Star } from 'lucide-react';
+import { Plus, Store, Edit, Trash2, MapPin, Navigation, Phone, Star, Clock } from 'lucide-react';
 
 import '../../premium-catalogs.css';
+
+interface BranchOperatingHour {
+  day_of_week: number;
+  is_open: boolean;
+  open_time: string | null;
+  close_time: string | null;
+}
+
+const DAY_LABELS_ES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+const defaultOperatingHours = (): BranchOperatingHour[] => [
+  { day_of_week: 0, is_open: true, open_time: '07:00', close_time: '18:00' },
+  { day_of_week: 1, is_open: true, open_time: '07:00', close_time: '18:00' },
+  { day_of_week: 2, is_open: true, open_time: '07:00', close_time: '18:00' },
+  { day_of_week: 3, is_open: true, open_time: '07:00', close_time: '18:00' },
+  { day_of_week: 4, is_open: true, open_time: '07:00', close_time: '18:00' },
+  { day_of_week: 5, is_open: true, open_time: '07:30', close_time: '16:00' },
+  { day_of_week: 6, is_open: false, open_time: null, close_time: null },
+];
+
+const normalizeOperatingHours = (hours?: BranchOperatingHour[]): BranchOperatingHour[] => {
+  const defaults = defaultOperatingHours();
+  if (!hours || hours.length !== 7) return defaults;
+  return defaults.map((fallback) => {
+    const match = hours.find((item) => item.day_of_week === fallback.day_of_week);
+    if (!match) return fallback;
+    return match.is_open
+      ? {
+          day_of_week: match.day_of_week,
+          is_open: true,
+          open_time: match.open_time || fallback.open_time || '07:00',
+          close_time: match.close_time || fallback.close_time || '18:00',
+        }
+      : { day_of_week: match.day_of_week, is_open: false, open_time: null, close_time: null };
+  });
+};
 
 interface Branch {
   id: string;
@@ -23,6 +59,7 @@ interface Branch {
   longitude?: number | null;
   phone?: string;
   google_review_url?: string;
+  operating_hours?: BranchOperatingHour[];
   organization_id: string;
   business_unit_id: string;
   business_unit_name: string;
@@ -53,6 +90,7 @@ const emptyForm = {
   longitude: '',
   phone: '',
   google_review_url: '',
+  operating_hours: defaultOperatingHours(),
 };
 
 const BranchesList = () => {
@@ -119,12 +157,14 @@ const BranchesList = () => {
         longitude: branch.longitude !== null && branch.longitude !== undefined ? String(branch.longitude) : '',
         phone: branch.phone || '',
         google_review_url: branch.google_review_url || '',
+        operating_hours: normalizeOperatingHours(branch.operating_hours),
       });
     } else {
       setEditingBranch(null);
       setFormData({
         ...emptyForm,
         business_unit_id: businessUnits[0]?.id || '',
+        operating_hours: defaultOperatingHours(),
       });
     }
     setIsModalOpen(true);
@@ -360,6 +400,77 @@ const BranchesList = () => {
               <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
                 Los comensales que califiquen con 4 o 5 estrellas al confirmar su pedido serán invitados a compartir su reseña pública en este enlace.
               </p>
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 12 }}>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '0.9rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Clock size={16} /> Horarios de atención
+            </h4>
+            <p style={{ margin: '0 0 10px', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+              Se usan para validar pedidos programados, menú digital y consultas de horario.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {formData.operating_hours.map((entry) => {
+                const updateDay = (patch: Partial<BranchOperatingHour>) => {
+                  setFormData({
+                    ...formData,
+                    operating_hours: formData.operating_hours.map((item) =>
+                      item.day_of_week === entry.day_of_week ? { ...item, ...patch } : item
+                    ),
+                  });
+                };
+                return (
+                  <div
+                    key={entry.day_of_week}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '110px 90px 1fr 1fr',
+                      gap: 8,
+                      alignItems: 'center',
+                      padding: '6px 8px',
+                      borderRadius: 8,
+                      backgroundColor: entry.is_open ? 'var(--color-surface)' : 'rgba(148, 163, 184, 0.08)',
+                      border: '1px solid var(--color-border)',
+                    }}
+                  >
+                    <span style={{ fontWeight: 500, fontSize: '0.85rem' }}>
+                      {DAY_LABELS_ES[entry.day_of_week]}
+                    </span>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={entry.is_open}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          updateDay(
+                            checked
+                              ? { is_open: true, open_time: entry.open_time || '07:00', close_time: entry.close_time || '18:00' }
+                              : { is_open: false, open_time: null, close_time: null }
+                          );
+                        }}
+                      />
+                      {entry.is_open ? 'Abierto' : 'Cerrado'}
+                    </label>
+                    <input
+                      type="time"
+                      aria-label={`Apertura ${DAY_LABELS_ES[entry.day_of_week]}`}
+                      disabled={!entry.is_open}
+                      value={entry.open_time || ''}
+                      onChange={(event) => updateDay({ open_time: event.target.value })}
+                      style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: '0.85rem' }}
+                    />
+                    <input
+                      type="time"
+                      aria-label={`Cierre ${DAY_LABELS_ES[entry.day_of_week]}`}
+                      disabled={!entry.is_open}
+                      value={entry.close_time || ''}
+                      onChange={(event) => updateDay({ close_time: event.target.value })}
+                      style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: '0.85rem' }}
+                    />
+                  </div>
+                );
+              })}
             </div>
           </div>
 

@@ -251,6 +251,8 @@ from restaurant_os.operations import (
     list_inventory_transfers,
     list_kds_tasks,
     list_order_accounts,
+    release_scheduled_order,
+    reschedule_order,
     list_order_comments,
     list_order_reopen_requests,
     list_payments,
@@ -1007,6 +1009,8 @@ def post_branch(
             latitude=payload.get("latitude"),
             longitude=payload.get("longitude"),
             phone=payload.get("phone"),
+            google_review_url=payload.get("google_review_url"),
+            operating_hours=payload.get("operating_hours"),
         )
     )
 
@@ -2950,6 +2954,7 @@ def get_order_accounts(
     register_code: str | None = None,
     service_type: str | None = None,
     driver_id: str | None = None,
+    status: str | None = None,
     q: str | None = None,
     limit: int = 50,
     cursor: str | None = None,
@@ -2968,6 +2973,7 @@ def get_order_accounts(
                 "register_code": register_code,
                 "service_type": service_type,
                 "driver_id": driver_id,
+                "status": status,
                 "q": q,
                 "limit": limit,
                 "cursor": cursor,
@@ -3324,6 +3330,8 @@ def create_order(
                 commit=not settings.branch_scope_v2_enabled,
                 delivery_selection=payload.get("delivery_selection"),
                 delivery_quote_reference=payload.get("delivery_quote_reference"),
+                scheduled_for=payload.get("scheduled_for"),
+                customer_phone=payload.get("customer_phone"),
             )
 
         if settings.branch_scope_v2_enabled:
@@ -3810,6 +3818,42 @@ def get_order_detail_endpoint(
         return result
 
     return _business_response(operation)
+
+
+@router.post("/orders/{order_id}/release-scheduled")
+def release_scheduled_order_endpoint(
+    order_id: str,
+    response: Response,
+    session: SessionDep,
+    payload: dict[str, Any] | None = None,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    register_id = str((payload or {}).get("register_id") or "").strip() or None
+    return _business_response(
+        lambda: release_scheduled_order(session, order_id, actor_id, register_id=register_id)
+    )
+
+
+@router.patch("/orders/{order_id}/schedule")
+def reschedule_order_endpoint(
+    order_id: str,
+    payload: dict[str, Any],
+    response: Response,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    actor_id = _required_actor_from_request(actor_user_id, authorization)
+    response.headers["Cache-Control"] = "no-store"
+    scheduled_for = payload.get("scheduled_for")
+    if not scheduled_for:
+        raise BusinessError("scheduled_time_invalid", "scheduled_for is required")
+    return _business_response(
+        lambda: reschedule_order(session, order_id, str(scheduled_for), actor_id)
+    )
 
 
 @router.post("/orders/{order_id}/accept")
@@ -4587,6 +4631,44 @@ def put_branch(
             extra_payload=payload,
         )
     )
+
+
+@router.get("/branches/{branch_id}/operating-hours")
+def get_branch_operating_hours_endpoint(
+    branch_id: str,
+    session: SessionDep,
+    actor_user_id: ActorUserDep = None,
+    authorization: AuthorizationDep = None,
+) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        from restaurant_os.branch_schedule import get_branch_operating_hours
+
+        actor_id = _required_actor_from_request(actor_user_id, authorization)
+        authorize_branch_scope(session, actor_id, "orders.create", branch_id)
+        branch = (
+            session.execute(
+                sa.select(
+                    models.branches.c.id,
+                    models.branches.c.name,
+                    models.branches.c.timezone,
+                ).where(
+                    models.branches.c.id == branch_id,
+                    models.branches.c.organization_id == ORGANIZATION_ID,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not branch:
+            raise BusinessError("branch_not_found", "Branch not found")
+        return {
+            "branch_id": str(branch["id"]),
+            "branch_name": str(branch["name"]),
+            "timezone": str(branch["timezone"] or "America/Chihuahua"),
+            "operating_hours": get_branch_operating_hours(session, branch_id),
+        }
+
+    return _business_response(operation)
 
 
 @router.put("/branches/{branch_id}/pos-catalog-appearance")
