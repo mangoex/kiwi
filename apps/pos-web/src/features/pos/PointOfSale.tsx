@@ -15,7 +15,7 @@ import {
   type DeliverySelection,
   deliverySelectionFromDraft,
 } from '@restaurantos/api-client';
-import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, Bike, Mic, Send, Sparkles, LayoutGrid, Star, Printer } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Minus, Coffee, CupSoda, Sandwich, Salad, Wheat, Package, Utensils, Users, UserRound, X, Check, Banknote, CreditCard, Landmark, Trash2, Bike, Mic, Send, Sparkles, LayoutGrid, Star, Printer, CalendarClock } from 'lucide-react';
 import {
   ThermalReceiptModal,
   buildTicketPrintData,

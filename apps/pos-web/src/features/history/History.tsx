@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Card, Modal } from '@restaurantos/ui';
 import { ApiError, fetchApi, financialAccessForBranch } from '@restaurantos/api-client';
 import OperationalHistory from './OperationalHistory';
-import { Bike, Calendar, ChefHat, ChevronRight, Clock, CreditCard, Pencil, Printer, ReceiptText, RefreshCcw, Search, X } from 'lucide-react';
+import { Bell, Bike, Calendar, CalendarClock, ChefHat, ChevronRight, Clock, CreditCard, Pencil, Printer, ReceiptText, RefreshCcw, Search, X } from 'lucide-react';
 import { usePosSession } from '../../session';
 import { localDayUtcBounds } from '../reports/salesMonitorState';
 import { CashierPaymentDialog } from '../pos/CashierPaymentDialog';
@@ -34,6 +34,7 @@ interface OrderAccount {
   driver_id?: string | null;
   driver_name?: string | null;
   settlement_eligible?: boolean;
+  scheduled_for?: string | null;
 }
 
 interface OrderDetail extends OrderAccount {
@@ -133,6 +134,7 @@ const getStatusConfig = (status: string) => {
     case 'DELIVERED': return { label: 'Entregado', bg: '#ecfdf5', color: '#059669', border: '#a7f3d0' };
     case 'READY': return { label: 'Listo', bg: '#fef3c7', color: '#d97706', border: '#fde68a' };
     case 'CANCELLED': return { label: 'Cancelado', bg: '#fef2f2', color: '#dc2626', border: '#fecaca' };
+    case 'SCHEDULED': return { label: 'Programado', bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' };
     default: return { label: status, bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
   }
 };
@@ -148,6 +150,13 @@ const getRequestStatusConfig = (status: RequestStatus | string) => {
 };
 const getTypeLabel = (type?: string | null) => ({ 'dine-in': 'En sucursal', takeout: 'Para llevar', delivery: 'A domicilio' }[type || ''] || type || 'General');
 const getCorrectionDeltaLabel = (deltaCents: number) => deltaCents > 0 ? 'Cargo adicional' : deltaCents < 0 ? 'Reembolso' : 'Conciliación sin diferencia';
+const getScheduledUrgency = (scheduledFor?: string | null): 'overdue' | 'due_soon' | null => {
+  if (!scheduledFor) return null;
+  const diffMs = new Date(scheduledFor).getTime() - Date.now();
+  if (diffMs < 0) return 'overdue';
+  if (diffMs <= 30 * 60 * 1000) return 'due_soon';
+  return null;
+};
 
 const History = () => {
   const navigate = useNavigate();
